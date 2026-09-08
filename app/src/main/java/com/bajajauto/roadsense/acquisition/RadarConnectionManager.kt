@@ -43,7 +43,7 @@ class RadarConnectionManager(private val context: Context) {
     private val _connectionState = MutableStateFlow<RadarConnectionState>(RadarConnectionState.Disconnected)
     val connectionState: StateFlow<RadarConnectionState> = _connectionState.asStateFlow()
 
-    private val _dataBytes = MutableStateFlow<ByteArray>(byteArrayOf())
+    private val _dataBytes = MutableStateFlow(byteArrayOf())
     val dataBytes: StateFlow<ByteArray> = _dataBytes.asStateFlow()
 
     private var configPort: UsbSerialPort? = null
@@ -78,7 +78,7 @@ class RadarConnectionManager(private val context: Context) {
     init {
         val filter = IntentFilter(ACTION_USB_PERMISSION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.registerReceiver(usbPermissionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            context.registerReceiver(usbPermissionReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             context.registerReceiver(usbPermissionReceiver, filter)
@@ -122,7 +122,6 @@ class RadarConnectionManager(private val context: Context) {
             Log.d(TAG, "Found ${ports.size} serial port(s) on device ${device.deviceName}")
 
             // If dual ports (e.g. CP2105), port 0 is usually Config (115200) and port 1 is Data (1250000)
-            // If single port, we handle accordingly.
             if (ports.size >= 2) {
                 configPort = ports[0]
                 dataPort = ports[1]
@@ -134,6 +133,10 @@ class RadarConnectionManager(private val context: Context) {
             // Open and configure Config Port
             configPort?.let { port ->
                 val connection = usbManager.openDevice(driver.device)
+                if (connection == null) {
+                    _connectionState.value = RadarConnectionState.Error("Failed to open USB device for Config port")
+                    return
+                }
                 port.open(connection)
                 port.setParameters(CONFIG_BAUD_RATE, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
             }
@@ -142,6 +145,10 @@ class RadarConnectionManager(private val context: Context) {
             if (dataPort != configPort) {
                 dataPort?.let { port ->
                     val connection = usbManager.openDevice(driver.device)
+                    if (connection == null) {
+                        _connectionState.value = RadarConnectionState.Error("Failed to open USB device for Data port")
+                        return
+                    }
                     port.open(connection)
                     port.setParameters(DATA_BAUD_RATE, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
                 }
@@ -166,7 +173,7 @@ class RadarConnectionManager(private val context: Context) {
             _connectionState.value = RadarConnectionState.Connected(
                 "Connected: ${ports.size} port(s) [Config: $CONFIG_BAUD_RATE, Data: $DATA_BAUD_RATE]"
             )
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             Log.e(TAG, "Error opening serial port", e)
             _connectionState.value = RadarConnectionState.Error(e.message ?: "Connection Failed")
         }
