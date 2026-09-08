@@ -44,6 +44,8 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
     val connectionState by viewModel.connectionState.collectAsState()
     val rawHexData by viewModel.rawHexData.collectAsState()
     val totalBytes by viewModel.totalBytes.collectAsState()
+    val totalPackets by viewModel.totalPackets.collectAsState()
+    val latestPacket by viewModel.latestPacket.collectAsState()
 
     val scrollState = rememberScrollState()
 
@@ -54,7 +56,7 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
-            text = "RoadSense - Radar UART Monitor",
+            text = "RoadSense - Radar Packet Detector",
             style = MaterialTheme.typography.titleLarge
         )
 
@@ -75,10 +77,33 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Total Bytes Received: $totalBytes",
-                    style = MaterialTheme.typography.bodySmall
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "Total Bytes: $totalBytes", style = MaterialTheme.typography.bodySmall)
+                    Text(text = "Valid Packets: $totalPackets", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+
+        // Latest Frame Header Telemetry
+        latestPacket?.header?.let { header ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "Latest Frame Header",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(text = "Frame #: ${header.frameNumber} | Subframe: ${header.subFrameNumber}", style = MaterialTheme.typography.bodyMedium)
+                    Text(text = "Packet Length: ${header.totalPacketLen} bytes", style = MaterialTheme.typography.bodyMedium)
+                    Text(text = "Detected Objects: ${header.numDetectedObj} | TLV Count: ${header.numTLVs}", style = MaterialTheme.typography.bodyMedium)
+                    Text(text = "CPU Cycles: ${header.timeCpuCycles}", style = MaterialTheme.typography.bodySmall)
+                }
             }
         }
 
