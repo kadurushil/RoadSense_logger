@@ -1,4 +1,4 @@
-package com.bajajauto.roadsense
+package com.bajajauto.roadsense.ui
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
