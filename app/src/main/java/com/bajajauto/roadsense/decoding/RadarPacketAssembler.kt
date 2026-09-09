@@ -105,8 +105,9 @@ class RadarPacketAssembler {
             } else {
                 byteArrayOf()
             }
+            val fullPacket = bytes.copyOfRange(magicIndex, magicIndex + totalPacketLen)
 
-            packets.add(RawRadarPacket(header, payload))
+            packets.add(RawRadarPacket(header, payload, hostTimestampNs = System.nanoTime(), fullPacketBytes = fullPacket))
 
             // Advance buffer past this completed packet
             val remainingOffset = magicIndex + totalPacketLen
