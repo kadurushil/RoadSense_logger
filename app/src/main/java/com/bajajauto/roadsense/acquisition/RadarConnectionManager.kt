@@ -28,6 +28,10 @@ sealed class RadarConnectionState {
     data class Error(val message: String) : RadarConnectionState()
 }
 
+fun interface RawDataListener {
+    fun onRawData(data: ByteArray)
+}
+
 class RadarConnectionManager(private val context: Context) {
 
     companion object {
@@ -39,6 +43,15 @@ class RadarConnectionManager(private val context: Context) {
 
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
     private val executor = Executors.newSingleThreadExecutor()
+    private val dataListeners = java.util.concurrent.CopyOnWriteArrayList<RawDataListener>()
+
+    fun addDataListener(listener: RawDataListener) {
+        dataListeners.add(listener)
+    }
+
+    fun removeDataListener(listener: RawDataListener) {
+        dataListeners.remove(listener)
+    }
 
     private val _connectionState = MutableStateFlow<RadarConnectionState>(RadarConnectionState.Disconnected)
     val connectionState: StateFlow<RadarConnectionState> = _connectionState.asStateFlow()
@@ -151,6 +164,12 @@ class RadarConnectionManager(private val context: Context) {
                     }
                     port.open(connection)
                     port.setParameters(DATA_BAUD_RATE, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
+                    try {
+                        port.dtr = true
+                        port.rts = true
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to set DTR/RTS on data port: ${e.message}")
+                    }
                 }
             }
 
@@ -158,6 +177,18 @@ class RadarConnectionManager(private val context: Context) {
             dataPort?.let { port ->
                 dataIoManager = SerialInputOutputManager(port, object : SerialInputOutputManager.Listener {
                     override fun onNewData(data: ByteArray) {
+                        if (data.isEmpty()) return
+
+                        // Direct dispatch to listeners on IO thread (zero dropped bytes)
+                        for (listener in dataListeners) {
+                            try {
+                                listener.onRawData(data)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error in data listener", e)
+                            }
+                        }
+
+                        // Conflated flow for UI indicator/preview only
                         _dataBytes.value = data
                     }
 
@@ -166,6 +197,7 @@ class RadarConnectionManager(private val context: Context) {
                         _connectionState.value = RadarConnectionState.Error(e.message ?: "Unknown IO Error")
                     }
                 }).apply {
+                    readBufferSize = 32768
                     start()
                 }
             }

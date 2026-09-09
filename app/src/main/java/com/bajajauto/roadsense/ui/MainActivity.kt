@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.acquisition.RadarConnectionState
+import com.bajajauto.roadsense.recording.RecordingState
 import com.bajajauto.roadsense.ui.theme.RoadSenseTheme
 
 class MainActivity : ComponentActivity() {
@@ -49,6 +50,10 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
 
     val scrollState = rememberScrollState()
 
+    val recordingState by viewModel.recordingState.collectAsState()
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
+    var copyNotice by remember { mutableStateOf(false) }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -56,7 +61,7 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
-            text = "RoadSense - Radar Packet Detector",
+            text = "RoadSense - Raw Binary Acquisition",
             style = MaterialTheme.typography.titleLarge
         )
 
@@ -87,6 +92,130 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
             }
         }
 
+        // RAW BINARY RECORDER CARD
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = when (recordingState) {
+                    is RecordingState.Recording -> MaterialTheme.colorScheme.errorContainer
+                    is RecordingState.Finished -> MaterialTheme.colorScheme.secondaryContainer
+                    else -> MaterialTheme.colorScheme.surfaceVariant
+                }
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "Raw UART Binary Dump (.bin)",
+                    style = MaterialTheme.typography.titleMedium
+                )
+
+                when (val state = recordingState) {
+                    is RecordingState.Idle -> {
+                        Text(
+                            text = "Status: Idle (Not recording)",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = "Dumps 100% of raw UART bytes directly to flash storage with zero packet drop.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    is RecordingState.Recording -> {
+                        Text(
+                            text = "RECORDING IN PROGRESS...",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                        Text(
+                            text = "Bytes Written: ${state.bytesWritten} B (${state.bytesWritten / 1024} KB)",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = "File: ${state.file.name}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    is RecordingState.Finished -> {
+                        Text(
+                            text = "Dump Complete!",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "Saved: ${state.totalBytes} B (${state.totalBytes / 1024} KB) in ${state.durationMs / 1000}s",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = "Path: ${state.file.absolutePath}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace
+                        )
+
+                        val adbCmd = "adb pull \"${state.file.absolutePath}\" ."
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.8f),
+                            shape = MaterialTheme.shapes.small,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(8.dp)) {
+                                Text(
+                                    text = adbCmd,
+                                    color = Color.Green,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(adbCmd))
+                                copyNotice = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (copyNotice) "Copied to Clipboard!" else "Copy ADB Pull Command")
+                        }
+                    }
+                    is RecordingState.Error -> {
+                        Text(
+                            text = "Recording Error: ${state.message}",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = {
+                            copyNotice = false
+                            viewModel.startRawRecording()
+                        },
+                        enabled = recordingState !is RecordingState.Recording,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Start Raw Dump")
+                    }
+
+                    OutlinedButton(
+                        onClick = { viewModel.stopRawRecording() },
+                        enabled = recordingState is RecordingState.Recording,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Stop Dump")
+                    }
+                }
+            }
+        }
+
         // Latest Frame Header Telemetry
         latestPacket?.header?.let { header ->
             Card(
@@ -95,7 +224,7 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = "Latest Frame Header",
+                        text = "Latest Assembled Frame Header",
                         style = MaterialTheme.typography.titleMedium
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -107,7 +236,7 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
             }
         }
 
-        // Action Buttons
+        // Connection Action Buttons
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)

@@ -7,17 +7,23 @@ import com.bajajauto.roadsense.acquisition.RadarConnectionManager
 import com.bajajauto.roadsense.acquisition.RadarConnectionState
 import com.bajajauto.roadsense.decoding.RadarPacketAssembler
 import com.bajajauto.roadsense.models.RawRadarPacket
+import com.bajajauto.roadsense.recording.RawUartRecorder
+import com.bajajauto.roadsense.recording.RecordingState
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.File
 
 class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     private val connectionManager = RadarConnectionManager(application)
     private val packetAssembler = RadarPacketAssembler()
+    private val rawRecorder = RawUartRecorder(application)
 
     val connectionState: StateFlow<RadarConnectionState> = connectionManager.connectionState
+    val recordingState: StateFlow<RecordingState> = rawRecorder.recordingState
 
     private val _rawHexData = MutableStateFlow("No data received yet. Connect to radar and start stream.")
     val rawHexData: StateFlow<String> = _rawHexData.asStateFlow()
@@ -32,31 +38,49 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     val latestPacket: StateFlow<RawRadarPacket?> = _latestPacket.asStateFlow()
 
     private val hexBuilder = StringBuilder()
-    private val MAX_HEX_CHARS = 10000
+    private val MAX_HEX_CHARS = 4000
 
     init {
-        viewModelScope.launch {
+        // Direct zero-loss callback on IO thread: feeds raw recorder and packet assembler
+        connectionManager.addDataListener { bytes ->
+            rawRecorder.write(bytes)
+
+            val assembledPackets = packetAssembler.appendBytes(bytes)
+            if (assembledPackets.isNotEmpty()) {
+                _totalPackets.value += assembledPackets.size
+                _latestPacket.value = assembledPackets.last()
+            }
+        }
+
+        // Throttled UI hex preview: sampled at ~4 Hz to prevent UI thread lockups
+        viewModelScope.launch(Dispatchers.Default) {
+            var lastPreviewMs = 0L
             connectionManager.dataBytes.collect { bytes ->
                 if (bytes.isNotEmpty()) {
                     _totalBytes.value += bytes.size
 
-                    // Hex string formatting for live feed
-                    val hexString = bytes.joinToString(" ") { "%02X".format(it) }
-                    hexBuilder.append(hexString).append(" ")
-                    if (hexBuilder.length > MAX_HEX_CHARS) {
-                        hexBuilder.delete(0, hexBuilder.length - MAX_HEX_CHARS)
-                    }
-                    _rawHexData.value = hexBuilder.toString()
-
-                    // Assemble radar packets
-                    val assembledPackets = packetAssembler.appendBytes(bytes)
-                    if (assembledPackets.isNotEmpty()) {
-                        _totalPackets.value += assembledPackets.size
-                        _latestPacket.value = assembledPackets.last()
+                    val now = System.currentTimeMillis()
+                    if (now - lastPreviewMs > 250) {
+                        lastPreviewMs = now
+                        val preview = bytes.take(24).joinToString(" ") { "%02X".format(it) }
+                        val line = if (bytes.size > 24) "$preview ... (${bytes.size} B)\n" else "$preview (${bytes.size} B)\n"
+                        hexBuilder.append(line)
+                        if (hexBuilder.length > MAX_HEX_CHARS) {
+                            hexBuilder.delete(0, hexBuilder.length - MAX_HEX_CHARS)
+                        }
+                        _rawHexData.value = hexBuilder.toString()
                     }
                 }
             }
         }
+    }
+
+    fun startRawRecording(): File? {
+        return rawRecorder.startRecording()
+    }
+
+    fun stopRawRecording(): File? {
+        return rawRecorder.stopRecording()
     }
 
     fun scanAndConnect() {
@@ -74,6 +98,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        rawRecorder.release()
         connectionManager.release()
     }
 }
