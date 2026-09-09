@@ -31,7 +31,8 @@ import kotlin.math.sin
 @Composable
 fun RadarBevPlot(
     frame: RadarFrame?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isLandscape: Boolean = false
 ) {
     var maxRangeMeters by remember { mutableFloatStateOf(30f) }
     var dynamicOnly by remember { mutableStateOf(false) }
@@ -39,69 +40,118 @@ fun RadarBevPlot(
     val rangeOptions = listOf(15f, 30f, 60f, 100f)
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = Color(0xFF11141C)),
         shape = RoundedCornerShape(12.dp)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            // Range Scale Selector Header & Buttons (Full-width row with equal 1f weights, preventing any off-screen clipping)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Display Range Scale",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFFCFD8DC),
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = "Max: ${maxRangeMeters.toInt()}m",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color(0xFF80D8FF),
-                    fontWeight = FontWeight.Bold
-                )
+        Column(
+            modifier = if (isLandscape) {
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+            } else {
+                Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp)
             }
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            // 4 Equal-width Segmented Range Buttons: 15m, 30m, 60m, 100m
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                rangeOptions.forEach { range ->
-                    val isSelected = maxRangeMeters == range
-                    Surface(
-                        selected = isSelected,
-                        onClick = { maxRangeMeters = range },
-                        shape = RoundedCornerShape(6.dp),
-                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFF1E2530),
-                        contentColor = if (isSelected) Color.White else Color(0xFF90A4AE),
-                        border = if (isSelected) null else BorderStroke(1.dp, Color(0xFF37474F)),
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(32.dp)
+        ) {
+            if (isLandscape) {
+                // In Landscape: Compact single-row header combining title + 4 range scale buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "BEV Scope (${maxRangeMeters.toInt()}m)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color(0xFF80D8FF),
+                        fontWeight = FontWeight.Bold
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Text(
-                                text = "${range.toInt()}m",
-                                fontSize = 12.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                            )
+                        rangeOptions.forEach { range ->
+                            val isSelected = maxRangeMeters == range
+                            Surface(
+                                selected = isSelected,
+                                onClick = { maxRangeMeters = range },
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFF1E2530),
+                                contentColor = if (isSelected) Color.White else Color(0xFF90A4AE),
+                                border = if (isSelected) null else BorderStroke(1.dp, Color(0xFF37474F)),
+                                modifier = Modifier.height(26.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                                    Text(
+                                        text = "${range.toInt()}m",
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                // In Portrait: Standard header & full-width segmented buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Display Range Scale",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color(0xFFCFD8DC),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Max: ${maxRangeMeters.toInt()}m",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF80D8FF),
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    rangeOptions.forEach { range ->
+                        val isSelected = maxRangeMeters == range
+                        Surface(
+                            selected = isSelected,
+                            onClick = { maxRangeMeters = range },
+                            shape = RoundedCornerShape(6.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFF1E2530),
+                            contentColor = if (isSelected) Color.White else Color(0xFF90A4AE),
+                            border = if (isSelected) null else BorderStroke(1.dp, Color(0xFF37474F)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = "${range.toInt()}m",
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(if (isLandscape) 4.dp else 8.dp))
 
-            // BEV Canvas
+            // BEV Canvas Box: In landscape it takes weight(1f) to fill the card height exactly!
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(300.dp)
+                    .then(if (isLandscape) Modifier.weight(1f) else Modifier.height(280.dp))
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF090B10))
             ) {
@@ -341,7 +391,7 @@ fun RadarBevPlot(
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(if (isLandscape) 4.dp else 8.dp))
 
             // Filter Toggles & Velocity Legend
             Row(
@@ -350,19 +400,19 @@ fun RadarBevPlot(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Filters
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 6.dp)) {
                     Surface(
                         selected = dynamicOnly,
                         onClick = { dynamicOnly = !dynamicOnly },
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(4.dp),
                         color = if (dynamicOnly) Color(0xFF37474F) else Color(0xFF181D26),
                         border = BorderStroke(1.dp, if (dynamicOnly) Color(0xFF80D8FF) else Color(0xFF263238)),
-                        modifier = Modifier.height(28.dp)
+                        modifier = Modifier.height(if (isLandscape) 24.dp else 28.dp)
                     ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp)) {
                             Text(
                                 text = "Moving Only",
-                                fontSize = 11.sp,
+                                fontSize = if (isLandscape) 10.sp else 11.sp,
                                 color = if (dynamicOnly) Color(0xFF80D8FF) else Color(0xFF90A4AE),
                                 fontWeight = if (dynamicOnly) FontWeight.Bold else FontWeight.Normal
                             )
@@ -372,15 +422,15 @@ fun RadarBevPlot(
                     Surface(
                         selected = minSnrFilter,
                         onClick = { minSnrFilter = !minSnrFilter },
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(4.dp),
                         color = if (minSnrFilter) Color(0xFF37474F) else Color(0xFF181D26),
                         border = BorderStroke(1.dp, if (minSnrFilter) Color(0xFF80D8FF) else Color(0xFF263238)),
-                        modifier = Modifier.height(28.dp)
+                        modifier = Modifier.height(if (isLandscape) 24.dp else 28.dp)
                     ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp)) {
                             Text(
                                 text = "SNR ≥ 15dB",
-                                fontSize = 11.sp,
+                                fontSize = if (isLandscape) 10.sp else 11.sp,
                                 color = if (minSnrFilter) Color(0xFF80D8FF) else Color(0xFF90A4AE),
                                 fontWeight = if (minSnrFilter) FontWeight.Bold else FontWeight.Normal
                             )
@@ -390,87 +440,12 @@ fun RadarBevPlot(
 
                 // Legend
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "● Appr", color = Color(0xFFFF5252), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-                    Text(text = "● Rec", color = Color(0xFF40C4FF), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-                    Text(text = "● Stat", color = Color(0xFF69F0AE), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Live Tracker Diagnostics & Target Inspection List
-            Surface(
-                color = Color(0xFF090B10),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Frame #${frame?.header?.frameNumber ?: 0} (Sub ${frame?.header?.subFrameNumber ?: 0})",
-                            color = Color(0xFF80D8FF),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "Points: ${frame?.points?.size ?: 0} | Tracks: ${frame?.tracks?.size ?: 0} | Clusters: ${frame?.clusters?.size ?: 0}",
-                            color = Color(0xFFCFD8DC),
-                            fontSize = 11.sp
-                        )
-                    }
-
-                    // Display active tracked targets
-                    if (!frame?.tracks.isNullOrEmpty()) {
-                        frame?.tracks?.forEach { trk ->
-                            val speedKmh = trk.vy * 3.6f
-                            val status = if (trk.vy < -0.3f) "Approaching" else if (trk.vy > 0.3f) "Receding" else "Stationary"
-                            Surface(
-                                color = Color(0x22FFB300),
-                                shape = RoundedCornerShape(4.dp),
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "🎯 Target #${trk.tid}: Range ${"%.1f".format(trk.y)}m | Lat ${"%.1f".format(trk.x)}m | ${"%.1f".format(kotlin.math.abs(speedKmh))} km/h ($status)",
-                                    color = Color(0xFFFFD54F),
-                                    fontSize = 11.sp,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    modifier = Modifier.padding(6.dp)
-                                )
-                            }
-                        }
-                    } else {
-                        Text(
-                            text = "No active targets tracked (all 30 tracker slots empty)",
-                            color = Color(0xFF546E7A),
-                            fontSize = 10.sp,
-                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                        )
-                    }
-
-                    // Display active clusters if emitted in this frame
-                    if (!frame?.clusters.isNullOrEmpty()) {
-                        frame?.clusters?.forEach { cluster ->
-                            Surface(
-                                color = Color(0x22FF8F00),
-                                shape = RoundedCornerShape(4.dp),
-                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "⚡ Cluster #${cluster.cid}: Range ${"%.1f".format(cluster.y)}m | Lat ${"%.1f".format(cluster.x)}m | Vy=${"%.1f".format(cluster.vy)} m/s",
-                                    color = Color(0xFFFFB74D),
-                                    fontSize = 11.sp,
-                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                    modifier = Modifier.padding(6.dp)
-                                )
-                            }
-                        }
-                    }
+                    Text(text = "● Appr", color = Color(0xFFFF5252), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.SemiBold)
+                    Text(text = "● Rec", color = Color(0xFF40C4FF), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.SemiBold)
+                    Text(text = "● Stat", color = Color(0xFF69F0AE), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
