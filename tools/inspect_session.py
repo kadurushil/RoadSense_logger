@@ -165,11 +165,12 @@ def inspect_session(target_path):
     print(f"\n--- Decoded TLVs Across Session ---")
     tlv_names = {
         1: "Detected Points (Point Cloud)",
-        2: "Range Profile",
+        2: "Target Clusters (Pre-Track Clusters)",
         3: "Active Tracks (Tracker Table)",
+        4: "Parking Assist",
+        6: "Stats Information",
         7: "Side Info (SNR / Noise)",
-        8: "Target Clusters",
-        9: "Cluster Index",
+        8: "Cluster Information (Legacy)",
         1010: "3D Target List"
     }
     for t_type, count in sorted(tlv_counts.items()):

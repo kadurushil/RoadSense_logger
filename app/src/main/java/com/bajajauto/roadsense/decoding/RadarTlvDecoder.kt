@@ -152,18 +152,26 @@ class RadarTlvDecoder {
         for (i in 0 until clustersToRead) {
             val xRaw = buffer.short
             val yRaw = buffer.short
-            val xSizeRaw = buffer.short
-            val ySizeRaw = buffer.short
-            if (is10Byte) {
-                buffer.short // Skip 2-byte cluster ID (cid)
-            }
+            val vxRaw = buffer.short
+            val vyRaw = buffer.short
+            val cid = if (is10Byte) (buffer.short.toInt() and 0xFFFF) else (i + 1)
 
             val x = xRaw * invQ
             val y = yRaw * invQ
-            val xSize = xSizeRaw * invQ
-            val ySize = ySizeRaw * invQ
+            val vx = vxRaw * invQ
+            val vy = vyRaw * invQ
 
-            outClusters.add(RadarCluster(x = x, y = y, xSize = xSize, ySize = ySize))
+            outClusters.add(
+                RadarCluster(
+                    x = x,
+                    y = y,
+                    vx = vx,
+                    vy = vy,
+                    cid = cid,
+                    xSize = 1.2f,
+                    ySize = 1.2f
+                )
+            )
         }
     }
 

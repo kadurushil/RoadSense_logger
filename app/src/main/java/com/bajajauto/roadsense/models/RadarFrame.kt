@@ -44,14 +44,20 @@ data class RadarTrack(
  *
  * @param x Cluster centroid lateral position in meters
  * @param y Cluster centroid longitudinal distance in meters
+ * @param vx Cluster lateral velocity in m/s
+ * @param vy Cluster longitudinal velocity in m/s
+ * @param cid Cluster identification number assigned by firmware
  * @param xSize Cluster lateral spread in meters
  * @param ySize Cluster longitudinal spread in meters
  */
 data class RadarCluster(
     val x: Float,
     val y: Float,
-    val xSize: Float,
-    val ySize: Float
+    val vx: Float = 0f,
+    val vy: Float = 0f,
+    val cid: Int = 0,
+    val xSize: Float = 1.2f,
+    val ySize: Float = 1.2f
 )
 
 /**

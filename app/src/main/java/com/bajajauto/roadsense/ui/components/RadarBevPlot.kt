@@ -220,23 +220,28 @@ fun RadarBevPlot(
                     }
                     drawPath(path = egoPath, color = Color(0xFF00E5FF))
 
-                    // 6. Draw Clusters (TLV Type 2) as translucent bounding ovals
+                    // 6. Draw Clusters (TLV Type 2) as distinct amber rings with CID tag
                     frame?.clusters?.forEach { cluster ->
                         val cx = originX + cluster.x * scale
                         val cy = originY - cluster.y * scale
                         if (cy in 0f..originY) {
-                            val w = maxOf(cluster.xSize * scale, 16f)
-                            val h = maxOf(cluster.ySize * scale, 16f)
-                            drawOval(
-                                color = Color(0x33FFD54F),
-                                topLeft = Offset(cx - w / 2f, cy - h / 2f),
-                                size = Size(w, h)
+                            val r = 18f
+                            drawCircle(
+                                color = Color(0x33FFB300),
+                                center = Offset(cx, cy),
+                                radius = r
                             )
-                            drawOval(
-                                color = Color(0x88FFD54F),
-                                topLeft = Offset(cx - w / 2f, cy - h / 2f),
-                                size = Size(w, h),
-                                style = Stroke(width = 1f)
+                            drawCircle(
+                                color = Color(0xFFFFB300),
+                                center = Offset(cx, cy),
+                                radius = r,
+                                style = Stroke(width = 1.5f)
+                            )
+                            drawContext.canvas.nativeCanvas.drawText(
+                                "C${cluster.cid}",
+                                cx,
+                                cy - r - 4f,
+                                textPaint
                             )
                         }
                     }
@@ -414,12 +419,13 @@ fun RadarBevPlot(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            text = "Points: ${frame?.points?.size ?: 0} | Tracks: ${frame?.tracks?.size ?: 0}",
+                            text = "Points: ${frame?.points?.size ?: 0} | Tracks: ${frame?.tracks?.size ?: 0} | Clusters: ${frame?.clusters?.size ?: 0}",
                             color = Color(0xFFCFD8DC),
                             fontSize = 11.sp
                         )
                     }
 
+                    // Display active tracked targets
                     if (!frame?.tracks.isNullOrEmpty()) {
                         frame?.tracks?.forEach { trk ->
                             val speedKmh = trk.vy * 3.6f
@@ -445,6 +451,25 @@ fun RadarBevPlot(
                             fontSize = 10.sp,
                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
                         )
+                    }
+
+                    // Display active clusters if emitted in this frame
+                    if (!frame?.clusters.isNullOrEmpty()) {
+                        frame?.clusters?.forEach { cluster ->
+                            Surface(
+                                color = Color(0x22FF8F00),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "⚡ Cluster #${cluster.cid}: Range ${"%.1f".format(cluster.y)}m | Lat ${"%.1f".format(cluster.x)}m | Vy=${"%.1f".format(cluster.vy)} m/s",
+                                    color = Color(0xFFFFB74D),
+                                    fontSize = 11.sp,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    modifier = Modifier.padding(6.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
