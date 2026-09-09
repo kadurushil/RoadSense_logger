@@ -6,6 +6,9 @@ import androidx.lifecycle.viewModelScope
 import android.os.SystemClock
 import com.bajajauto.roadsense.acquisition.RadarConnectionManager
 import com.bajajauto.roadsense.acquisition.RadarConnectionState
+import com.bajajauto.roadsense.camera.CameraEngine
+import com.bajajauto.roadsense.camera.CameraFrameRate
+import com.bajajauto.roadsense.camera.CameraResolution
 import com.bajajauto.roadsense.decoding.RadarPacketAssembler
 import com.bajajauto.roadsense.decoding.RadarTlvDecoder
 import com.bajajauto.roadsense.models.RadarFrame
@@ -37,6 +40,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val sessionRecorder = RadarSessionRecorder(application, sessionManager)
     private val gnssLocationManager = GnssLocationManager(application)
     private val gnssSessionRecorder = GnssSessionRecorder(sessionManager)
+    val cameraEngine = CameraEngine(application)
+    private val cameraSessionRecorder = CameraSessionRecorder(sessionManager)
 
     val connectionState: StateFlow<RadarConnectionState> = connectionManager.connectionState
     val recordingState: StateFlow<RecordingState> = rawRecorder.recordingState
@@ -47,6 +52,11 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     val totalGnssFixes: StateFlow<Long> = gnssLocationManager.totalFixes
     val isGnssRecording: StateFlow<Boolean> = gnssSessionRecorder.isRecording
     val gnssSessionFixes: StateFlow<Long> = gnssSessionRecorder.fixesRecorded
+
+    val cameraEngineState = cameraEngine.engineState
+    val selectedResolution = cameraEngine.selectedResolution
+    val selectedFps = cameraEngine.selectedFps
+    val cameraSessionFrames: StateFlow<Long> = cameraSessionRecorder.framesRecorded
 
     private val _rawHexData = MutableStateFlow("No data received yet. Connect to radar and start stream.")
     val rawHexData: StateFlow<String> = _rawHexData.asStateFlow()
@@ -122,6 +132,11 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         gnssLocationManager.addFixListener { fix ->
             gnssSessionRecorder.recordFix(fix)
         }
+
+        // Camera frame shutter listener: automatically records frame metadata if session recording is active
+        cameraEngine.addFrameListener { frame ->
+            cameraSessionRecorder.recordFrame(frame)
+        }
     }
 
     fun setHexPreviewEnabled(enabled: Boolean) {
@@ -144,15 +159,33 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         gnssLocationManager.stopLocationUpdates()
     }
 
+    fun hasCameraPermission(): Boolean {
+        return cameraEngine.hasCameraPermission()
+    }
+
+    fun setCameraResolution(resolution: CameraResolution) {
+        cameraEngine.setResolution(resolution)
+    }
+
+    fun setCameraFrameRate(fps: CameraFrameRate) {
+        cameraEngine.setFrameRate(fps)
+    }
+
     fun startSessionRecording(): SessionInfo? {
         val session = sessionRecorder.startSession()
         if (session != null) {
             gnssSessionRecorder.startRecording(session)
+            val videoFile = cameraSessionRecorder.startRecording(session, cameraEngine.selectedResolution.value)
+            if (videoFile != null) {
+                cameraEngine.startVideoRecording(videoFile)
+            }
         }
         return session
     }
 
     fun stopSessionRecording(): SessionInfo? {
+        cameraEngine.stopVideoRecording()
+        cameraSessionRecorder.stopRecording()
         gnssSessionRecorder.stopRecording()
         return sessionRecorder.stopSession()
     }
@@ -180,6 +213,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        cameraEngine.release()
+        cameraSessionRecorder.release()
         gnssLocationManager.release()
         gnssSessionRecorder.release()
         sessionRecorder.release()

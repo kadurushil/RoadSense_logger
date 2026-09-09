@@ -182,7 +182,8 @@ class RadarSessionRecorder(
                     framesRecorded = framesRecorded,
                     bytesRecorded = rawBytesRecorded,
                     durationMs = now - startTimeRealtimeMs,
-                    gnssFixesRecorded = session.totalGnssFixes
+                    gnssFixesRecorded = session.totalGnssFixes,
+                    cameraFramesRecorded = session.totalCameraFrames
                 )
             }
         }
@@ -227,7 +228,8 @@ class RadarSessionRecorder(
                         totalFrames = totalFrames,
                         totalBytes = totalBytes,
                         durationMs = durationMs,
-                        totalGnssFixes = session.totalGnssFixes
+                        totalGnssFixes = session.totalGnssFixes,
+                        totalCameraFrames = session.totalCameraFrames
                     )
                 } else {
                     _recordingState.value = SessionRecordingState.Idle

@@ -11,7 +11,8 @@ sealed class SessionRecordingState {
         val framesRecorded: Long,
         val bytesRecorded: Long,
         val durationMs: Long,
-        val gnssFixesRecorded: Long = 0L
+        val gnssFixesRecorded: Long = 0L,
+        val cameraFramesRecorded: Long = 0L
     ) : SessionRecordingState()
 
     data class Finished(
@@ -19,7 +20,8 @@ sealed class SessionRecordingState {
         val totalFrames: Long,
         val totalBytes: Long,
         val durationMs: Long,
-        val totalGnssFixes: Long = 0L
+        val totalGnssFixes: Long = 0L,
+        val totalCameraFrames: Long = 0L
     ) : SessionRecordingState()
 
     data class Error(val message: String) : SessionRecordingState()

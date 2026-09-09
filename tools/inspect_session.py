@@ -104,6 +104,41 @@ def inspect_session(target_path):
         except Exception as e:
             print(f"    [!] Error inspecting GNSS CSV: {e}")
 
+    # Inspect Camera video and frame timestamps if present
+    camera_csv = None
+    camera_vid = None
+    if session_dir:
+        cand_vid = os.path.join(session_dir, "camera", "camera_video.mp4")
+        cand_csv = os.path.join(session_dir, "camera", "camera_frames.csv")
+        if os.path.isfile(cand_vid):
+            camera_vid = cand_vid
+        if os.path.isfile(cand_csv):
+            camera_csv = cand_csv
+
+    if camera_vid or camera_csv:
+        print(f"\n[+] Camera Video & Frame Shutter Synchronization:")
+        if camera_vid and os.path.isfile(camera_vid):
+            v_size = os.path.getsize(camera_vid)
+            print(f"    Video Container:  {camera_vid} ({v_size / (1024*1024):.2f} MB, {v_size:,} bytes)")
+        if camera_csv and os.path.isfile(camera_csv):
+            try:
+                with open(camera_csv, "r", encoding="utf-8") as cf:
+                    c_lines = [l.strip() for l in cf if l.strip()]
+                if len(c_lines) > 1:
+                    c_frames = [l.split(",") for l in c_lines[1:]]
+                    print(f"    Total Video Frames Logged: {len(c_frames):,}")
+                    first_f = c_frames[0]
+                    last_f = c_frames[-1]
+                    f_start_ns = int(first_f[1])
+                    f_stop_ns = int(last_f[1])
+                    f_dur_s = (f_stop_ns - f_start_ns) / 1e9
+                    f_rate = (len(c_frames) - 1) / f_dur_s if f_dur_s > 0 else 0
+                    print(f"    First Shutter:    Frame #{first_f[0]} | Mono: {f_start_ns} ns | Time: {first_f[5]}")
+                    print(f"    Last Shutter:     Frame #{last_f[0]} | Mono: {f_stop_ns} ns | Time: {last_f[5]}")
+                    print(f"    Camera Duration:  {f_dur_s:.2f} s (Average Effective Rate: {f_rate:.2f} FPS)")
+            except Exception as e:
+                print(f"    [!] Error inspecting camera frames CSV: {e}")
+
     # Inspect Master Cross-Sensor Timeline if present
     timeline_file = None
     if session_dir:
