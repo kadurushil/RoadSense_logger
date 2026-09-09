@@ -143,8 +143,10 @@ class RadarTlvDecoder {
         val q = if (xyzQFormat in 0..31) xyzQFormat else 15
         val invQ = 1.0f / (1 shl q).toFloat()
 
-        val clusterSize = 8
-        val maxClustersPossible = (length - 4) / clusterSize
+        val payloadSize = length - 4
+        val is10Byte = (payloadSize % 10 == 0) && (payloadSize / 10 >= numClusters)
+        val clusterSize = if (is10Byte) 10 else 8
+        val maxClustersPossible = payloadSize / clusterSize
         val clustersToRead = minOf(numClusters, maxClustersPossible)
 
         for (i in 0 until clustersToRead) {
@@ -152,6 +154,9 @@ class RadarTlvDecoder {
             val yRaw = buffer.short
             val xSizeRaw = buffer.short
             val ySizeRaw = buffer.short
+            if (is10Byte) {
+                buffer.short // Skip 2-byte cluster ID (cid)
+            }
 
             val x = xRaw * invQ
             val y = yRaw * invQ
@@ -167,6 +172,9 @@ class RadarTlvDecoder {
      * Descriptor: 4 bytes (numTracks: uint16, xyzQFormat: uint16)
      * Tracks: 14 bytes each in Custom MRR (x: int16, y: int16, vx: int16, vy: int16, xSize: int16, ySize: int16, tid: uint16)
      * Fallback: 12 bytes each in Standard MRR (without tid field)
+     *
+     * Inactive slots in the firmware's fixed allocation table have TID=0 and zero coordinates,
+     * which are filtered out so downstream consumers only receive valid, active targets.
      */
     private fun parseTracks(buffer: ByteBuffer, length: Int, outTracks: MutableList<RadarTrack>) {
         if (length < 4) return
@@ -205,17 +213,20 @@ class RadarTlvDecoder {
             val xSize = xSizeRaw * invQ
             val ySize = ySizeRaw * invQ
 
-            outTracks.add(
-                RadarTrack(
-                    tid = tid,
-                    x = x,
-                    y = y,
-                    vx = vx,
-                    vy = vy,
-                    xSize = xSize,
-                    ySize = ySize
+            // Filter out empty/inactive tracker table slots
+            if (tid > 0 || x != 0f || y != 0f || vx != 0f || vy != 0f) {
+                outTracks.add(
+                    RadarTrack(
+                        tid = tid,
+                        x = x,
+                        y = y,
+                        vx = vx,
+                        vy = vy,
+                        xSize = xSize,
+                        ySize = ySize
+                    )
                 )
-            )
+            }
         }
     }
 }

@@ -49,7 +49,8 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
     val latestPacket by viewModel.latestPacket.collectAsState()
     val latestFrame by viewModel.latestFrame.collectAsState()
 
-    val scrollState = rememberScrollState()
+    val mainScrollState = rememberScrollState()
+    val hexScrollState = rememberScrollState()
 
     val recordingState by viewModel.recordingState.collectAsState()
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
@@ -58,6 +59,7 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxSize()
+            .verticalScroll(mainScrollState)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -257,32 +259,36 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(text = "Points: ${frame.points.size}", style = MaterialTheme.typography.bodyMedium)
-                        Text(text = "Tracks: ${frame.tracks.size}", style = MaterialTheme.typography.bodyMedium)
+                        Text(text = "Active Tracks: ${frame.tracks.size}", style = MaterialTheme.typography.bodyMedium)
                         Text(text = "Clusters: ${frame.clusters.size}", style = MaterialTheme.typography.bodyMedium)
                     }
 
-                    // Preview first 2 points
+                    // Preview detected points
                     if (frame.points.isNotEmpty()) {
                         Text(text = "Sample Points:", style = MaterialTheme.typography.labelSmall)
-                        frame.points.take(2).forEachIndexed { idx, pt ->
+                        frame.points.take(3).forEachIndexed { idx, pt ->
                             Text(
                                 text = "  P$idx: X=${"%.2f".format(pt.x)}m, Y=${"%.2f".format(pt.y)}m, V=${"%.2f".format(pt.doppler)}m/s, SNR=${"%.1f".format(pt.snrDb)}dB",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
+                    } else {
+                        Text(text = "No reflections detected in this frame", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     }
 
-                    // Preview active tracks
+                    // Preview active tracks (filtered from hardware tracker table)
                     if (frame.tracks.isNotEmpty()) {
-                        Text(text = "Sample Tracks:", style = MaterialTheme.typography.labelSmall)
-                        frame.tracks.take(2).forEach { trk ->
+                        Text(text = "Active Tracks:", style = MaterialTheme.typography.labelSmall)
+                        frame.tracks.forEach { trk ->
                             Text(
                                 text = "  TID ${trk.tid}: X=${"%.2f".format(trk.x)}m, Y=${"%.2f".format(trk.y)}m, Vx=${"%.1f".format(trk.vx)}, Vy=${"%.1f".format(trk.vy)}m/s",
                                 style = MaterialTheme.typography.bodySmall,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
+                    } else {
+                        Text(text = "No active targets tracked (all 30 tracker slots empty)", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     }
                 }
             }
@@ -328,17 +334,17 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
 
         // Hex Output Box
         Text(
-            text = "Incoming UART Data (Hex):",
+            text = "Incoming UART Data (Hex Preview):",
             style = MaterialTheme.typography.labelMedium
         )
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .height(150.dp)
                 .background(Color.Black)
                 .padding(8.dp)
-                .verticalScroll(scrollState)
+                .verticalScroll(hexScrollState)
         ) {
             Text(
                 text = rawHexData,
