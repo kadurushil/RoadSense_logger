@@ -20,6 +20,10 @@ import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.acquisition.RadarConnectionState
 import com.bajajauto.roadsense.recording.RecordingState
 import com.bajajauto.roadsense.recording.SessionRecordingState
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.bajajauto.roadsense.gnss.GnssState
 import com.bajajauto.roadsense.ui.components.RadarBevPlot
 import com.bajajauto.roadsense.ui.theme.RoadSenseTheme
 
@@ -59,6 +63,22 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
     val hexScrollState = rememberScrollState()
 
     val sessionRecordingState by viewModel.sessionRecordingState.collectAsState()
+    val gnssState by viewModel.gnssState.collectAsState()
+    val latestGnssFix by viewModel.latestGnssFix.collectAsState()
+    val totalGnssFixes by viewModel.totalGnssFixes.collectAsState()
+    val isGnssRecording by viewModel.isGnssRecording.collectAsState()
+
+    var hasLocationPermission by remember { mutableStateOf(viewModel.hasLocationPermission()) }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        hasLocationPermission = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (hasLocationPermission) {
+            viewModel.startGnssUpdates()
+        }
+    }
+
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     var copyNotice by remember { mutableStateOf(false) }
 
@@ -70,17 +90,133 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
-            text = "RoadSense - Raw Binary Acquisition",
+            text = "RoadSense - Multi-Sensor Acquisition",
             style = MaterialTheme.typography.titleLarge
         )
 
-        // Status Card
+        // INDEPENDENT GNSS (GPS) CONTROL & TELEMETRY CARD
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = when (gnssState) {
+                    is GnssState.Active -> MaterialTheme.colorScheme.primaryContainer
+                    is GnssState.Searching -> MaterialTheme.colorScheme.tertiaryContainer
+                    is GnssState.Error -> MaterialTheme.colorScheme.errorContainer
+                    else -> MaterialTheme.colorScheme.surfaceVariant
+                }
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "GNSS / GPS Navigation",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = when (val s = gnssState) {
+                                is GnssState.Disabled -> "Status: Disabled (Offline)"
+                                is GnssState.Searching -> "Status: Acquiring GPS Satellites..."
+                                is GnssState.Active -> "Status: Active Fix (${s.totalFixes} logged)"
+                                is GnssState.Error -> "Status: ${s.message}"
+                            },
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+
+                    Switch(
+                        checked = gnssState !is GnssState.Disabled,
+                        onCheckedChange = { enable ->
+                            if (enable) {
+                                if (!hasLocationPermission) {
+                                    permissionLauncher.launch(
+                                        arrayOf(
+                                            Manifest.permission.ACCESS_FINE_LOCATION,
+                                            Manifest.permission.ACCESS_COARSE_LOCATION
+                                        )
+                                    )
+                                } else {
+                                    viewModel.startGnssUpdates()
+                                }
+                            } else {
+                                viewModel.stopGnssUpdates()
+                            }
+                        }
+                    )
+                }
+
+                latestGnssFix?.let { fix ->
+                    HorizontalDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Lat: %.6f°".format(java.util.Locale.US, fix.latitude),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = "Lon: %.6f°".format(java.util.Locale.US, fix.longitude),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Speed: %.1f km/h".format(java.util.Locale.US, fix.speedKmh),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = "Alt: %.1f m".format(java.util.Locale.US, fix.altitudeMeters),
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Acc: ±%.1f m".format(java.util.Locale.US, fix.accuracyMeters),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = "Sats: ${fix.satellitesUsed}/${fix.satellitesInView}",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = "Course: %.0f°".format(java.util.Locale.US, fix.bearingDegrees),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+        }
+
+        // Radar Acquisition Status Card
         Card(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
                 Text(
-                    text = "Status: ${
+                    text = "Radar Status: ${
                         when (connectionState) {
                             is RadarConnectionState.Disconnected -> "Disconnected"
                             is RadarConnectionState.Connecting -> "Connecting..."
@@ -145,7 +281,7 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
                             fontFamily = FontFamily.Monospace
                         )
                         Text(
-                            text = "Frames: ${state.framesRecorded} | Raw Data: ${state.bytesRecorded / 1024} KB | Time: ${state.durationMs / 1000}s",
+                            text = "Radar: ${state.framesRecorded} frames (${state.bytesRecorded / 1024} KB) | GNSS: ${state.gnssFixesRecorded} fixes | Time: ${state.durationMs / 1000}s",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Text(
@@ -161,7 +297,7 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
                             color = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = "Saved: ${state.totalFrames} frames (${state.totalBytes / 1024} KB) in ${state.durationMs / 1000}s",
+                            text = "Saved: ${state.totalFrames} radar frames | ${state.totalGnssFixes} GNSS fixes in ${state.durationMs / 1000}s",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Text(
