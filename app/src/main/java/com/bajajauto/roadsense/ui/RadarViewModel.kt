@@ -10,10 +10,15 @@ import com.bajajauto.roadsense.decoding.RadarPacketAssembler
 import com.bajajauto.roadsense.decoding.RadarTlvDecoder
 import com.bajajauto.roadsense.models.RadarFrame
 import com.bajajauto.roadsense.models.RawRadarPacket
+import com.bajajauto.roadsense.gnss.GnssFix
+import com.bajajauto.roadsense.gnss.GnssLocationManager
+import com.bajajauto.roadsense.gnss.GnssState
+import com.bajajauto.roadsense.recording.GnssSessionRecorder
 import com.bajajauto.roadsense.recording.RadarSessionRecorder
 import com.bajajauto.roadsense.recording.RawUartRecorder
 import com.bajajauto.roadsense.recording.RecordingState
 import com.bajajauto.roadsense.recording.SessionInfo
+import com.bajajauto.roadsense.recording.SessionManager
 import com.bajajauto.roadsense.recording.SessionRecordingState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,15 +29,23 @@ import java.io.File
 
 class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val sessionManager = SessionManager(application)
     private val connectionManager = RadarConnectionManager(application)
     private val packetAssembler = RadarPacketAssembler()
     private val tlvDecoder = RadarTlvDecoder()
     private val rawRecorder = RawUartRecorder(application)
-    private val sessionRecorder = RadarSessionRecorder(application)
+    private val sessionRecorder = RadarSessionRecorder(application, sessionManager)
+    private val gnssLocationManager = GnssLocationManager(application)
+    private val gnssSessionRecorder = GnssSessionRecorder(sessionManager)
 
     val connectionState: StateFlow<RadarConnectionState> = connectionManager.connectionState
     val recordingState: StateFlow<RecordingState> = rawRecorder.recordingState
     val sessionRecordingState: StateFlow<SessionRecordingState> = sessionRecorder.recordingState
+
+    val gnssState: StateFlow<GnssState> = gnssLocationManager.gnssState
+    val latestGnssFix: StateFlow<GnssFix?> = gnssLocationManager.latestFix
+    val totalGnssFixes: StateFlow<Long> = gnssLocationManager.totalFixes
+    val isGnssRecording: StateFlow<Boolean> = gnssSessionRecorder.isRecording
 
     private val _rawHexData = MutableStateFlow("No data received yet. Connect to radar and start stream.")
     val rawHexData: StateFlow<String> = _rawHexData.asStateFlow()
@@ -103,6 +116,11 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+
+        // GNSS listener: automatically records fixes if session recording is active
+        gnssLocationManager.addFixListener { fix ->
+            gnssSessionRecorder.recordFix(fix)
+        }
     }
 
     fun setHexPreviewEnabled(enabled: Boolean) {
@@ -113,11 +131,28 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun hasLocationPermission(): Boolean {
+        return gnssLocationManager.hasLocationPermission()
+    }
+
+    fun startGnssUpdates(): Boolean {
+        return gnssLocationManager.startLocationUpdates()
+    }
+
+    fun stopGnssUpdates() {
+        gnssLocationManager.stopLocationUpdates()
+    }
+
     fun startSessionRecording(): SessionInfo? {
-        return sessionRecorder.startSession()
+        val session = sessionRecorder.startSession()
+        if (session != null) {
+            gnssSessionRecorder.startRecording(session)
+        }
+        return session
     }
 
     fun stopSessionRecording(): SessionInfo? {
+        gnssSessionRecorder.stopRecording()
         return sessionRecorder.stopSession()
     }
 
@@ -144,6 +179,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        gnssLocationManager.release()
+        gnssSessionRecorder.release()
         sessionRecorder.release()
         rawRecorder.release()
         connectionManager.release()

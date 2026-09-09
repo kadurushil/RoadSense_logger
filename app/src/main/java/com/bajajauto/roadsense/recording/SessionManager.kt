@@ -21,6 +21,8 @@ class SessionManager(private val context: Context) {
         const val METADATA_FILE_NAME = "session_metadata.json"
     }
 
+    private val timelineWriter = SessionTimelineWriter()
+
     val sessionsBaseDir: File
         get() {
             val base = File(context.getExternalFilesDir(null) ?: context.filesDir, SESSIONS_DIR_NAME)
@@ -31,8 +33,8 @@ class SessionManager(private val context: Context) {
         }
 
     /**
-     * Initializes a new session folder with subdirectories (e.g., radar/)
-     * and generates the initial session_metadata.json file.
+     * Initializes a new session folder with subdirectories (radar/, gnss/)
+     * and generates the initial session_metadata.json and session_timeline.csv.
      */
     fun createSession(): SessionInfo {
         val nowMs = System.currentTimeMillis()
@@ -42,13 +44,26 @@ class SessionManager(private val context: Context) {
 
         val sessionDir = File(sessionsBaseDir, sessionId).apply { mkdirs() }
         val radarDir = File(sessionDir, "radar").apply { mkdirs() }
+        val gnssDir = File(sessionDir, "gnss").apply { mkdirs() }
 
         val sessionInfo = SessionInfo(
             sessionId = sessionId,
             sessionDir = sessionDir,
             radarDir = radarDir,
+            gnssDir = gnssDir,
             startTimeWallMs = nowMs,
             startTimeMonotonicNs = nowMonoNs
+        )
+
+        // Initialize master timeline writer
+        timelineWriter.start(sessionDir)
+        timelineWriter.recordEvent(
+            elapsedRealtimeNs = nowMonoNs,
+            sensor = "SESSION",
+            event = "START",
+            sequenceId = 0L,
+            relativePath = METADATA_FILE_NAME,
+            summary = "Session initialized: $sessionId"
         )
 
         // Write initial session metadata
@@ -58,13 +73,40 @@ class SessionManager(private val context: Context) {
     }
 
     /**
-     * Finalizes session timestamps and updates session_metadata.json.
+     * Logs a sensor event into the master cross-sensor timeline.
+     */
+    fun recordTimelineEvent(
+        elapsedRealtimeNs: Long,
+        sensor: String,
+        event: String,
+        sequenceId: Long,
+        relativePath: String,
+        summary: String
+    ) {
+        timelineWriter.recordEvent(elapsedRealtimeNs, sensor, event, sequenceId, relativePath, summary)
+    }
+
+    /**
+     * Finalizes session timestamps, closes timeline, and updates session_metadata.json.
      */
     fun closeSession(sessionInfo: SessionInfo) {
-        sessionInfo.stopTimeWallMs = System.currentTimeMillis()
-        sessionInfo.stopTimeMonotonicNs = SystemClock.elapsedRealtimeNanos()
+        val nowMs = System.currentTimeMillis()
+        val nowMonoNs = SystemClock.elapsedRealtimeNanos()
+        sessionInfo.stopTimeWallMs = nowMs
+        sessionInfo.stopTimeMonotonicNs = nowMonoNs
+
+        timelineWriter.recordEvent(
+            elapsedRealtimeNs = nowMonoNs,
+            sensor = "SESSION",
+            event = "STOP",
+            sequenceId = 0L,
+            relativePath = METADATA_FILE_NAME,
+            summary = "Session finished: totalFrames=${sessionInfo.totalRadarFrames};totalFixes=${sessionInfo.totalGnssFixes}"
+        )
+        timelineWriter.stop()
+
         writeMetadata(sessionInfo)
-        Log.i(TAG, "Closed session ${sessionInfo.sessionId}, total frames: ${sessionInfo.totalRadarFrames}, total bytes: ${sessionInfo.totalRadarBytes}")
+        Log.i(TAG, "Closed session ${sessionInfo.sessionId}, total frames: ${sessionInfo.totalRadarFrames}, total bytes: ${sessionInfo.totalRadarBytes}, total fixes: ${sessionInfo.totalGnssFixes}")
     }
 
     /**

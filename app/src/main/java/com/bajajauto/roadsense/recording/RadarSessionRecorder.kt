@@ -64,16 +64,16 @@ class RadarSessionRecorder(
     private var lastUiUpdateMs: Long = 0L
 
     /**
-     * Initializes a new session folder and opens file streams for recording.
+     * Initializes a new session folder (or reuses provided session) and opens file streams for recording.
      */
-    fun startSession(): SessionInfo? {
+    fun startSession(existingSession: SessionInfo? = null): SessionInfo? {
         if (isRecordingActive) {
             Log.w(TAG, "Recording session already in progress: ${activeSession?.sessionId}")
             return activeSession
         }
 
         try {
-            val session = sessionManager.createSession()
+            val session = existingSession ?: sessionManager.createSession()
             val framesFile = File(session.radarDir, "radar_frames.bin")
             val rawFile = File(session.radarDir, "radar_raw_stream.bin")
 
@@ -155,6 +155,14 @@ class RadarSessionRecorder(
                     dos.writeInt(payload.size)
                     dos.write(payload)
                     framesRecorded++
+                    sessionManager.recordTimelineEvent(
+                        elapsedRealtimeNs = hostMonoNs,
+                        sensor = "RADAR",
+                        event = "FRAME",
+                        sequenceId = packet.header.frameNumber,
+                        relativePath = "radar/radar_frames.bin",
+                        summary = "subframe=${packet.header.subFrameNumber};tlvs=${packet.header.numTLVs};objs=${packet.header.numDetectedObj};len=${payload.size}"
+                    )
                     updateProgressIfNeeded()
                 }
             } catch (e: IOException) {
@@ -173,7 +181,8 @@ class RadarSessionRecorder(
                     sessionInfo = session,
                     framesRecorded = framesRecorded,
                     bytesRecorded = rawBytesRecorded,
-                    durationMs = now - startTimeRealtimeMs
+                    durationMs = now - startTimeRealtimeMs,
+                    gnssFixesRecorded = session.totalGnssFixes
                 )
             }
         }
@@ -217,7 +226,8 @@ class RadarSessionRecorder(
                         sessionInfo = session,
                         totalFrames = totalFrames,
                         totalBytes = totalBytes,
-                        durationMs = durationMs
+                        durationMs = durationMs,
+                        totalGnssFixes = session.totalGnssFixes
                     )
                 } else {
                     _recordingState.value = SessionRecordingState.Idle

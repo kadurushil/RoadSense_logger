@@ -59,6 +59,9 @@ def inspect_session(target_path):
                 print(f"    Duration:         {dur / 1000:.2f} s")
             dev = meta.get('device', {})
             print(f"    Device:           {dev.get('manufacturer', '')} {dev.get('model', '')} (API {dev.get('sdkInt', '')})")
+            gnss_meta = meta.get('gnss', {})
+            if gnss_meta:
+                print(f"    GNSS Metadata:    {gnss_meta.get('sensor', 'GNSS')} | Total Fixes: {gnss_meta.get('totalFixes', 0):,}")
             rad = meta.get('radar', {})
             print(f"    Radar Metadata:   {rad.get('sensor', '')} @ {rad.get('baudRateDataPort', '')} baud")
             print(f"    Total Frames:     {rad.get('totalFrames', 0):,}")
@@ -69,8 +72,69 @@ def inspect_session(target_path):
     else:
         print("\n[-] No session_metadata.json found in directory hierarchy.")
 
+    # Inspect GNSS fixes if present
+    gnss_csv = None
+    if session_dir:
+        candidate_gnss = os.path.join(session_dir, "gnss", "gnss_fixes.csv")
+        if os.path.isfile(candidate_gnss):
+            gnss_csv = candidate_gnss
+
+    if gnss_csv:
+        print(f"\n[+] GNSS Location Stream ({gnss_csv}):")
+        try:
+            with open(gnss_csv, "r", encoding="utf-8") as gf:
+                lines = [line.strip() for line in gf if line.strip()]
+            if len(lines) > 1:
+                header = lines[0].split(",")
+                fixes = [line.split(",") for line in lines[1:]]
+                print(f"    Total GNSS Fixes: {len(fixes):,}")
+                # Parse sample
+                first_fix = fixes[0]
+                last_fix = fixes[-1]
+                print(f"    First Fix:        Time: {first_fix[2]} | Lat: {first_fix[3]}, Lon: {first_fix[4]} | Speed: {first_fix[7]} km/h | Acc: {first_fix[9]} m | Sats: {first_fix[11]}")
+                print(f"    Last Fix:         Time: {last_fix[2]} | Lat: {last_fix[3]}, Lon: {last_fix[4]} | Speed: {last_fix[7]} km/h | Acc: {last_fix[9]} m | Sats: {last_fix[11]}")
+                if len(fixes) > 1:
+                    first_mono = int(first_fix[0])
+                    last_mono = int(last_fix[0])
+                    gnss_dur_s = (last_mono - first_mono) / 1e9
+                    gnss_rate = (len(fixes) - 1) / gnss_dur_s if gnss_dur_s > 0 else 0
+                    print(f"    GNSS Duration:    {gnss_dur_s:.2f} s (Average Rate: {gnss_rate:.2f} Hz)")
+            else:
+                print(f"    [!] GNSS file contains only header ({len(lines)} line)")
+        except Exception as e:
+            print(f"    [!] Error inspecting GNSS CSV: {e}")
+
+    # Inspect Master Cross-Sensor Timeline if present
+    timeline_file = None
+    if session_dir:
+        candidate_tl = os.path.join(session_dir, "session_timeline.csv")
+        if os.path.isfile(candidate_tl):
+            timeline_file = candidate_tl
+
+    if timeline_file:
+        print(f"\n[+] Master Cross-Sensor Synchronization Timeline ({timeline_file}):")
+        try:
+            with open(timeline_file, "r", encoding="utf-8") as tf:
+                tl_lines = [line.strip() for line in tf if line.strip()]
+            if len(tl_lines) > 1:
+                events = [line.split(",") for line in tl_lines[1:]]
+                sensor_counts = {}
+                for ev in events:
+                    s = ev[1]
+                    sensor_counts[s] = sensor_counts.get(s, 0) + 1
+                print(f"    Total Synchronized Events: {len(events):,}")
+                for s, count in sorted(sensor_counts.items()):
+                    print(f"      - Sensor [{s:<8}]: {count:,} events")
+                first_mono = int(events[0][0])
+                last_mono = int(events[-1][0])
+                print(f"    Timeline Span:             {(last_mono - first_mono)/1e9:.2f} s (Mono #{first_mono} -> #{last_mono})")
+            else:
+                print(f"    [!] Timeline contains only header")
+        except Exception as e:
+            print(f"    [!] Error inspecting timeline: {e}")
+
     if not frames_file or not os.path.isfile(frames_file):
-        print(f"\n[-] Error: radar_frames.bin not found at {frames_file}")
+        print(f"\n[-] Radar frames binary not present or requested path is not radar.")
         return
 
     file_size = os.path.getsize(frames_file)
