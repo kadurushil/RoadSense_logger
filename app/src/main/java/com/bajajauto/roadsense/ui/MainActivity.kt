@@ -47,6 +47,7 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
     val totalBytes by viewModel.totalBytes.collectAsState()
     val totalPackets by viewModel.totalPackets.collectAsState()
     val latestPacket by viewModel.latestPacket.collectAsState()
+    val latestFrame by viewModel.latestFrame.collectAsState()
 
     val scrollState = rememberScrollState()
 
@@ -232,6 +233,57 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
                     Text(text = "Packet Length: ${header.totalPacketLen} bytes", style = MaterialTheme.typography.bodyMedium)
                     Text(text = "Detected Objects: ${header.numDetectedObj} | TLV Count: ${header.numTLVs}", style = MaterialTheme.typography.bodyMedium)
                     Text(text = "CPU Cycles: ${header.timeCpuCycles}", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+
+        // Decoded Radar Frame Telemetry (Points, Tracks, Clusters)
+        latestFrame?.let { frame ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "Decoded Radar Telemetry",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(text = "Points: ${frame.points.size}", style = MaterialTheme.typography.bodyMedium)
+                        Text(text = "Tracks: ${frame.tracks.size}", style = MaterialTheme.typography.bodyMedium)
+                        Text(text = "Clusters: ${frame.clusters.size}", style = MaterialTheme.typography.bodyMedium)
+                    }
+
+                    // Preview first 2 points
+                    if (frame.points.isNotEmpty()) {
+                        Text(text = "Sample Points:", style = MaterialTheme.typography.labelSmall)
+                        frame.points.take(2).forEachIndexed { idx, pt ->
+                            Text(
+                                text = "  P$idx: X=${"%.2f".format(pt.x)}m, Y=${"%.2f".format(pt.y)}m, V=${"%.2f".format(pt.doppler)}m/s, SNR=${"%.1f".format(pt.snrDb)}dB",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+
+                    // Preview active tracks
+                    if (frame.tracks.isNotEmpty()) {
+                        Text(text = "Sample Tracks:", style = MaterialTheme.typography.labelSmall)
+                        frame.tracks.take(2).forEach { trk ->
+                            Text(
+                                text = "  TID ${trk.tid}: X=${"%.2f".format(trk.x)}m, Y=${"%.2f".format(trk.y)}m, Vx=${"%.1f".format(trk.vx)}, Vy=${"%.1f".format(trk.vy)}m/s",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
                 }
             }
         }

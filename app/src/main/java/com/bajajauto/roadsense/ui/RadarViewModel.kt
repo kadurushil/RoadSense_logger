@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.bajajauto.roadsense.acquisition.RadarConnectionManager
 import com.bajajauto.roadsense.acquisition.RadarConnectionState
 import com.bajajauto.roadsense.decoding.RadarPacketAssembler
+import com.bajajauto.roadsense.decoding.RadarTlvDecoder
+import com.bajajauto.roadsense.models.RadarFrame
 import com.bajajauto.roadsense.models.RawRadarPacket
 import com.bajajauto.roadsense.recording.RawUartRecorder
 import com.bajajauto.roadsense.recording.RecordingState
@@ -20,6 +22,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     private val connectionManager = RadarConnectionManager(application)
     private val packetAssembler = RadarPacketAssembler()
+    private val tlvDecoder = RadarTlvDecoder()
     private val rawRecorder = RawUartRecorder(application)
 
     val connectionState: StateFlow<RadarConnectionState> = connectionManager.connectionState
@@ -37,6 +40,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val _latestPacket = MutableStateFlow<RawRadarPacket?>(null)
     val latestPacket: StateFlow<RawRadarPacket?> = _latestPacket.asStateFlow()
 
+    private val _latestFrame = MutableStateFlow<RadarFrame?>(null)
+    val latestFrame: StateFlow<RadarFrame?> = _latestFrame.asStateFlow()
+
     private val hexBuilder = StringBuilder()
     private val MAX_HEX_CHARS = 4000
 
@@ -48,7 +54,12 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             val assembledPackets = packetAssembler.appendBytes(bytes)
             if (assembledPackets.isNotEmpty()) {
                 _totalPackets.value += assembledPackets.size
-                _latestPacket.value = assembledPackets.last()
+                val lastPacket = assembledPackets.last()
+                _latestPacket.value = lastPacket
+
+                // Decode real-time TLVs into structured RadarFrame
+                val decoded = tlvDecoder.decode(lastPacket)
+                _latestFrame.value = decoded
             }
         }
 
