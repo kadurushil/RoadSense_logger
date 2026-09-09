@@ -17,13 +17,15 @@ data class SessionInfo(
     val sessionDir: File,
     val radarDir: File,
     val gnssDir: File = File(sessionDir, "gnss"),
+    val cameraDir: File = File(sessionDir, "camera"),
     val startTimeWallMs: Long,
     val startTimeMonotonicNs: Long,
     var stopTimeWallMs: Long? = null,
     var stopTimeMonotonicNs: Long? = null,
     var totalRadarFrames: Long = 0L,
     var totalRadarBytes: Long = 0L,
-    var totalGnssFixes: Long = 0L
+    var totalGnssFixes: Long = 0L,
+    var totalCameraFrames: Long = 0L
 ) {
     fun toJson(): String {
         val json = JSONObject()
@@ -61,6 +63,11 @@ data class SessionInfo(
         gnssObj.put("totalFixes", totalGnssFixes)
         json.put("gnss", gnssObj)
 
+        val cameraObj = JSONObject()
+        cameraObj.put("sensor", "Android Camera Video Encoder (H.264)")
+        cameraObj.put("totalFrames", totalCameraFrames)
+        json.put("camera", cameraObj)
+
         val streamsArray = JSONArray()
         // If radar frames or bytes were recorded (or files exist), register radar streams
         if (totalRadarFrames > 0 || totalRadarBytes > 0 || File(radarDir, "radar_frames.bin").exists()) {
@@ -69,6 +76,10 @@ data class SessionInfo(
         }
         if (totalGnssFixes > 0 || File(gnssDir, "gnss_fixes.csv").exists()) {
             streamsArray.put("gnss/gnss_fixes.csv")
+        }
+        if (totalCameraFrames > 0 || File(cameraDir, "camera_frames.csv").exists()) {
+            streamsArray.put("camera/camera_video.mp4")
+            streamsArray.put("camera/camera_frames.csv")
         }
         val timelineFile = File(sessionDir, "session_timeline.csv")
         if (timelineFile.exists()) {
