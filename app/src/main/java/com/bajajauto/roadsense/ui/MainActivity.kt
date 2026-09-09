@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.acquisition.RadarConnectionState
 import com.bajajauto.roadsense.recording.RecordingState
+import com.bajajauto.roadsense.recording.SessionRecordingState
 import com.bajajauto.roadsense.ui.components.RadarBevPlot
 import com.bajajauto.roadsense.ui.theme.RoadSenseTheme
 
@@ -57,7 +58,7 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
     val mainScrollState = rememberScrollState()
     val hexScrollState = rememberScrollState()
 
-    val recordingState by viewModel.recordingState.collectAsState()
+    val sessionRecordingState by viewModel.sessionRecordingState.collectAsState()
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     var copyNotice by remember { mutableStateOf(false) }
 
@@ -100,12 +101,12 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
             }
         }
 
-        // RAW BINARY RECORDER CARD
+        // STRUCTURED SESSION RECORDER CARD
         Card(
             colors = CardDefaults.cardColors(
-                containerColor = when (recordingState) {
-                    is RecordingState.Recording -> MaterialTheme.colorScheme.errorContainer
-                    is RecordingState.Finished -> MaterialTheme.colorScheme.secondaryContainer
+                containerColor = when (sessionRecordingState) {
+                    is SessionRecordingState.Recording -> MaterialTheme.colorScheme.errorContainer
+                    is SessionRecordingState.Finished -> MaterialTheme.colorScheme.secondaryContainer
                     else -> MaterialTheme.colorScheme.surfaceVariant
                 }
             ),
@@ -116,54 +117,60 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "Raw UART Binary Dump (.bin)",
+                    text = "RoadSense Session Recorder",
                     style = MaterialTheme.typography.titleMedium
                 )
 
-                when (val state = recordingState) {
-                    is RecordingState.Idle -> {
+                when (val state = sessionRecordingState) {
+                    is SessionRecordingState.Idle -> {
                         Text(
-                            text = "Status: Idle (Not recording)",
+                            text = "Status: Idle (No active session)",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Text(
-                            text = "Dumps 100% of raw UART bytes directly to flash storage with zero packet drop.",
+                            text = "Records timestamped binary radar frames (.bin), raw stream, and metadata into a synchronized session directory.",
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
-                    is RecordingState.Recording -> {
+                    is SessionRecordingState.Recording -> {
                         Text(
-                            text = "RECORDING IN PROGRESS...",
+                            text = "● RECORDING SESSION ACTIVE",
                             style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.error
+                            color = MaterialTheme.colorScheme.error,
+                            fontFamily = FontFamily.Monospace
                         )
                         Text(
-                            text = "Bytes Written: ${state.bytesWritten} B (${state.bytesWritten / 1024} KB)",
+                            text = "Session: ${state.sessionInfo.sessionId}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = "Frames: ${state.framesRecorded} | Raw Data: ${state.bytesRecorded / 1024} KB | Time: ${state.durationMs / 1000}s",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Text(
-                            text = "File: ${state.file.name}",
+                            text = "Directory: sessions/${state.sessionInfo.sessionId}/",
                             style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace
+                            color = Color.Gray
                         )
                     }
-                    is RecordingState.Finished -> {
+                    is SessionRecordingState.Finished -> {
                         Text(
-                            text = "Dump Complete!",
+                            text = "Session Complete!",
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = "Saved: ${state.totalBytes} B (${state.totalBytes / 1024} KB) in ${state.durationMs / 1000}s",
+                            text = "Saved: ${state.totalFrames} frames (${state.totalBytes / 1024} KB) in ${state.durationMs / 1000}s",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Text(
-                            text = "Path: ${state.file.absolutePath}",
+                            text = "Session ID: ${state.sessionInfo.sessionId}",
                             style = MaterialTheme.typography.bodySmall,
                             fontFamily = FontFamily.Monospace
                         )
 
-                        val adbCmd = "adb pull \"${state.file.absolutePath}\" ."
+                        val adbCmd = "adb pull \"${state.sessionInfo.sessionDir.absolutePath}\" ."
                         Surface(
                             color = Color.Black.copy(alpha = 0.8f),
                             shape = MaterialTheme.shapes.small,
@@ -174,6 +181,13 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
                                     text = adbCmd,
                                     color = Color.Green,
                                     fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Inspect: python tools/inspect_session.py ${state.sessionInfo.sessionId}",
+                                    color = Color.Cyan,
+                                    fontSize = 10.sp,
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
@@ -189,7 +203,7 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
                             Text(if (copyNotice) "Copied to Clipboard!" else "Copy ADB Pull Command")
                         }
                     }
-                    is RecordingState.Error -> {
+                    is SessionRecordingState.Error -> {
                         Text(
                             text = "Recording Error: ${state.message}",
                             color = MaterialTheme.colorScheme.error,
@@ -205,20 +219,20 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
                     Button(
                         onClick = {
                             copyNotice = false
-                            viewModel.startRawRecording()
+                            viewModel.startSessionRecording()
                         },
-                        enabled = recordingState !is RecordingState.Recording,
+                        enabled = sessionRecordingState !is SessionRecordingState.Recording,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Start Raw Dump")
+                        Text(if (sessionRecordingState is SessionRecordingState.Finished) "New Session" else "Start Session")
                     }
 
                     OutlinedButton(
-                        onClick = { viewModel.stopRawRecording() },
-                        enabled = recordingState is RecordingState.Recording,
+                        onClick = { viewModel.stopSessionRecording() },
+                        enabled = sessionRecordingState is SessionRecordingState.Recording,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Stop Dump")
+                        Text("Stop Session")
                     }
                 }
             }

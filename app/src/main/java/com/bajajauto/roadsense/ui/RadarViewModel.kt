@@ -3,14 +3,18 @@ package com.bajajauto.roadsense.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import android.os.SystemClock
 import com.bajajauto.roadsense.acquisition.RadarConnectionManager
 import com.bajajauto.roadsense.acquisition.RadarConnectionState
 import com.bajajauto.roadsense.decoding.RadarPacketAssembler
 import com.bajajauto.roadsense.decoding.RadarTlvDecoder
 import com.bajajauto.roadsense.models.RadarFrame
 import com.bajajauto.roadsense.models.RawRadarPacket
+import com.bajajauto.roadsense.recording.RadarSessionRecorder
 import com.bajajauto.roadsense.recording.RawUartRecorder
 import com.bajajauto.roadsense.recording.RecordingState
+import com.bajajauto.roadsense.recording.SessionInfo
+import com.bajajauto.roadsense.recording.SessionRecordingState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,9 +28,11 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val packetAssembler = RadarPacketAssembler()
     private val tlvDecoder = RadarTlvDecoder()
     private val rawRecorder = RawUartRecorder(application)
+    private val sessionRecorder = RadarSessionRecorder(application)
 
     val connectionState: StateFlow<RadarConnectionState> = connectionManager.connectionState
     val recordingState: StateFlow<RecordingState> = rawRecorder.recordingState
+    val sessionRecordingState: StateFlow<SessionRecordingState> = sessionRecorder.recordingState
 
     private val _rawHexData = MutableStateFlow("No data received yet. Connect to radar and start stream.")
     val rawHexData: StateFlow<String> = _rawHexData.asStateFlow()
@@ -52,13 +58,21 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // Direct zero-loss callback on IO thread: feeds raw recorder and packet assembler
         connectionManager.addDataListener { bytes ->
+            val hostMonoNs = SystemClock.elapsedRealtimeNanos()
+            val hostWallMs = System.currentTimeMillis()
+
             rawRecorder.write(bytes)
+            sessionRecorder.writeRawBytes(bytes)
 
             val assembledPackets = packetAssembler.appendBytes(bytes)
             if (assembledPackets.isNotEmpty()) {
                 _totalPackets.value += assembledPackets.size
                 val lastPacket = assembledPackets.last()
                 _latestPacket.value = lastPacket
+
+                for (packet in assembledPackets) {
+                    sessionRecorder.writeFrame(packet, hostMonoNs, hostWallMs)
+                }
 
                 // Decode real-time TLVs into structured RadarFrame
                 val decoded = tlvDecoder.decode(lastPacket)
@@ -99,6 +113,14 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun startSessionRecording(): SessionInfo? {
+        return sessionRecorder.startSession()
+    }
+
+    fun stopSessionRecording(): SessionInfo? {
+        return sessionRecorder.stopSession()
+    }
+
     fun startRawRecording(): File? {
         return rawRecorder.startRecording()
     }
@@ -122,6 +144,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        sessionRecorder.release()
         rawRecorder.release()
         connectionManager.release()
     }
