@@ -1,0 +1,71 @@
+package com.bajajauto.roadsense.recording
+
+import android.os.Build
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+/**
+ * Metadata descriptor for a multi-sensor recording session.
+ * Tracks wall-clock and monotonic timestamps for synchronization across Radar, GNSS, and Camera.
+ */
+data class SessionInfo(
+    val sessionId: String,
+    val sessionDir: File,
+    val radarDir: File,
+    val startTimeWallMs: Long,
+    val startTimeMonotonicNs: Long,
+    var stopTimeWallMs: Long? = null,
+    var stopTimeMonotonicNs: Long? = null,
+    var totalRadarFrames: Long = 0L,
+    var totalRadarBytes: Long = 0L
+) {
+    fun toJson(): String {
+        val json = JSONObject()
+        json.put("sessionId", sessionId)
+        json.put("startTimeWallMs", startTimeWallMs)
+        json.put("startTimeIso", formatIso(startTimeWallMs))
+        json.put("startTimeMonotonicNs", startTimeMonotonicNs)
+
+        stopTimeWallMs?.let {
+            json.put("stopTimeWallMs", it)
+            json.put("stopTimeIso", formatIso(it))
+            json.put("durationMs", it - startTimeWallMs)
+        }
+        stopTimeMonotonicNs?.let {
+            json.put("stopTimeMonotonicNs", it)
+        }
+
+        val deviceObj = JSONObject()
+        deviceObj.put("manufacturer", Build.MANUFACTURER)
+        deviceObj.put("model", Build.MODEL)
+        deviceObj.put("device", Build.DEVICE)
+        deviceObj.put("sdkInt", Build.VERSION.SDK_INT)
+        json.put("device", deviceObj)
+
+        val radarObj = JSONObject()
+        radarObj.put("sensor", "TI AWR1843BOOST")
+        radarObj.put("baudRateDataPort", 3125000)
+        radarObj.put("baudRateCliPort", 115200)
+        radarObj.put("totalFrames", totalRadarFrames)
+        radarObj.put("totalBytes", totalRadarBytes)
+        json.put("radar", radarObj)
+
+        val streamsArray = JSONArray()
+        streamsArray.put("radar/radar_frames.bin")
+        streamsArray.put("radar/radar_raw_stream.bin")
+        json.put("activeStreams", streamsArray)
+
+        return json.toString(2)
+    }
+
+    companion object {
+        fun formatIso(epochMs: Long): String {
+            val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US)
+            return sdf.format(Date(epochMs))
+        }
+    }
+}
