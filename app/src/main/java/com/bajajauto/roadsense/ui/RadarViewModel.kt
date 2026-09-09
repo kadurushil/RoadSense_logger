@@ -16,6 +16,7 @@ import com.bajajauto.roadsense.models.RawRadarPacket
 import com.bajajauto.roadsense.gnss.GnssFix
 import com.bajajauto.roadsense.gnss.GnssLocationManager
 import com.bajajauto.roadsense.gnss.GnssState
+import com.bajajauto.roadsense.recording.CameraSessionRecorder
 import com.bajajauto.roadsense.recording.GnssSessionRecorder
 import com.bajajauto.roadsense.recording.RadarSessionRecorder
 import com.bajajauto.roadsense.recording.RawUartRecorder

@@ -20,6 +20,7 @@ import com.bajajauto.roadsense.recording.SessionRecordingState
 fun TopSessionHeader(
     sessionState: SessionRecordingState,
     liveGnssFixes: Long,
+    liveCameraFrames: Long = 0L,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
     modifier: Modifier = Modifier
@@ -77,8 +78,8 @@ fun TopSessionHeader(
 
                     Text(
                         text = when (sessionState) {
-                            is SessionRecordingState.Recording -> "Radar: ${sessionState.framesRecorded} | GPS: $liveGnssFixes"
-                            is SessionRecordingState.Finished -> "Saved: ${sessionState.totalFrames} radar | ${sessionState.totalGnssFixes} GPS"
+                            is SessionRecordingState.Recording -> "Radar: ${sessionState.framesRecorded} | GPS: $liveGnssFixes | Cam: $liveCameraFrames"
+                            is SessionRecordingState.Finished -> "Saved: ${sessionState.totalFrames} radar | ${sessionState.totalGnssFixes} GPS | ${sessionState.totalCameraFrames} Cam"
                             is SessionRecordingState.Error -> "Error: ${sessionState.message}"
                             else -> "Multi-sensor synchronized capture"
                         },

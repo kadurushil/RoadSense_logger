@@ -28,6 +28,7 @@ fun SessionDeckCard(
     viewModel: RadarViewModel,
     sessionState: SessionRecordingState,
     liveGnssFixes: Long,
+    liveCameraFrames: Long = 0L,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
@@ -95,6 +96,10 @@ fun SessionDeckCard(
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Text(
+                            text = "Camera Frames: $liveCameraFrames frames logged (H.264 MP4)",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
                             text = "Duration: ${sessionState.durationMs / 1000}s",
                             style = MaterialTheme.typography.bodyMedium
                         )
@@ -106,7 +111,7 @@ fun SessionDeckCard(
                             color = MaterialTheme.colorScheme.primary
                         )
                         Text(
-                            text = "Saved ${sessionState.totalFrames} radar frames and ${sessionState.totalGnssFixes} GNSS fixes in ${sessionState.durationMs / 1000}s",
+                            text = "Saved ${sessionState.totalFrames} radar frames, ${sessionState.totalGnssFixes} GNSS fixes, and ${sessionState.totalCameraFrames} camera frames in ${sessionState.durationMs / 1000}s",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Text(

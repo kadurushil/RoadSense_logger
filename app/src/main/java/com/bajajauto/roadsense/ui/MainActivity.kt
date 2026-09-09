@@ -72,6 +72,7 @@ fun RoadSenseCockpitScreen(
     val latestGnssFix by viewModel.latestGnssFix.collectAsState()
     val totalGnssFixes by viewModel.totalGnssFixes.collectAsState()
     val liveGnssSessionFixes by viewModel.gnssSessionFixes.collectAsState()
+    val liveCameraSessionFrames by viewModel.cameraSessionFrames.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
     val tabs = CockpitTab.values()
@@ -87,6 +88,7 @@ fun RoadSenseCockpitScreen(
             TopSessionHeader(
                 sessionState = sessionRecordingState,
                 liveGnssFixes = liveGnssSessionFixes,
+                liveCameraFrames = liveCameraSessionFrames,
                 onStartSession = { viewModel.startSessionRecording() },
                 onStopSession = { viewModel.stopSessionRecording() }
             )
@@ -147,13 +149,17 @@ fun RoadSenseCockpitScreen(
                     )
                 }
                 CockpitTab.CAMERA -> {
-                    CameraDashboardCard()
+                    CameraDashboardCard(
+                        viewModel = viewModel,
+                        isCurrentTab = pagerState.currentPage == page
+                    )
                 }
                 CockpitTab.SESSION -> {
                     SessionDeckCard(
                         viewModel = viewModel,
                         sessionState = sessionRecordingState,
-                        liveGnssFixes = liveGnssSessionFixes
+                        liveGnssFixes = liveGnssSessionFixes,
+                        liveCameraFrames = liveCameraSessionFrames
                     )
                 }
             }
