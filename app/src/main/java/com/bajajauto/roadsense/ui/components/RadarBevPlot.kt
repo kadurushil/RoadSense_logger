@@ -1,6 +1,7 @@
 package com.bajajauto.roadsense.ui.components
 
 import android.graphics.Paint
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -43,31 +44,53 @@ fun RadarBevPlot(
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
-            // Header with title and Range selector chips
+            // Range Scale Selector Header & Buttons (Full-width row with equal 1f weights, preventing any off-screen clipping)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Bird's-Eye View (BEV)",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White,
+                    text = "Display Range Scale",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFFCFD8DC),
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Max: ${maxRangeMeters.toInt()}m",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color(0xFF80D8FF),
                     fontWeight = FontWeight.Bold
                 )
+            }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    rangeOptions.forEach { range ->
-                        FilterChip(
-                            selected = maxRangeMeters == range,
-                            onClick = { maxRangeMeters = range },
-                            label = { Text("${range.toInt()}m", fontSize = 11.sp) },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = Color.White
-                            ),
-                            modifier = Modifier.height(28.dp)
-                        )
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // 4 Equal-width Segmented Range Buttons: 15m, 30m, 60m, 100m
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                rangeOptions.forEach { range ->
+                    val isSelected = maxRangeMeters == range
+                    Surface(
+                        selected = isSelected,
+                        onClick = { maxRangeMeters = range },
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFF1E2530),
+                        contentColor = if (isSelected) Color.White else Color(0xFF90A4AE),
+                        border = if (isSelected) null else BorderStroke(1.dp, Color(0xFF37474F)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(32.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "${range.toInt()}m",
+                                fontSize = 12.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
@@ -323,34 +346,51 @@ fun RadarBevPlot(
             ) {
                 // Filters
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    FilterChip(
+                    Surface(
                         selected = dynamicOnly,
                         onClick = { dynamicOnly = !dynamicOnly },
-                        label = { Text("Moving Only", fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer
-                        ),
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (dynamicOnly) Color(0xFF37474F) else Color(0xFF181D26),
+                        border = BorderStroke(1.dp, if (dynamicOnly) Color(0xFF80D8FF) else Color(0xFF263238)),
                         modifier = Modifier.height(28.dp)
-                    )
-                    FilterChip(
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                            Text(
+                                text = "Moving Only",
+                                fontSize = 11.sp,
+                                color = if (dynamicOnly) Color(0xFF80D8FF) else Color(0xFF90A4AE),
+                                fontWeight = if (dynamicOnly) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+
+                    Surface(
                         selected = minSnrFilter,
                         onClick = { minSnrFilter = !minSnrFilter },
-                        label = { Text("SNR ≥ 15dB", fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer
-                        ),
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (minSnrFilter) Color(0xFF37474F) else Color(0xFF181D26),
+                        border = BorderStroke(1.dp, if (minSnrFilter) Color(0xFF80D8FF) else Color(0xFF263238)),
                         modifier = Modifier.height(28.dp)
-                    )
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                            Text(
+                                text = "SNR ≥ 15dB",
+                                fontSize = 11.sp,
+                                color = if (minSnrFilter) Color(0xFF80D8FF) else Color(0xFF90A4AE),
+                                fontWeight = if (minSnrFilter) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
                 }
 
                 // Legend
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "● Appr", color = Color(0xFFFF5252), fontSize = 10.sp)
-                    Text(text = "● Rec", color = Color(0xFF40C4FF), fontSize = 10.sp)
-                    Text(text = "● Stat", color = Color(0xFF69F0AE), fontSize = 10.sp)
+                    Text(text = "● Appr", color = Color(0xFFFF5252), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    Text(text = "● Rec", color = Color(0xFF40C4FF), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    Text(text = "● Stat", color = Color(0xFF69F0AE), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
 
