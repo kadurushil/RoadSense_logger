@@ -251,6 +251,65 @@ fun RadarBevPlot(
                             )
                         }
                     }
+
+                    // 8. Draw Active Tracked Targets (TLV Type 3)
+                    val trackLabelPaint = Paint().apply {
+                        color = android.graphics.Color.WHITE
+                        textSize = 24f
+                        isAntiAlias = true
+                        textAlign = Paint.Align.CENTER
+                        isFakeBoldText = true
+                    }
+
+                    frame?.tracks?.forEach { track ->
+                        val tx = originX + track.x * scale
+                        val ty = originY - track.y * scale
+
+                        if (ty in 0f..originY && tx in 0f..canvasWidth) {
+                            val bw = maxOf(track.xSize * scale, 24f)
+                            val bh = maxOf(track.ySize * scale, 24f)
+
+                            // 1. Translucent fill & bounding outline
+                            drawRect(
+                                color = Color(0x33FFB300),
+                                topLeft = Offset(tx - bw / 2f, ty - bh / 2f),
+                                size = Size(bw, bh)
+                            )
+                            drawRect(
+                                color = Color(0xFFFFB300),
+                                topLeft = Offset(tx - bw / 2f, ty - bh / 2f),
+                                size = Size(bw, bh),
+                                style = Stroke(width = 2f)
+                            )
+
+                            // 2. Velocity leader vector line (1.0s forward projection)
+                            val vxPx = track.vx * scale * 0.75f
+                            val vyPx = track.vy * scale * 0.75f
+                            if (kotlin.math.abs(vxPx) > 1f || kotlin.math.abs(vyPx) > 1f) {
+                                val endX = tx + vxPx
+                                val endY = ty - vyPx
+                                drawLine(
+                                    color = Color(0xFFFFD54F),
+                                    start = Offset(tx, ty),
+                                    end = Offset(endX, endY),
+                                    strokeWidth = 2.5f
+                                )
+                                drawCircle(
+                                    color = Color(0xFFFFD54F),
+                                    radius = 3.5f,
+                                    center = Offset(endX, endY)
+                                )
+                            }
+
+                            // 3. Target ID Label above box
+                            drawContext.canvas.nativeCanvas.drawText(
+                                "#${track.tid}",
+                                tx,
+                                ty - bh / 2f - 6f,
+                                trackLabelPaint
+                            )
+                        }
+                    }
                 }
             }
 
@@ -292,6 +351,61 @@ fun RadarBevPlot(
                     Text(text = "● Appr", color = Color(0xFFFF5252), fontSize = 10.sp)
                     Text(text = "● Rec", color = Color(0xFF40C4FF), fontSize = 10.sp)
                     Text(text = "● Stat", color = Color(0xFF69F0AE), fontSize = 10.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Live Tracker Diagnostics & Target Inspection List
+            Surface(
+                color = Color(0xFF090B10),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Frame #${frame?.header?.frameNumber ?: 0} (Sub ${frame?.header?.subFrameNumber ?: 0})",
+                            color = Color(0xFF80D8FF),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "Points: ${frame?.points?.size ?: 0} | Tracks: ${frame?.tracks?.size ?: 0}",
+                            color = Color(0xFFCFD8DC),
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    if (!frame?.tracks.isNullOrEmpty()) {
+                        frame?.tracks?.forEach { trk ->
+                            val speedKmh = trk.vy * 3.6f
+                            val status = if (trk.vy < -0.3f) "Approaching" else if (trk.vy > 0.3f) "Receding" else "Stationary"
+                            Surface(
+                                color = Color(0x22FFB300),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "🎯 Target #${trk.tid}: Range ${"%.1f".format(trk.y)}m | Lat ${"%.1f".format(trk.x)}m | ${"%.1f".format(kotlin.math.abs(speedKmh))} km/h ($status)",
+                                    color = Color(0xFFFFD54F),
+                                    fontSize = 11.sp,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    modifier = Modifier.padding(6.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = "No active targets tracked (all 30 tracker slots empty)",
+                            color = Color(0xFF546E7A),
+                            fontSize = 10.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                        )
+                    }
                 }
             }
         }
