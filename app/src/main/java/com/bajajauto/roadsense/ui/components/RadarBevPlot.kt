@@ -33,6 +33,8 @@ fun RadarBevPlot(
     modifier: Modifier = Modifier
 ) {
     var maxRangeMeters by remember { mutableFloatStateOf(30f) }
+    var dynamicOnly by remember { mutableStateOf(false) }
+    var minSnrFilter by remember { mutableStateOf(false) }
     val rangeOptions = listOf(15f, 30f, 60f, 100f)
 
     Card(
@@ -194,6 +196,102 @@ fun RadarBevPlot(
                         close()
                     }
                     drawPath(path = egoPath, color = Color(0xFF00E5FF))
+
+                    // 6. Draw Clusters (TLV Type 2) as translucent bounding ovals
+                    frame?.clusters?.forEach { cluster ->
+                        val cx = originX + cluster.x * scale
+                        val cy = originY - cluster.y * scale
+                        if (cy in 0f..originY) {
+                            val w = maxOf(cluster.xSize * scale, 16f)
+                            val h = maxOf(cluster.ySize * scale, 16f)
+                            drawOval(
+                                color = Color(0x33FFD54F),
+                                topLeft = Offset(cx - w / 2f, cy - h / 2f),
+                                size = Size(w, h)
+                            )
+                            drawOval(
+                                color = Color(0x88FFD54F),
+                                topLeft = Offset(cx - w / 2f, cy - h / 2f),
+                                size = Size(w, h),
+                                style = Stroke(width = 1f)
+                            )
+                        }
+                    }
+
+                    // 7. Draw Point Cloud Reflections (TLV Type 1) with Doppler velocity colors
+                    val pointsToRender = frame?.points?.filter { pt ->
+                        (!dynamicOnly || kotlin.math.abs(pt.doppler) > 0.35f) &&
+                        (!minSnrFilter || pt.snrDb >= 15f)
+                    } ?: emptyList()
+
+                    for (pt in pointsToRender) {
+                        val px = originX + pt.x * scale
+                        val py = originY - pt.y * scale
+
+                        if (py in 0f..originY && px in 0f..canvasWidth) {
+                            val pointColor = when {
+                                pt.doppler < -0.35f -> Color(0xFFFF5252) // Approaching (Red)
+                                pt.doppler > 0.35f -> Color(0xFF40C4FF)  // Receding (Cyan)
+                                else -> Color(0xFF69F0AE)                // Stationary (Green)
+                            }
+
+                            val dotRadius = 4.5f
+
+                            // Halo glow
+                            drawCircle(
+                                color = pointColor.copy(alpha = 0.35f),
+                                radius = dotRadius + 2.5f,
+                                center = Offset(px, py)
+                            )
+                            // Solid core
+                            drawCircle(
+                                color = pointColor,
+                                radius = dotRadius,
+                                center = Offset(px, py)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Filter Toggles & Velocity Legend
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Filters
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FilterChip(
+                        selected = dynamicOnly,
+                        onClick = { dynamicOnly = !dynamicOnly },
+                        label = { Text("Moving Only", fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer
+                        ),
+                        modifier = Modifier.height(28.dp)
+                    )
+                    FilterChip(
+                        selected = minSnrFilter,
+                        onClick = { minSnrFilter = !minSnrFilter },
+                        label = { Text("SNR ≥ 15dB", fontSize = 11.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer
+                        ),
+                        modifier = Modifier.height(28.dp)
+                    )
+                }
+
+                // Legend
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = "● Appr", color = Color(0xFFFF5252), fontSize = 10.sp)
+                    Text(text = "● Rec", color = Color(0xFF40C4FF), fontSize = 10.sp)
+                    Text(text = "● Stat", color = Color(0xFF69F0AE), fontSize = 10.sp)
                 }
             }
         }
