@@ -43,6 +43,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val _latestFrame = MutableStateFlow<RadarFrame?>(null)
     val latestFrame: StateFlow<RadarFrame?> = _latestFrame.asStateFlow()
 
+    private val _isHexPreviewEnabled = MutableStateFlow(false)
+    val isHexPreviewEnabled: StateFlow<Boolean> = _isHexPreviewEnabled.asStateFlow()
+
     private val hexBuilder = StringBuilder()
     private val MAX_HEX_CHARS = 4000
 
@@ -63,26 +66,36 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Throttled UI hex preview: sampled at ~4 Hz to prevent UI thread lockups
+        // Throttled UI hex preview: sampled at ~4 Hz only when enabled by user to prevent CPU/GC churn
         viewModelScope.launch(Dispatchers.Default) {
             var lastPreviewMs = 0L
             connectionManager.dataBytes.collect { bytes ->
                 if (bytes.isNotEmpty()) {
                     _totalBytes.value += bytes.size
 
-                    val now = System.currentTimeMillis()
-                    if (now - lastPreviewMs > 250) {
-                        lastPreviewMs = now
-                        val preview = bytes.take(24).joinToString(" ") { "%02X".format(it) }
-                        val line = if (bytes.size > 24) "$preview ... (${bytes.size} B)\n" else "$preview (${bytes.size} B)\n"
-                        hexBuilder.append(line)
-                        if (hexBuilder.length > MAX_HEX_CHARS) {
-                            hexBuilder.delete(0, hexBuilder.length - MAX_HEX_CHARS)
+                    if (_isHexPreviewEnabled.value) {
+                        val now = System.currentTimeMillis()
+                        if (now - lastPreviewMs > 250) {
+                            lastPreviewMs = now
+                            val preview = bytes.take(24).joinToString(" ") { "%02X".format(it) }
+                            val line = if (bytes.size > 24) "$preview ... (${bytes.size} B)\n" else "$preview (${bytes.size} B)\n"
+                            hexBuilder.append(line)
+                            if (hexBuilder.length > MAX_HEX_CHARS) {
+                                hexBuilder.delete(0, hexBuilder.length - MAX_HEX_CHARS)
+                            }
+                            _rawHexData.value = hexBuilder.toString()
                         }
-                        _rawHexData.value = hexBuilder.toString()
                     }
                 }
             }
+        }
+    }
+
+    fun setHexPreviewEnabled(enabled: Boolean) {
+        _isHexPreviewEnabled.value = enabled
+        if (!enabled) {
+            hexBuilder.clear()
+            _rawHexData.value = "Hex preview paused to conserve CPU."
         }
     }
 

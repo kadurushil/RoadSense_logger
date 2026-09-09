@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
@@ -18,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.acquisition.RadarConnectionState
 import com.bajajauto.roadsense.recording.RecordingState
+import com.bajajauto.roadsense.ui.components.RadarBevPlot
 import com.bajajauto.roadsense.ui.theme.RoadSenseTheme
 
 class MainActivity : ComponentActivity() {
@@ -44,10 +46,13 @@ class MainActivity : ComponentActivity() {
 fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
     val connectionState by viewModel.connectionState.collectAsState()
     val rawHexData by viewModel.rawHexData.collectAsState()
+    val isHexPreviewEnabled by viewModel.isHexPreviewEnabled.collectAsState()
     val totalBytes by viewModel.totalBytes.collectAsState()
     val totalPackets by viewModel.totalPackets.collectAsState()
     val latestPacket by viewModel.latestPacket.collectAsState()
     val latestFrame by viewModel.latestFrame.collectAsState()
+
+    var showBevPlot by remember { mutableStateOf(true) }
 
     val mainScrollState = rememberScrollState()
     val hexScrollState = rememberScrollState()
@@ -219,6 +224,42 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
             }
         }
 
+        // Real-Time Bird's-Eye View (BEV) Radar Plot
+        Card(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Real-Time BEV Radar Plot",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = if (showBevPlot) "Live 2D Cartesian radar view" else "Plot paused/hidden to minimize UI rendering",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                    }
+                    TextButton(onClick = { showBevPlot = !showBevPlot }) {
+                        Text(if (showBevPlot) "Hide Plot" else "Show Plot")
+                    }
+                }
+
+                if (showBevPlot) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    RadarBevPlot(
+                        frame = latestFrame,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+
         // Latest Frame Header Telemetry
         latestPacket?.header?.let { header ->
             Card(
@@ -332,26 +373,52 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
             }
         }
 
-        // Hex Output Box
-        Text(
-            text = "Incoming UART Data (Hex Preview):",
-            style = MaterialTheme.typography.labelMedium
-        )
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(150.dp)
-                .background(Color.Black)
-                .padding(8.dp)
-                .verticalScroll(hexScrollState)
+        // Collapsible Hex Preview Box (Muted by default to conserve CPU)
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Text(
-                text = rawHexData,
-                color = Color.Green,
-                fontSize = 12.sp,
-                fontFamily = FontFamily.Monospace
-            )
+            Column(modifier = Modifier.padding(12.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Raw UART Hex Preview",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Text(
+                            text = if (isHexPreviewEnabled) "Live 4 Hz hex sample (Active)" else "Muted to conserve CPU & battery",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                    }
+                    TextButton(onClick = { viewModel.setHexPreviewEnabled(!isHexPreviewEnabled) }) {
+                        Text(if (isHexPreviewEnabled) "Hide / Mute" else "Show Hex")
+                    }
+                }
+
+                if (isHexPreviewEnabled) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(150.dp)
+                            .background(Color.Black)
+                            .padding(8.dp)
+                            .verticalScroll(hexScrollState)
+                    ) {
+                        Text(
+                            text = rawHexData,
+                            color = Color.Green,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
         }
     }
 }
