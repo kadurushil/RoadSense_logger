@@ -46,6 +46,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     val latestGnssFix: StateFlow<GnssFix?> = gnssLocationManager.latestFix
     val totalGnssFixes: StateFlow<Long> = gnssLocationManager.totalFixes
     val isGnssRecording: StateFlow<Boolean> = gnssSessionRecorder.isRecording
+    val gnssSessionFixes: StateFlow<Long> = gnssSessionRecorder.fixesRecorded
 
     private val _rawHexData = MutableStateFlow("No data received yet. Connect to radar and start stream.")
     val rawHexData: StateFlow<String> = _rawHexData.asStateFlow()

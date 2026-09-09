@@ -67,6 +67,7 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
     val latestGnssFix by viewModel.latestGnssFix.collectAsState()
     val totalGnssFixes by viewModel.totalGnssFixes.collectAsState()
     val isGnssRecording by viewModel.isGnssRecording.collectAsState()
+    val gnssSessionFixes by viewModel.gnssSessionFixes.collectAsState()
 
     var hasLocationPermission by remember { mutableStateOf(viewModel.hasLocationPermission()) }
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -281,7 +282,7 @@ fun RadarTestScreen(viewModel: RadarViewModel, modifier: Modifier = Modifier) {
                             fontFamily = FontFamily.Monospace
                         )
                         Text(
-                            text = "Radar: ${state.framesRecorded} frames (${state.bytesRecorded / 1024} KB) | GNSS: ${state.gnssFixesRecorded} fixes | Time: ${state.durationMs / 1000}s",
+                            text = "Radar: ${state.framesRecorded} frames (${state.bytesRecorded / 1024} KB) | GNSS: $gnssSessionFixes fixes | Time: ${state.durationMs / 1000}s",
                             style = MaterialTheme.typography.bodyMedium
                         )
                         Text(
