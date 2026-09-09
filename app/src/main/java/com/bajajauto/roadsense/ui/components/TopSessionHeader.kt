@@ -25,6 +25,8 @@ fun TopSessionHeader(
     onStopSession: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
     Card(
         colors = CardDefaults.cardColors(
             containerColor = when (sessionState) {
@@ -36,8 +38,8 @@ fun TopSessionHeader(
         modifier = modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(if (isLandscape) 6.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (isLandscape) 2.dp else 8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),

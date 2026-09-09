@@ -138,6 +138,11 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         cameraEngine.addFrameListener { frame ->
             cameraSessionRecorder.recordFrame(frame)
         }
+
+        // Auto-warm up GNSS on launch if permission is available
+        if (hasLocationPermission()) {
+            startGnssUpdates()
+        }
     }
 
     fun setHexPreviewEnabled(enabled: Boolean) {
@@ -160,19 +165,37 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         gnssLocationManager.stopLocationUpdates()
     }
 
+    val availableCameras: StateFlow<List<com.bajajauto.roadsense.camera.CameraDeviceInfo>> = cameraEngine.availableCameras
+    val selectedCamera: StateFlow<com.bajajauto.roadsense.camera.CameraDeviceInfo?> = cameraEngine.selectedCamera
+
+    fun selectCamera(deviceInfo: com.bajajauto.roadsense.camera.CameraDeviceInfo) {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User selected camera lens: ${deviceInfo.displayName} (id=${deviceInfo.id})")
+        cameraEngine.selectCamera(deviceInfo)
+    }
+
+    fun updateCameraDisplayRotation(rotation: Int, textureView: android.view.TextureView? = null, width: Int = 0, height: Int = 0) {
+        cameraEngine.updateDisplayRotation(rotation, textureView, width, height)
+    }
+
     fun hasCameraPermission(): Boolean {
         return cameraEngine.hasCameraPermission()
     }
 
     fun setCameraResolution(resolution: CameraResolution) {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User selected resolution: ${resolution.label}")
         cameraEngine.setResolution(resolution)
     }
 
     fun setCameraFrameRate(fps: CameraFrameRate) {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User selected frame rate: ${fps.label}")
         cameraEngine.setFrameRate(fps)
     }
 
     fun startSessionRecording(): SessionInfo? {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped START session recording")
+        if (hasLocationPermission()) {
+            startGnssUpdates()
+        }
         val session = sessionRecorder.startSession()
         if (session != null) {
             gnssSessionRecorder.startRecording(session)
@@ -185,6 +208,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun stopSessionRecording(): SessionInfo? {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped STOP session recording")
         cameraEngine.stopVideoRecording()
         cameraSessionRecorder.stopRecording()
         gnssSessionRecorder.stopRecording()
@@ -192,23 +216,28 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startRawRecording(): File? {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User started raw radar recording")
         return rawRecorder.startRecording()
     }
 
     fun stopRawRecording(): File? {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User stopped raw radar recording")
         return rawRecorder.stopRecording()
     }
 
     fun scanAndConnect() {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped Scan & Connect USB radar")
         packetAssembler.reset()
         connectionManager.scanAndConnect()
     }
 
     fun disconnect() {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped Disconnect radar")
         connectionManager.disconnect()
     }
 
     fun sendConfig(command: String) {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User sent CLI config command: $command")
         connectionManager.sendConfigCommand(command)
     }
 

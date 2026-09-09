@@ -78,13 +78,20 @@ fun RoadSenseCockpitScreen(
     val tabs = CockpitTab.values()
     val pagerState = rememberPagerState(initialPage = 0) { tabs.size }
 
+    val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+    // Breadcrumb: Record tab navigation
+    LaunchedEffect(pagerState.currentPage) {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Swiped to dashboard tab: ${tabs[pagerState.currentPage].title}")
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(top = 8.dp)
+            .padding(top = if (isLandscape) 2.dp else 8.dp)
     ) {
         // Pinned Global Session Bar (Visible regardless of swipe tab)
-        Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+        Box(modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 12.dp, vertical = if (isLandscape) 2.dp else 4.dp)) {
             TopSessionHeader(
                 sessionState = sessionRecordingState,
                 liveGnssFixes = liveGnssSessionFixes,

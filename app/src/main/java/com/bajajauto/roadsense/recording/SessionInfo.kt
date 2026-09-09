@@ -85,6 +85,10 @@ data class SessionInfo(
         if (timelineFile.exists()) {
             streamsArray.put("session_timeline.csv")
         }
+        val debugLogFile = File(sessionDir, "session_debug.log")
+        if (debugLogFile.exists()) {
+            streamsArray.put("session_debug.log")
+        }
         json.put("activeStreams", streamsArray)
 
         return json.toString(2)

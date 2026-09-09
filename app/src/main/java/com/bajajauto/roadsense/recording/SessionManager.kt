@@ -68,9 +68,12 @@ class SessionManager(private val context: Context) {
             summary = "Session initialized: $sessionId"
         )
 
+        // Initialize session diagnostic flight recorder
+        com.bajajauto.roadsense.logging.AppLogger.attachSession(sessionDir)
+        com.bajajauto.roadsense.logging.AppLogger.i(TAG, "Created session directory: ${sessionDir.absolutePath}")
+
         // Write initial session metadata
         writeMetadata(sessionInfo)
-        Log.i(TAG, "Created session directory: ${sessionDir.absolutePath}")
         return sessionInfo
     }
 
@@ -108,7 +111,8 @@ class SessionManager(private val context: Context) {
         timelineWriter.stop()
 
         writeMetadata(sessionInfo)
-        Log.i(TAG, "Closed session ${sessionInfo.sessionId}, total frames: ${sessionInfo.totalRadarFrames}, total bytes: ${sessionInfo.totalRadarBytes}, total fixes: ${sessionInfo.totalGnssFixes}")
+        com.bajajauto.roadsense.logging.AppLogger.i(TAG, "Closed session ${sessionInfo.sessionId}, total frames: ${sessionInfo.totalRadarFrames}, total bytes: ${sessionInfo.totalRadarBytes}, total fixes: ${sessionInfo.totalGnssFixes}")
+        com.bajajauto.roadsense.logging.AppLogger.detachSession()
     }
 
     /**
