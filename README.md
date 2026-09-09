@@ -20,4 +20,4 @@ A robust data acquisition and logging application designed to record synchronize
 ## Hardware Specifications
 * **Radar:** TI AWR1843 BOOST
 * **Connection:** USB/UART
-* **Baud Rates:** 115200 (Config), 1250000 (Data)
+* **Baud Rates:** 115200 (Config), 3125000 (Data)

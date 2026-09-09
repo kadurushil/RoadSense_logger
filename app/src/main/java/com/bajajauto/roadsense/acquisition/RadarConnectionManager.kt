@@ -34,7 +34,7 @@ class RadarConnectionManager(private val context: Context) {
         private const val TAG = "RadarConnectionManager"
         private const val ACTION_USB_PERMISSION = "com.bajajauto.roadsense.USB_PERMISSION"
         const val CONFIG_BAUD_RATE = 115200
-        const val DATA_BAUD_RATE = 1250000
+        const val DATA_BAUD_RATE = 3125000
     }
 
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -121,7 +121,7 @@ class RadarConnectionManager(private val context: Context) {
             val ports = driver.ports
             Log.d(TAG, "Found ${ports.size} serial port(s) on device ${device.deviceName}")
 
-            // If dual ports (e.g. CP2105), port 0 is usually Config (115200) and port 1 is Data (1250000)
+            // If dual ports (e.g. CP2105), port 0 is usually Config (115200) and port 1 is Data (3125000)
             if (ports.size >= 2) {
                 configPort = ports[0]
                 dataPort = ports[1]
