@@ -25,6 +25,8 @@ import com.bajajauto.roadsense.recording.SessionInfo
 import com.bajajauto.roadsense.recording.SessionManager
 import com.bajajauto.roadsense.recording.SessionRecordingState
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -80,7 +82,76 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val hexBuilder = StringBuilder()
     private val MAX_HEX_CHARS = 4000
 
+    private val appPreferences = com.bajajauto.roadsense.storage.AppPreferences(application)
+
+    // Persistent UI settings
+    private val _radarMaxRange = MutableStateFlow(appPreferences.radarMaxRange)
+    val radarMaxRange: StateFlow<Float> = _radarMaxRange.asStateFlow()
+
+    private val _radarDynamicOnly = MutableStateFlow(appPreferences.radarDynamicOnly)
+    val radarDynamicOnly: StateFlow<Boolean> = _radarDynamicOnly.asStateFlow()
+
+    private val _radarMinSnr = MutableStateFlow(appPreferences.radarMinSnrFilter)
+    val radarMinSnr: StateFlow<Boolean> = _radarMinSnr.asStateFlow()
+
+    private val _isCameraPreviewMuted = MutableStateFlow(appPreferences.isCameraPreviewMuted)
+    val isCameraPreviewMuted: StateFlow<Boolean> = _isCameraPreviewMuted.asStateFlow()
+
+    // Multi-sensor live Hz rates & hardware metrics
+    private val _radarHz = MutableStateFlow(0.0f)
+    val radarHz: StateFlow<Float> = _radarHz.asStateFlow()
+
+    private val _cameraFps = MutableStateFlow(0.0f)
+    val cameraFps: StateFlow<Float> = _cameraFps.asStateFlow()
+
+    private val _gnssHz = MutableStateFlow(0.0f)
+    val gnssHz: StateFlow<Float> = _gnssHz.asStateFlow()
+
+    private val _batteryPct = MutableStateFlow(0)
+    val batteryPct: StateFlow<Int> = _batteryPct.asStateFlow()
+
+    private val _batteryTempC = MutableStateFlow(0.0f)
+    val batteryTempC: StateFlow<Float> = _batteryTempC.asStateFlow()
+
+    @Volatile private var radarFramesThisSec = 0
+    @Volatile private var cameraFramesThisSec = 0
+    @Volatile private var gnssFixesThisSec = 0
+
     init {
+        // Restore persistent camera settings
+        cameraEngine.setResolution(appPreferences.cameraResolution)
+        cameraEngine.setFrameRate(appPreferences.cameraFrameRate)
+
+        // Periodic 1-second ticker for multi-sensor rates & battery telemetry
+        viewModelScope.launch(Dispatchers.Default) {
+            while (isActive) {
+                delay(1000)
+                _radarHz.value = radarFramesThisSec.toFloat()
+                radarFramesThisSec = 0
+
+                _cameraFps.value = cameraFramesThisSec.toFloat()
+                cameraFramesThisSec = 0
+
+                _gnssHz.value = gnssFixesThisSec.toFloat()
+                gnssFixesThisSec = 0
+
+                try {
+                    val bIntent = application.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+                    if (bIntent != null) {
+                        val level = bIntent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
+                        val scale = bIntent.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)
+                        if (level >= 0 && scale > 0) {
+                            _batteryPct.value = (level * 100 / scale.toFloat()).toInt()
+                        }
+                        val tempTenths = bIntent.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0)
+                        if (tempTenths > 0) {
+                            _batteryTempC.value = tempTenths / 10.0f
+                        }
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
         // Direct zero-loss callback on IO thread: feeds raw recorder and packet assembler
         connectionManager.addDataListener { bytes ->
             val hostMonoNs = SystemClock.elapsedRealtimeNanos()
@@ -91,6 +162,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
             val assembledPackets = packetAssembler.appendBytes(bytes)
             if (assembledPackets.isNotEmpty()) {
+                radarFramesThisSec += assembledPackets.size
                 _totalPackets.value += assembledPackets.size
                 val lastPacket = assembledPackets.last()
                 _latestPacket.value = lastPacket
@@ -131,11 +203,13 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
         // GNSS listener: automatically records fixes if session recording is active
         gnssLocationManager.addFixListener { fix ->
+            gnssFixesThisSec++
             gnssSessionRecorder.recordFix(fix)
         }
 
         // Camera frame shutter listener: automatically records frame metadata if session recording is active
         cameraEngine.addFrameListener { frame ->
+            cameraFramesThisSec++
             cameraSessionRecorder.recordFrame(frame)
         }
 
@@ -143,6 +217,26 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         if (hasLocationPermission()) {
             startGnssUpdates()
         }
+    }
+
+    fun setRadarMaxRange(range: Float) {
+        _radarMaxRange.value = range
+        appPreferences.radarMaxRange = range
+    }
+
+    fun setRadarDynamicOnly(enabled: Boolean) {
+        _radarDynamicOnly.value = enabled
+        appPreferences.radarDynamicOnly = enabled
+    }
+
+    fun setRadarMinSnr(enabled: Boolean) {
+        _radarMinSnr.value = enabled
+        appPreferences.radarMinSnrFilter = enabled
+    }
+
+    fun setCameraPreviewMuted(muted: Boolean) {
+        _isCameraPreviewMuted.value = muted
+        appPreferences.isCameraPreviewMuted = muted
     }
 
     fun setHexPreviewEnabled(enabled: Boolean) {
@@ -170,6 +264,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectCamera(deviceInfo: com.bajajauto.roadsense.camera.CameraDeviceInfo) {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User selected camera lens: ${deviceInfo.displayName} (id=${deviceInfo.id})")
+        appPreferences.cameraLensId = deviceInfo.id
         cameraEngine.selectCamera(deviceInfo)
     }
 
@@ -183,11 +278,13 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setCameraResolution(resolution: CameraResolution) {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User selected resolution: ${resolution.label}")
+        appPreferences.cameraResolution = resolution
         cameraEngine.setResolution(resolution)
     }
 
     fun setCameraFrameRate(fps: CameraFrameRate) {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User selected frame rate: ${fps.label}")
+        appPreferences.cameraFrameRate = fps
         cameraEngine.setFrameRate(fps)
     }
 

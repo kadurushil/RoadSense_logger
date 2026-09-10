@@ -61,6 +61,7 @@ fun RadarDashboardCard(
         ) {
             // Left Pane (55% width): Dedicated BEV Radar Scope fitted to screen height
             RadarBevPlot(
+                viewModel = viewModel,
                 frame = latestFrame,
                 modifier = Modifier
                     .weight(0.55f)
@@ -79,7 +80,7 @@ fun RadarDashboardCard(
                 RadarHardwareStatusCard(connectionState, totalBytes, totalPackets)
                 RadarConnectionButtons(viewModel, connectionState)
                 RadarTargetHudCard(latestFrame)
-                RadarQuickCommands(viewModel)
+                // RadarQuickCommands hidden from view per user request
                 RadarHexPreviewCard(rawHexData, isHexPreviewEnabled, viewModel, hexScrollState)
             }
         }
@@ -94,13 +95,14 @@ fun RadarDashboardCard(
         ) {
             RadarHardwareStatusCard(connectionState, totalBytes, totalPackets)
             RadarBevPlot(
+                viewModel = viewModel,
                 frame = latestFrame,
                 modifier = Modifier.fillMaxWidth(),
                 isLandscape = false
             )
             RadarTargetHudCard(latestFrame)
             RadarConnectionButtons(viewModel, connectionState)
-            RadarQuickCommands(viewModel)
+            // RadarQuickCommands hidden from view per user request
             RadarHexPreviewCard(rawHexData, isHexPreviewEnabled, viewModel, hexScrollState)
         }
     }
@@ -296,62 +298,83 @@ private fun RadarTargetHudCard(
                 }
             }
 
-            // Active Tracked Objects
-            if (!latestFrame?.tracks.isNullOrEmpty()) {
-                Text(
-                    text = "ACTIVE TRACKED OBJECTS (${latestFrame?.tracks?.size ?: 0}):",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.Gray,
-                    fontWeight = FontWeight.Bold
-                )
-                latestFrame?.tracks?.forEach { trk ->
+            // Line-of-Sight Priority Targets in Vehicle Forward Corridor (x: ±10m, y: 0-100m)
+            val losTracks = latestFrame?.tracks?.filter { trk ->
+                trk.x in -10.0f..10.0f && trk.y in 0.0f..100.0f
+            }?.sortedBy { it.y }?.take(3) ?: emptyList()
+
+            Text(
+                text = "LINE-OF-SIGHT TARGETS (±10m Corridor, 0-100m):",
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Gray,
+                fontWeight = FontWeight.Bold
+            )
+
+            if (losTracks.isNotEmpty()) {
+                losTracks.forEach { trk ->
                     val speedKmh = trk.vy * 3.6f
                     val isApproaching = trk.vy < -0.3f
                     val isReceding = trk.vy > 0.3f
-                    val statusText = if (isApproaching) "Approaching" else if (isReceding) "Receding" else "Stationary"
+                    val statusText = if (isApproaching) "APPROACHING" else if (isReceding) "RECEDING" else "STATIONARY"
                     val statusColor = if (isApproaching) Color(0xFFFF5252) else if (isReceding) Color(0xFF40C4FF) else Color(0xFF69F0AE)
+                    val lanePosition = if (kotlin.math.abs(trk.x) <= 1.8f) "Direct Lane" else if (trk.x < 0) "Left Corridor" else "Right Corridor"
 
                     Surface(
                         color = Color(0xFF181D26),
                         shape = RoundedCornerShape(6.dp),
-                        border = BorderStroke(1.dp, Color(0xFF37474F)),
+                        border = BorderStroke(1.dp, if (isApproaching) Color(0xFFFF5252).copy(alpha = 0.6f) else Color(0xFF37474F)),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(8.dp)) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = "🎯 Target #${trk.tid}",
-                                    color = Color(0xFFFFD54F),
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = "🎯 Target #${trk.tid}",
+                                        color = Color(0xFFFFD54F),
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Surface(
+                                        color = statusColor.copy(alpha = 0.2f),
+                                        shape = RoundedCornerShape(3.dp)
+                                    ) {
+                                        Text(
+                                            text = lanePosition,
+                                            color = Color.White,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
                                 Text(
                                     text = statusText,
                                     color = statusColor,
-                                    fontSize = 11.sp,
+                                    fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                            Spacer(modifier = Modifier.height(2.dp))
+                            Spacer(modifier = Modifier.height(3.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    text = "Dist: ${"%.1f".format(trk.y)}m  (Lat ${"%.1f".format(trk.x)}m)",
+                                    text = "Range: ${"%.1f".format(trk.y)}m  (Lat ${"%.1f".format(trk.x)}m)",
                                     color = Color(0xFFCFD8DC),
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace
                                 )
                                 Text(
-                                    text = "V: ${"%.1f".format(kotlin.math.abs(speedKmh))} km/h",
+                                    text = "${"%.1f".format(kotlin.math.abs(speedKmh))} km/h",
                                     color = Color(0xFF80D8FF),
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.SemiBold,
+                                    fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace
                                 )
                             }
@@ -360,55 +383,22 @@ private fun RadarTargetHudCard(
                 }
             } else {
                 Text(
-                    text = "No active tracks (30 tracker slots empty)",
+                    text = "No priority targets in forward line-of-sight corridor",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.Gray,
-                    fontFamily = FontFamily.Monospace
+                    color = Color(0xFF78909C),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp
                 )
             }
 
-            // Active Clusters
-            if (!latestFrame?.clusters.isNullOrEmpty()) {
+            val otherTracksCount = (latestFrame?.tracks?.size ?: 0) - losTracks.size
+            if (otherTracksCount > 0) {
                 Text(
-                    text = "DETECTED CLUSTERS (${latestFrame?.clusters?.size ?: 0}):",
+                    text = "+ $otherTracksCount peripheral tracked target(s) outside corridor",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.Gray,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 10.sp
                 )
-                latestFrame?.clusters?.take(4)?.forEach { cluster ->
-                    Surface(
-                        color = Color(0x1AFF8F00),
-                        shape = RoundedCornerShape(4.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "⚡ Cluster #${cluster.cid}: Range ${"%.1f".format(cluster.y)}m | Lat ${"%.1f".format(cluster.x)}m | Vy=${"%.1f".format(cluster.vy)}m/s",
-                            color = Color(0xFFFFB74D),
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(6.dp)
-                        )
-                    }
-                }
-            }
-
-            // Point Cloud Sample (Top 3 Reflections)
-            if (!latestFrame?.points.isNullOrEmpty()) {
-                Text(
-                    text = "REFLECTION SAMPLE (${latestFrame?.points?.size ?: 0} PTS):",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = Color.Gray,
-                    fontWeight = FontWeight.Bold
-                )
-                latestFrame?.points?.take(3)?.forEachIndexed { idx, pt ->
-                    Text(
-                        text = "  P$idx: X=${"%.2f".format(pt.x)}m, Y=${"%.2f".format(pt.y)}m, V=${"%.2f".format(pt.doppler)}m/s, SNR=${"%.1f".format(pt.snrDb)}dB",
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        color = Color(0xFFB0BEC5)
-                    )
-                }
             }
         }
     }

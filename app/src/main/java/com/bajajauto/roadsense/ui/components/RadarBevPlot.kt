@@ -21,7 +21,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.models.RadarFrame
+import com.bajajauto.roadsense.ui.RadarViewModel
+import kotlin.math.atan2
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
@@ -30,14 +33,15 @@ import kotlin.math.sin
  */
 @Composable
 fun RadarBevPlot(
+    viewModel: RadarViewModel,
     frame: RadarFrame?,
     modifier: Modifier = Modifier,
     isLandscape: Boolean = false
 ) {
-    var maxRangeMeters by remember { mutableFloatStateOf(30f) }
-    var dynamicOnly by remember { mutableStateOf(false) }
-    var minSnrFilter by remember { mutableStateOf(false) }
-    val rangeOptions = listOf(15f, 30f, 60f, 100f)
+    val maxRangeMeters by viewModel.radarMaxRange.collectAsState()
+    val dynamicOnly by viewModel.radarDynamicOnly.collectAsState()
+    val minSnrFilter by viewModel.radarMinSnr.collectAsState()
+    val rangeOptions = listOf(15f, 30f, 60f, 130f)
 
     Card(
         modifier = modifier,
@@ -75,7 +79,7 @@ fun RadarBevPlot(
                             val isSelected = maxRangeMeters == range
                             Surface(
                                 selected = isSelected,
-                                onClick = { maxRangeMeters = range },
+                                onClick = { viewModel.setRadarMaxRange(range) },
                                 shape = RoundedCornerShape(4.dp),
                                 color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFF1E2530),
                                 contentColor = if (isSelected) Color.White else Color(0xFF90A4AE),
@@ -124,7 +128,7 @@ fun RadarBevPlot(
                         val isSelected = maxRangeMeters == range
                         Surface(
                             selected = isSelected,
-                            onClick = { maxRangeMeters = range },
+                            onClick = { viewModel.setRadarMaxRange(range) },
                             shape = RoundedCornerShape(6.dp),
                             color = if (isSelected) MaterialTheme.colorScheme.primary else Color(0xFF1E2530),
                             contentColor = if (isSelected) Color.White else Color(0xFF90A4AE),
@@ -270,28 +274,22 @@ fun RadarBevPlot(
                     }
                     drawPath(path = egoPath, color = Color(0xFF00E5FF))
 
-                    // 6. Draw Clusters (TLV Type 2) as distinct amber rings with CID tag
+                    // 6. Draw Clusters (TLV Type 2) as distinct compact yellow circles without text labels
                     frame?.clusters?.forEach { cluster ->
                         val cx = originX + cluster.x * scale
                         val cy = originY - cluster.y * scale
-                        if (cy in 0f..originY) {
-                            val r = 18f
+                        if (cy in 0f..originY && cx in 0f..canvasWidth) {
+                            val r = 8f
                             drawCircle(
-                                color = Color(0x33FFB300),
+                                color = Color(0x55FFD54F),
                                 center = Offset(cx, cy),
                                 radius = r
                             )
                             drawCircle(
-                                color = Color(0xFFFFB300),
+                                color = Color(0xFFFFD54F),
                                 center = Offset(cx, cy),
                                 radius = r,
                                 style = Stroke(width = 1.5f)
-                            )
-                            drawContext.canvas.nativeCanvas.drawText(
-                                "C${cluster.cid}",
-                                cx,
-                                cy - r - 4f,
-                                textPaint
                             )
                         }
                     }
@@ -330,7 +328,7 @@ fun RadarBevPlot(
                         }
                     }
 
-                    // 8. Draw Active Tracked Targets (TLV Type 3)
+                    // 8. Draw Active Tracked Targets (TLV Type 3) as Red Circle with Yellow Velocity Pointer Triangle on circumference & leader line
                     val trackLabelPaint = Paint().apply {
                         color = android.graphics.Color.WHITE
                         textSize = 24f
@@ -344,46 +342,83 @@ fun RadarBevPlot(
                         val ty = originY - track.y * scale
 
                         if (ty in 0f..originY && tx in 0f..canvasWidth) {
-                            val bw = maxOf(track.xSize * scale, 24f)
-                            val bh = maxOf(track.ySize * scale, 24f)
+                            val trackRadius = 14f
 
-                            // 1. Translucent fill & bounding outline
-                            drawRect(
-                                color = Color(0x33FFB300),
-                                topLeft = Offset(tx - bw / 2f, ty - bh / 2f),
-                                size = Size(bw, bh)
+                            // 1. Red circle for the tracked target
+                            drawCircle(
+                                color = Color(0x33FF5252),
+                                center = Offset(tx, ty),
+                                radius = trackRadius
                             )
-                            drawRect(
-                                color = Color(0xFFFFB300),
-                                topLeft = Offset(tx - bw / 2f, ty - bh / 2f),
-                                size = Size(bw, bh),
-                                style = Stroke(width = 2f)
+                            drawCircle(
+                                color = Color(0xFFFF5252),
+                                center = Offset(tx, ty),
+                                radius = trackRadius,
+                                style = Stroke(width = 2.0f)
+                            )
+                            drawCircle(
+                                color = Color(0xFFFF5252),
+                                center = Offset(tx, ty),
+                                radius = 3.0f
                             )
 
-                            // 2. Velocity leader vector line (1.0s forward projection)
+                            // 2. Velocity vector & direction triangle on circumference
                             val vxPx = track.vx * scale * 0.75f
-                            val vyPx = track.vy * scale * 0.75f
-                            if (kotlin.math.abs(vxPx) > 1f || kotlin.math.abs(vyPx) > 1f) {
-                                val endX = tx + vxPx
-                                val endY = ty - vyPx
-                                drawLine(
-                                    color = Color(0xFFFFD54F),
-                                    start = Offset(tx, ty),
-                                    end = Offset(endX, endY),
-                                    strokeWidth = 2.5f
-                                )
-                                drawCircle(
-                                    color = Color(0xFFFFD54F),
-                                    radius = 3.5f,
-                                    center = Offset(endX, endY)
-                                )
+                            val vyPx = -track.vy * scale * 0.75f // Forward is -Y on screen canvas
+                            val vSpeed = hypot(vxPx, vyPx)
+
+                            if (vSpeed > 0.8f) {
+                                val theta = atan2(vyPx, vxPx)
+                                val ux = cos(theta)
+                                val uy = sin(theta)
+                                val px = -uy
+                                val py = ux
+
+                                // Circumference anchor point
+                                val circX = tx + ux * trackRadius
+                                val circY = ty + uy * trackRadius
+
+                                // Small Yellow pointer triangle on circumference pointing in velocity direction
+                                val triLen = 6f
+                                val triWidth = 4f
+                                val tipX = circX + ux * triLen
+                                val tipY = circY + uy * triLen
+                                val b1X = circX - ux * 2f + px * triWidth
+                                val b1Y = circY - uy * 2f + py * triWidth
+                                val b2X = circX - ux * 2f - px * triWidth
+                                val b2Y = circY - uy * 2f - py * triWidth
+
+                                val triPath = Path().apply {
+                                    moveTo(tipX, tipY)
+                                    lineTo(b1X, b1Y)
+                                    lineTo(b2X, b2Y)
+                                    close()
+                                }
+                                drawPath(path = triPath, color = Color(0xFFFFD54F))
+
+                                // When velocity is large, vector extends out of the circle proportional to speed
+                                if (vSpeed > trackRadius) {
+                                    val endX = tx + vxPx
+                                    val endY = ty + vyPx
+                                    drawLine(
+                                        color = Color(0xFFFFD54F),
+                                        start = Offset(tipX, tipY),
+                                        end = Offset(endX, endY),
+                                        strokeWidth = 2.0f
+                                    )
+                                    drawCircle(
+                                        color = Color(0xFFFFD54F),
+                                        radius = 3.0f,
+                                        center = Offset(endX, endY)
+                                    )
+                                }
                             }
 
-                            // 3. Target ID Label above box
+                            // 3. Target ID Label "#TID" above the circle
                             drawContext.canvas.nativeCanvas.drawText(
                                 "#${track.tid}",
                                 tx,
-                                ty - bh / 2f - 6f,
+                                ty - trackRadius - 6f,
                                 trackLabelPaint
                             )
                         }
@@ -403,7 +438,7 @@ fun RadarBevPlot(
                 Row(horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 6.dp)) {
                     Surface(
                         selected = dynamicOnly,
-                        onClick = { dynamicOnly = !dynamicOnly },
+                        onClick = { viewModel.setRadarDynamicOnly(!dynamicOnly) },
                         shape = RoundedCornerShape(4.dp),
                         color = if (dynamicOnly) Color(0xFF37474F) else Color(0xFF181D26),
                         border = BorderStroke(1.dp, if (dynamicOnly) Color(0xFF80D8FF) else Color(0xFF263238)),
@@ -421,7 +456,7 @@ fun RadarBevPlot(
 
                     Surface(
                         selected = minSnrFilter,
-                        onClick = { minSnrFilter = !minSnrFilter },
+                        onClick = { viewModel.setRadarMinSnr(!minSnrFilter) },
                         shape = RoundedCornerShape(4.dp),
                         color = if (minSnrFilter) Color(0xFF37474F) else Color(0xFF181D26),
                         border = BorderStroke(1.dp, if (minSnrFilter) Color(0xFF80D8FF) else Color(0xFF263238)),

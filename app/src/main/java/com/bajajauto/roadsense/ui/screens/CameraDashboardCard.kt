@@ -60,8 +60,8 @@ fun CameraDashboardCard(
     val selectedRes by viewModel.selectedResolution.collectAsState()
     val selectedFps by viewModel.selectedFps.collectAsState()
     val sessionFrames by viewModel.cameraSessionFrames.collectAsState()
+    val isPreviewMutedByUser by viewModel.isCameraPreviewMuted.collectAsState()
 
-    var isPreviewMutedByUser by remember { mutableStateOf(false) }
     var hasCameraPermission by remember { mutableStateOf(viewModel.hasCameraPermission()) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -138,7 +138,7 @@ fun CameraDashboardCard(
                         hasPermission = hasCameraPermission,
                         isMuted = isPreviewMutedByUser,
                         onGrantPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                        onResume = { isPreviewMutedByUser = false }
+                        onResume = { viewModel.setCameraPreviewMuted(false) }
                     )
                 }
 
@@ -181,7 +181,7 @@ fun CameraDashboardCard(
                     hasCameraPermission = hasCameraPermission,
                     isPreviewMutedByUser = isPreviewMutedByUser,
                     onGrant = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                    onToggleMute = { isPreviewMutedByUser = !isPreviewMutedByUser }
+                    onToggleMute = { viewModel.setCameraPreviewMuted(!isPreviewMutedByUser) }
                 )
 
                 CameraLensSelectorCard(
@@ -224,7 +224,7 @@ fun CameraDashboardCard(
                 hasCameraPermission = hasCameraPermission,
                 isPreviewMutedByUser = isPreviewMutedByUser,
                 onGrant = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                onToggleMute = { isPreviewMutedByUser = !isPreviewMutedByUser }
+                onToggleMute = { viewModel.setCameraPreviewMuted(!isPreviewMutedByUser) }
             )
 
             // Live Camera Viewfinder Card
@@ -276,7 +276,7 @@ fun CameraDashboardCard(
                             hasPermission = hasCameraPermission,
                             isMuted = isPreviewMutedByUser,
                             onGrantPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                            onResume = { isPreviewMutedByUser = false }
+                            onResume = { viewModel.setCameraPreviewMuted(false) }
                         )
                     }
                 }

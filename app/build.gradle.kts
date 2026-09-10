@@ -47,6 +47,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("com.github.mik3y:usb-serial-for-android:3.11.0")
     testImplementation(libs.junit)
     testImplementation("org.json:json:20240303")
