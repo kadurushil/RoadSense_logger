@@ -105,6 +105,25 @@ $$\text{Value} = \frac{\text{raw\_int16}}{2^Q} = \text{raw\_int16} \times \left(
 
 *If $Q > 31$ due to corruption, the decoder defaults safely to $Q = 15$.*
 
+### 4.3 Why the TLV Header Lacks Element-Size Metadata (The Stride Ambiguity)
+A critical architectural constraint of the TI mmWave TLV framing protocol is that **the TLV header only specifies the aggregate byte length of the payload, never the size of an individual element**:
+
+```
+┌─────────────────────────┬─────────────────────────┐
+│     TLV Type (uint32)   │    TLV Length (uint32)  │  <-- 8-Byte TLV Header
+├─────────────────────────┴─────────────────────────┤
+│ numObjects (uint16)     │   xyzQFormat (uint16)   │  <-- 4-Byte Descriptor
+├───────────────────────────────────────────────────┤
+│ Flat Byte Stream: Element[0], Element[1], ...     │  <-- Data Payload (N × Stride)
+└───────────────────────────────────────────────────┘
+```
+
+1. **No Stride in Header:** The 8-byte TLV header only reports `length = 4 + (N × ElementSize)`. Neither the element size nor the C struct schema version is encoded in the stream.
+2. **Untrusted / Stale `numObjects`:** In many MRR / Custom MRR builds, the firmware sets the 4-byte descriptor's `numObjects` field statically or copies the tracking capacity rather than the active count.
+3. **Hardcoded C Struct Presumption:** TI's reference protocol was designed under the assumption that the DSP firmware and the host receiver share identical, hardcoded C `struct` headers compiled at the same time. When firmware developers update the C struct (e.g., expanding `mrrTrackObj` from 12 bytes to 14 bytes or 20 bytes to add `tid`, `aux`, and `status`), the byte length increases, but the client receiver has no explicit schema tag to know the stride.
+4. **Resulting Stride Shift:** If the client parser assumes a 12-byte stride when the radar is transmitting 20-byte structs, the parser drifts forward by $+8$ bytes on every successive track. By Track 3 or 4, the parser reads tracker status flags (`0x0001`, `0x0000`) as $(X, Y)$ coordinates, producing $(0, 0)$ phantom targets with extreme velocity spikes.
+5. **Mitigation:** The receiver client MUST implement **adaptive stride detection** (factoring the payload size against known struct sizes $\{20, 14, 12\}$) rather than hardcoding a single element size.
+
 ---
 
 ## 5. Detailed TLV Payload Specifications
@@ -131,42 +150,84 @@ $$\text{SNR (dB)} = \left(\frac{\text{peakVal}}{512.0}\right) \times 6.0206\text
 
 ### 5.2 TLV Type 2: Target Clusters (Pre-Track Groups)
 * **TLV Type ID:** `2` (`MMWDEMO_OUTPUT_MSG_CLUSTERS`)
-* **Element Size:** `10 bytes` (Custom MRR) or `8 bytes` (Standard MRR)
-* **Payload Size:** $4 + (N \times 10)$ bytes
+* **Element Size:** `10 bytes` (Custom MRR with `cid`) or `8 bytes` (Standard MRR)
+* **Payload Size:** $4 + (N \times \text{Stride})$ bytes
+* **Subframe:** Emitted during Subframe 1 (USRR) and dynamically on Subframe 0 cluster transitions.
 
-#### Element Struct (10 Bytes - Custom MRR)
-| Byte Offset | Field | Type | Scaling / Unit | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| `0` | **x** | `int16` | $\text{raw} / 2^Q$ [m] | Cluster centroid lateral position |
-| `2` | **y** | `int16` | $\text{raw} / 2^Q$ [m] | Cluster centroid longitudinal distance |
-| `4` | **vx** | `int16` | $\text{raw} / 2^Q$ [m/s] | Cluster lateral velocity |
-| `6` | **vy** | `int16` | $\text{raw} / 2^Q$ [m/s] | Cluster longitudinal velocity |
-| `8` | **cid** | `uint16` | Identifier | Unique cluster ID assigned by DBSCAN clustering stage |
+#### Element Structs:
+1. **10-Byte Format (Custom MRR with Velocity & ID):**
+   | Byte Offset | Field | Type | Scaling / Unit | Description |
+   | :--- | :--- | :--- | :--- | :--- |
+   | `0` | **x** | `int16` | $\text{raw} / 2^Q$ [m] | Cluster centroid lateral position |
+   | `2` | **y** | `int16` | $\text{raw} / 2^Q$ [m] | Cluster centroid longitudinal distance |
+   | `4` | **vx** | `int16` | $\text{raw} / 2^Q$ [m/s] | Cluster lateral velocity |
+   | `6` | **vy** | `int16` | $\text{raw} / 2^Q$ [m/s] | Cluster longitudinal velocity |
+   | `8` | **cid** | `uint16` | Discrete ID | Unique cluster ID assigned by DBSCAN |
 
-*Note: In 8-byte Standard MRR, bytes 4–7 are `xSize` and `ySize` without `cid`.*
+2. **8-Byte Format (Standard MRR Dimensions):**
+   | Byte Offset | Field | Type | Scaling / Unit | Description |
+   | :--- | :--- | :--- | :--- | :--- |
+   | `0` | **xCenter** | `int16` | $\text{raw} / 2^Q$ [m] | Cluster centroid lateral position |
+   | `2` | **yCenter** | `int16` | $\text{raw} / 2^Q$ [m] | Cluster centroid longitudinal distance |
+   | `4` | **xSize** | `int16` | $\text{raw} / 2^Q$ [m] | Cluster bounding box width |
+   | `6` | **ySize** | `int16` | $\text{raw} / 2^Q$ [m] | Cluster bounding box depth |
 
 ---
 
-### 5.3 TLV Type 3: Tracked Objects (EKF / Kalman Tracker)
+### 5.3 TLV Type 3: Tracked Objects (EKF / Kalman Tracker Table)
 * **TLV Type ID:** `3` (`MMWDEMO_OUTPUT_MSG_TRACKS`)
-* **Element Size:** `14 bytes` (Custom MRR) or `12 bytes` (Standard MRR)
-* **Payload Size:** $4 + (N \times 14)$ bytes (Typically 438 bytes = 4B descriptor + 31 slots $\times$ 14B)
+* **Subframe:** Subframe 0 (MRR)
+* **Adaptive Stride Resolution:**
+  The decoder adaptively determines the element stride per frame:
+  $$\text{Stride} = \begin{cases}
+  \frac{\text{PayloadSize}}{\text{numTracks}} & \text{if } \text{PayloadSize} \pmod{\text{numTracks}} = 0 \text{ and } \frac{\text{PayloadSize}}{\text{numTracks}} \in \{12, 14, 20\} \\
+  20 & \text{else if } \text{PayloadSize} \pmod{20} = 0 \\
+  14 & \text{else if } \text{PayloadSize} \pmod{14} = 0 \\
+  12 & \text{otherwise (legacy fallback)}
+  \end{cases}$$
 
-#### Element Struct (14 Bytes - Custom MRR)
+#### 1. Current Vehicle Firmware Struct (20 Bytes - Full Custom MRR with Status & TID)
+Empirically verified across 100% of packets in road-test sessions (`session_20260910_093816/`):
+
 | Byte Offset | Field | Type | Scaling / Unit | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `0` | **x** | `int16` | $\text{raw} / 2^Q$ [m] | Track lateral coordinate |
-| `2` | **y** | `int16` | $\text{raw} / 2^Q$ [m] | Track longitudinal distance |
-| `4` | **vx** | `int16` | $\text{raw} / 2^Q$ [m/s] | Track lateral velocity |
-| `6` | **vy** | `int16` | $\text{raw} / 2^Q$ [m/s] | Track longitudinal velocity |
-| `8` | **xSize** | `int16` | $\text{raw} / 2^Q$ [m] | Estimated target width spread |
-| `10` | **ySize** | `int16` | $\text{raw} / 2^Q$ [m] | Estimated target length spread |
-| `12` | **tid** | `uint16` | Tracker ID | Global Tracking ID assigned by firmware |
+| `0` | **`x`** | `int16` | $\text{raw} / 2^Q$ [m] | Track lateral coordinate (positive = right, negative = left) |
+| `2` | **`y`** | `int16` | $\text{raw} / 2^Q$ [m] | Track longitudinal distance ahead (meters) |
+| `4` | **`vx`** | `int16` | $\text{raw} / 2^Q$ [m/s] | Track lateral velocity |
+| `6` | **`vy`** | `int16` | $\text{raw} / 2^Q$ [m/s] | Track longitudinal velocity (negative = approaching ego vehicle) |
+| `8` | **`xSize`** | `int16` | $\text{raw} / 2^Q$ [m] | Estimated target width spread |
+| `10` | **`ySize`** | `int16` | $\text{raw} / 2^Q$ [m] | Estimated target length spread |
+| `12` | **`aux / accX`** | `int16` | $\text{raw} / 2^Q$ | Target acceleration or auxiliary motion parameter |
+| `14` | **`tid`** | `uint16` | Discrete Integer | **Native Hardware Global Track ID** (e.g. #3168, #3181) |
+| `16..19` | **`status`** | `uint32` | Discrete State | **EKF Tracker State Machine**:<br>• `0` = Free / Unallocated<br>• `1` = Initializing / Tentative<br>• `3` = Active / Converged Target<br>• `4` = Coasting / Occluded Target |
+
+#### 2. Intermediate Specification Struct (14 Bytes - Custom MRR with TID)
+Defined in reference commit `645d5eb9c` / `7ff63cd`:
+
+| Byte Offset | Field | Type | Scaling / Unit | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `0` | **`x`** | `int16` | $\text{raw} / 2^Q$ [m] | Track lateral coordinate |
+| `2` | **`y`** | `int16` | $\text{raw} / 2^Q$ [m] | Track longitudinal distance |
+| `4` | **`vx`** | `int16` | $\text{raw} / 2^Q$ [m/s] | Track lateral velocity |
+| `6` | **`vy`** | `int16` | $\text{raw} / 2^Q$ [m/s] | Track longitudinal velocity |
+| `8` | **`xSize`** | `int16` | $\text{raw} / 2^Q$ [m] | Estimated target width |
+| `10` | **`ySize`** | `int16` | $\text{raw} / 2^Q$ [m] | Estimated target length |
+| `12` | **`tid`** | `uint16` | Discrete Integer | Hardware Global Track ID |
+
+#### 3. Legacy Struct (12 Bytes - Standard MRR Demo)
+| Byte Offset | Field | Type | Scaling / Unit | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `0` | **`x`** | `int16` | $\text{raw} / 2^Q$ [m] | Track lateral coordinate |
+| `2` | **`y`** | `int16` | $\text{raw} / 2^Q$ [m] | Track longitudinal distance |
+| `4` | **`vx`** | `int16` | $\text{raw} / 2^Q$ [m/s] | Track lateral velocity |
+| `6` | **`vy`** | `int16` | $\text{raw} / 2^Q$ [m/s] | Track longitudinal velocity |
+| `8` | **`xSize`** | `int16` | $\text{raw} / 2^Q$ [m] | Estimated target width |
+| `10` | **`ySize`** | `int16` | $\text{raw} / 2^Q$ [m] | Estimated target length |
+| *Note* | `tid` is synthesized as `i + 1` | | | Missing hardware ID |
 
 #### Inactive Tracker Slot Filtering Rule
-The firmware outputs a fixed table of 31 tracker slots in every frame. Unallocated / inactive slots have all zeros (`TID=0, X=0, Y=0, Vx=0, Vy=0`).
-**Filter Condition:**
-$$\text{Active Target} \iff (\text{tid} \neq 0) \lor (x \neq 0.0) \lor (y \neq 0.0)$$
+To prevent ghost / unallocated targets from displaying:
+$$\text{Active Target} \iff (\text{status} \neq 0) \land \neg(x = 0 \land y = 0 \land vx = 0 \land vy = 0)$$
 
 ---
 

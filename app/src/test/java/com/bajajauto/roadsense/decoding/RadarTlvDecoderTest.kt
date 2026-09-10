@@ -115,4 +115,63 @@ class RadarTlvDecoderTest {
         assertEquals(0, frame.tracks.size)
         assertEquals(0, frame.clusters.size)
     }
+
+    @Test
+    fun decode_20ByteTracksFrame6312_parsesAll4TracksCorrectlyWithoutPhantomOriginTracks() {
+        // TLV Type 3 (Tracks): Type=3 (4B), Length=84 (4B), Descriptor (4B), 4x 20-byte tracks
+        val hexTlv = "0300000054000000" + "04000700" +
+                "7701a61a4d0007fd200134011f00600c03000000" +
+                "c8fee212000073ff65001401dcff6d0c01000000" +
+                "9200b322180005fd0801d7000900690c03000000" +
+                "c1019811620037fd9d00d9003800630c03000000"
+
+        val payload = ByteArray(hexTlv.length / 2) { i ->
+            hexTlv.substring(i * 2, i * 2 + 2).toInt(16).toByte()
+        }
+
+        val header = RadarHeader(
+            version = 0x01020003L,
+            totalPacketLen = 40 + payload.size,
+            platform = 0xA1843L,
+            frameNumber = 6312L,
+            timeCpuCycles = 12345678L,
+            numDetectedObj = 0,
+            numTLVs = 1,
+            subFrameNumber = 0
+        )
+
+        val frame = decoder.decode(RawRadarPacket(header, payload))
+
+        assertEquals(4, frame.tracks.size)
+
+        // Track 0: x=2.93m, y=53.30m, tid=3168
+        val t0 = frame.tracks[0]
+        assertEquals(3168, t0.tid)
+        assertEquals(2.93f, t0.x, 0.05f)
+        assertEquals(53.30f, t0.y, 0.05f)
+        assertEquals(-5.95f, t0.vy, 0.05f)
+
+        // Track 1: x=-2.44m, y=37.77m, tid=3181
+        val t1 = frame.tracks[1]
+        assertEquals(3181, t1.tid)
+        assertEquals(-2.44f, t1.x, 0.05f)
+        assertEquals(37.77f, t1.y, 0.05f)
+
+        // Track 2: x=1.14m, y=69.40m, tid=3177
+        val t2 = frame.tracks[2]
+        assertEquals(3177, t2.tid)
+        assertEquals(1.14f, t2.x, 0.05f)
+        assertEquals(69.40f, t2.y, 0.05f)
+
+        // Track 3: x=3.51m, y=35.19m, tid=3171
+        val t3 = frame.tracks[3]
+        assertEquals(3171, t3.tid)
+        assertEquals(3.51f, t3.x, 0.05f)
+        assertEquals(35.19f, t3.y, 0.05f)
+
+        // Ensure NO phantom tracks at origin (0, 0)
+        for (track in frame.tracks) {
+            assertTrue("Track #${track.tid} should not be near origin", Math.abs(track.x) > 0.5f || Math.abs(track.y) > 0.5f)
+        }
+    }
 }

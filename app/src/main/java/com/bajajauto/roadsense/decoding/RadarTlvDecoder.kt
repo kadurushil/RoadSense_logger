@@ -132,7 +132,9 @@ class RadarTlvDecoder {
     /**
      * Parses TLV 2: Clusters.
      * Descriptor: 4 bytes (numClusters: uint16, xyzQFormat: uint16)
-     * Clusters: 8 bytes each (x: int16, y: int16, xSize: int16, ySize: int16)
+     * Supports:
+     * - 10 bytes: (x: int16, y: int16, vx: int16, vy: int16, cid: uint16)
+     * - 8 bytes: (xCenter: int16, yCenter: int16, xSize: int16, ySize: int16)
      */
     private fun parseClusters(buffer: ByteBuffer, length: Int, outClusters: MutableList<RadarCluster>) {
         if (length < 4) return
@@ -144,6 +146,8 @@ class RadarTlvDecoder {
         val invQ = 1.0f / (1 shl q).toFloat()
 
         val payloadSize = length - 4
+        if (numClusters <= 0 || payloadSize < 8) return
+
         val is10Byte = (payloadSize % 10 == 0) && (payloadSize / 10 >= numClusters)
         val clusterSize = if (is10Byte) 10 else 8
         val maxClustersPossible = payloadSize / clusterSize
@@ -152,37 +156,54 @@ class RadarTlvDecoder {
         for (i in 0 until clustersToRead) {
             val xRaw = buffer.short
             val yRaw = buffer.short
-            val vxRaw = buffer.short
-            val vyRaw = buffer.short
-            val cid = if (is10Byte) (buffer.short.toInt() and 0xFFFF) else (i + 1)
+            val f2Raw = buffer.short
+            val f3Raw = buffer.short
+            val cid: Int
+            val vx: Float
+            val vy: Float
+            val xSize: Float
+            val ySize: Float
+
+            if (is10Byte) {
+                cid = buffer.short.toInt() and 0xFFFF
+                vx = f2Raw * invQ
+                vy = f3Raw * invQ
+                xSize = 1.2f
+                ySize = 1.2f
+            } else {
+                cid = i + 1
+                vx = 0f
+                vy = 0f
+                xSize = f2Raw * invQ
+                ySize = f3Raw * invQ
+            }
 
             val x = xRaw * invQ
             val y = yRaw * invQ
-            val vx = vxRaw * invQ
-            val vy = vyRaw * invQ
 
-            outClusters.add(
-                RadarCluster(
-                    x = x,
-                    y = y,
-                    vx = vx,
-                    vy = vy,
-                    cid = cid,
-                    xSize = 1.2f,
-                    ySize = 1.2f
+            if (x != 0f || y != 0f) {
+                outClusters.add(
+                    RadarCluster(
+                        x = x,
+                        y = y,
+                        vx = vx,
+                        vy = vy,
+                        cid = cid,
+                        xSize = xSize,
+                        ySize = ySize
+                    )
                 )
-            )
+            }
         }
     }
 
     /**
-     * Parses TLV 3: Tracks.
+     * Parses TLV 3: Tracks (EKF Tracker Table).
      * Descriptor: 4 bytes (numTracks: uint16, xyzQFormat: uint16)
-     * Tracks: 14 bytes each in Custom MRR (x: int16, y: int16, vx: int16, vy: int16, xSize: int16, ySize: int16, tid: uint16)
-     * Fallback: 12 bytes each in Standard MRR (without tid field)
-     *
-     * Inactive slots in the firmware's fixed allocation table have TID=0 and zero coordinates,
-     * which are filtered out so downstream consumers only receive valid, active targets.
+     * Supports:
+     * - 20 bytes (AWR1843 Custom MRR with status): x, y, vx, vy, xSize, ySize, aux/acc, tid (u2), status (u4)
+     * - 14 bytes (Custom MRR with TID): x, y, vx, vy, xSize, ySize, tid (u2)
+     * - 12 bytes (Standard MRR legacy): x, y, vx, vy, xSize, ySize
      */
     private fun parseTracks(buffer: ByteBuffer, length: Int, outTracks: MutableList<RadarTrack>) {
         if (length < 4) return
@@ -194,10 +215,16 @@ class RadarTlvDecoder {
         val invQ = 1.0f / (1 shl q).toFloat()
 
         val payloadSize = length - 4
+        if (numTracks <= 0 || payloadSize < 12) return
 
-        // Check if 14-byte track (Custom MRR with TID) or 12-byte track (Standard MRR)
-        val is14Byte = (payloadSize % 14 == 0) && (payloadSize / 14 >= numTracks)
-        val trackSize = if (is14Byte) 14 else 12
+        // Adaptively detect track stride based on payload length
+        val trackSize = when {
+            payloadSize % numTracks == 0 && (payloadSize / numTracks in listOf(12, 14, 20)) -> payloadSize / numTracks
+            payloadSize % 20 == 0 -> 20
+            payloadSize % 14 == 0 -> 14
+            else -> 12
+        }
+
         val maxTracksPossible = payloadSize / trackSize
         val tracksToRead = minOf(numTracks, maxTracksPossible)
 
@@ -208,10 +235,27 @@ class RadarTlvDecoder {
             val vyRaw = buffer.short
             val xSizeRaw = buffer.short
             val ySizeRaw = buffer.short
-            val tid = if (is14Byte) {
-                buffer.short.toInt() and 0xFFFF
-            } else {
-                i + 1
+
+            val tid: Int
+            val status: Long
+
+            when (trackSize) {
+                20 -> {
+                    buffer.short // aux / acc
+                    tid = buffer.short.toInt() and 0xFFFF
+                    status = buffer.int.toLong() and 0xFFFFFFFFL
+                }
+                14 -> {
+                    tid = buffer.short.toInt() and 0xFFFF
+                    status = 3L // Active
+                }
+                else -> {
+                    tid = i + 1
+                    status = 3L
+                    if (trackSize > 12) {
+                        buffer.position(buffer.position() + (trackSize - 12))
+                    }
+                }
             }
 
             val x = xRaw * invQ
@@ -221,8 +265,11 @@ class RadarTlvDecoder {
             val xSize = xSizeRaw * invQ
             val ySize = ySizeRaw * invQ
 
-            // Filter out empty/inactive tracker table slots
-            if (tid > 0 || x != 0f || y != 0f || vx != 0f || vy != 0f) {
+            // Filter out empty/unallocated tracker table slots
+            val isInactiveSlot = (trackSize == 20 && status == 0L) ||
+                    (x == 0f && y == 0f && vx == 0f && vy == 0f)
+
+            if (!isInactiveSlot) {
                 outTracks.add(
                     RadarTrack(
                         tid = tid,
