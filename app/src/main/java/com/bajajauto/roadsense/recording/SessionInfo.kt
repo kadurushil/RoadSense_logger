@@ -18,6 +18,7 @@ data class SessionInfo(
     val radarDir: File,
     val gnssDir: File = File(sessionDir, "gnss"),
     val cameraDir: File = File(sessionDir, "camera"),
+    val canDir: File = File(sessionDir, "can"),
     val startTimeWallMs: Long,
     val startTimeMonotonicNs: Long,
     var stopTimeWallMs: Long? = null,
@@ -80,6 +81,16 @@ data class SessionInfo(
         if (totalCameraFrames > 0 || File(cameraDir, "camera_frames.csv").exists()) {
             streamsArray.put("camera/camera_video.mp4")
             streamsArray.put("camera/camera_frames.csv")
+        }
+        val canFiles = canDir.listFiles { _, name -> name.endsWith(".mf4", ignoreCase = true) }
+        if (!canFiles.isNullOrEmpty()) {
+            val canObj = JSONObject()
+            canObj.put("sensor", "CSS Electronics CANedge2")
+            canObj.put("totalFiles", canFiles.size)
+            json.put("can", canObj)
+            for (cf in canFiles) {
+                streamsArray.put("can/${cf.name}")
+            }
         }
         val timelineFile = File(sessionDir, "session_timeline.csv")
         if (timelineFile.exists()) {

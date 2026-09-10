@@ -46,6 +46,7 @@ class SessionManager(private val context: Context) {
         val radarDir = File(sessionDir, "radar").apply { mkdirs() }
         val gnssDir = File(sessionDir, "gnss").apply { mkdirs() }
         val cameraDir = File(sessionDir, "camera").apply { mkdirs() }
+        val canDir = File(sessionDir, "can").apply { mkdirs() }
 
         val sessionInfo = SessionInfo(
             sessionId = sessionId,
@@ -53,6 +54,7 @@ class SessionManager(private val context: Context) {
             radarDir = radarDir,
             gnssDir = gnssDir,
             cameraDir = cameraDir,
+            canDir = canDir,
             startTimeWallMs = nowMs,
             startTimeMonotonicNs = nowMonoNs
         )

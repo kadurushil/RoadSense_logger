@@ -22,6 +22,12 @@ import com.bajajauto.roadsense.recording.RadarSessionRecorder
 import com.bajajauto.roadsense.recording.RawUartRecorder
 import com.bajajauto.roadsense.recording.RecordingState
 import com.bajajauto.roadsense.recording.SessionInfo
+import com.bajajauto.roadsense.canedge.discovery.CanedgeDiscovery
+import com.bajajauto.roadsense.canedge.ingestion.CanedgeIngestionManager
+import com.bajajauto.roadsense.canedge.model.CanedgeConnectionState
+import com.bajajauto.roadsense.canedge.model.CanedgeSyncStats
+import com.bajajauto.roadsense.canedge.network.CanedgeHttpClient
+import com.bajajauto.roadsense.canedge.repository.CanedgeRepository
 import com.bajajauto.roadsense.recording.SessionManager
 import com.bajajauto.roadsense.recording.SessionRecordingState
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +41,7 @@ import java.io.File
 
 class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val appPreferences = com.bajajauto.roadsense.storage.AppPreferences(application)
     private val sessionManager = SessionManager(application)
     private val connectionManager = RadarConnectionManager(application)
     private val packetAssembler = RadarPacketAssembler()
@@ -45,6 +52,20 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val gnssSessionRecorder = GnssSessionRecorder(sessionManager)
     val cameraEngine = CameraEngine(application)
     private val cameraSessionRecorder = CameraSessionRecorder(sessionManager)
+
+    // CANedge2 Network & Ingestion Engine
+    private val canedgeHttpClient = CanedgeHttpClient()
+    private val canedgeRepository = CanedgeRepository(canedgeHttpClient)
+    val canedgeDiscovery = CanedgeDiscovery(application, canedgeHttpClient, appPreferences)
+    val canedgeIngestionManager = CanedgeIngestionManager(
+        discovery = canedgeDiscovery,
+        repository = canedgeRepository,
+        httpClient = canedgeHttpClient,
+        sessionManager = sessionManager
+    )
+
+    val canedgeConnectionState: StateFlow<CanedgeConnectionState> = canedgeDiscovery.connectionState
+    val canedgeSyncStats: StateFlow<CanedgeSyncStats> = canedgeIngestionManager.stats
 
     val connectionState: StateFlow<RadarConnectionState> = connectionManager.connectionState
     val recordingState: StateFlow<RecordingState> = rawRecorder.recordingState
@@ -82,8 +103,6 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val hexBuilder = StringBuilder()
     private val MAX_HEX_CHARS = 4000
 
-    private val appPreferences = com.bajajauto.roadsense.storage.AppPreferences(application)
-
     // Persistent UI settings
     private val _radarMaxRange = MutableStateFlow(appPreferences.radarMaxRange)
     val radarMaxRange: StateFlow<Float> = _radarMaxRange.asStateFlow()
@@ -113,6 +132,12 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val _batteryTempC = MutableStateFlow(0.0f)
     val batteryTempC: StateFlow<Float> = _batteryTempC.asStateFlow()
 
+    private val _cpuUsagePct = MutableStateFlow(0)
+    val cpuUsagePct: StateFlow<Int> = _cpuUsagePct.asStateFlow()
+
+    private val _cpuTempC = MutableStateFlow<Float?>(null)
+    val cpuTempC: StateFlow<Float?> = _cpuTempC.asStateFlow()
+
     @Volatile private var radarFramesThisSec = 0
     @Volatile private var cameraFramesThisSec = 0
     @Volatile private var gnssFixesThisSec = 0
@@ -122,8 +147,12 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         cameraEngine.setResolution(appPreferences.cameraResolution)
         cameraEngine.setFrameRate(appPreferences.cameraFrameRate)
 
-        // Periodic 1-second ticker for multi-sensor rates & battery telemetry
+        // Periodic 1-second ticker for multi-sensor rates & battery/CPU telemetry
         viewModelScope.launch(Dispatchers.Default) {
+            var lastCpuTimeMs = android.os.Process.getElapsedCpuTime()
+            var lastWallTimeMs = SystemClock.elapsedRealtime()
+            val numCores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+
             while (isActive) {
                 delay(1000)
                 _radarHz.value = radarFramesThisSec.toFloat()
@@ -135,6 +164,19 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                 _gnssHz.value = gnssFixesThisSec.toFloat()
                 gnssFixesThisSec = 0
 
+                // 1. Process CPU usage %
+                val curCpuTimeMs = android.os.Process.getElapsedCpuTime()
+                val curWallTimeMs = SystemClock.elapsedRealtime()
+                val dCpu = curCpuTimeMs - lastCpuTimeMs
+                val dWall = curWallTimeMs - lastWallTimeMs
+                if (dWall > 0) {
+                    val usage = ((dCpu.toFloat() / (dWall * numCores)) * 100f).toInt().coerceIn(0, 100)
+                    _cpuUsagePct.value = usage
+                }
+                lastCpuTimeMs = curCpuTimeMs
+                lastWallTimeMs = curWallTimeMs
+
+                // 2. Battery telemetry
                 try {
                     val bIntent = application.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
                     if (bIntent != null) {
@@ -146,6 +188,17 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                         val tempTenths = bIntent.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0)
                         if (tempTenths > 0) {
                             _batteryTempC.value = tempTenths / 10.0f
+                        }
+                    }
+                } catch (_: Exception) {}
+
+                // 3. Hardware CPU temperature (if permitted by OEM device policy)
+                try {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                        val hpm = application.getSystemService(android.content.Context.HARDWARE_PROPERTIES_SERVICE) as? android.os.HardwarePropertiesManager
+                        val temps = hpm?.getDeviceTemperatures(android.os.HardwarePropertiesManager.DEVICE_TEMPERATURE_CPU, android.os.HardwarePropertiesManager.TEMPERATURE_CURRENT)
+                        if (temps != null && temps.isNotEmpty() && temps[0] > 0f && temps[0] < 120f) {
+                            _cpuTempC.value = temps[0]
                         }
                     }
                 } catch (_: Exception) {}
@@ -217,6 +270,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         if (hasLocationPermission()) {
             startGnssUpdates()
         }
+
+        // Auto-probe CANedge logger on launch (checks cached IP first)
+        startCanedgeDiscovery()
     }
 
     fun setRadarMaxRange(range: Float) {
@@ -300,16 +356,37 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             if (videoFile != null) {
                 cameraEngine.startVideoRecording(videoFile)
             }
+            canedgeIngestionManager.onSessionStarted(session)
         }
         return session
     }
 
     fun stopSessionRecording(): SessionInfo? {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped STOP session recording")
+        canedgeIngestionManager.onSessionStopped()
         cameraEngine.stopVideoRecording()
         cameraSessionRecorder.stopRecording()
         gnssSessionRecorder.stopRecording()
         return sessionRecorder.stopSession()
+    }
+
+    fun startCanedgeDiscovery() {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User triggered CANedge discovery")
+        canedgeDiscovery.startDiscovery { success ->
+            if (success) {
+                canedgeIngestionManager.triggerSync()
+            }
+        }
+    }
+
+    fun disconnectCanedge() {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User disconnected CANedge")
+        canedgeDiscovery.disconnect()
+    }
+
+    fun triggerCanedgeSync() {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User triggered manual CANedge sync")
+        canedgeIngestionManager.triggerSync()
     }
 
     fun startRawRecording(): File? {
@@ -340,6 +417,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        canedgeDiscovery.disconnect()
         cameraEngine.release()
         cameraSessionRecorder.release()
         gnssLocationManager.release()

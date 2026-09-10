@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Sensors
@@ -30,6 +31,7 @@ import com.bajajauto.roadsense.recording.SessionRecordingState
 import com.bajajauto.roadsense.ui.components.LiveMetricsBar
 import com.bajajauto.roadsense.ui.components.TopSessionHeader
 import com.bajajauto.roadsense.ui.screens.CameraDashboardCard
+import com.bajajauto.roadsense.ui.screens.CanedgeDashboardCard
 import com.bajajauto.roadsense.ui.screens.GnssDashboardCard
 import com.bajajauto.roadsense.ui.screens.RadarDashboardCard
 import com.bajajauto.roadsense.ui.screens.SessionDeckCard
@@ -60,6 +62,7 @@ enum class CockpitTab(val title: String, val icon: ImageVector) {
     RADAR("Radar", Icons.Default.Sensors),
     GNSS("GNSS", Icons.Default.MyLocation),
     CAMERA("Camera", Icons.Default.Videocam),
+    CANEDGE("CANedge", Icons.Default.DirectionsCar),
     SESSION("Storage", Icons.Default.Folder)
 }
 
@@ -90,6 +93,8 @@ fun RoadSenseCockpitScreen(
     val gnssHz by viewModel.gnssHz.collectAsState()
     val batteryPct by viewModel.batteryPct.collectAsState()
     val batteryTempC by viewModel.batteryTempC.collectAsState()
+    val cpuUsagePct by viewModel.cpuUsagePct.collectAsState()
+    val cpuTempC by viewModel.cpuTempC.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
     val tabs = CockpitTab.values()
@@ -107,7 +112,7 @@ fun RoadSenseCockpitScreen(
             .fillMaxSize()
             .padding(top = if (isLandscape) 1.dp else 4.dp)
     ) {
-        // High-Density Live Telemetry Ticker (Sensors Hz, GNSS Lock, Battery & Temp)
+        // High-Density Live Telemetry Ticker (Sensors Hz, GNSS Lock, Battery, CPU & Temp)
         Box(modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp, vertical = 2.dp)) {
             LiveMetricsBar(
                 radarHz = radarHz,
@@ -115,7 +120,9 @@ fun RoadSenseCockpitScreen(
                 gnssHz = gnssHz,
                 latestFix = latestGnssFix,
                 batteryPct = batteryPct,
-                batteryTempC = batteryTempC
+                batteryTempC = batteryTempC,
+                cpuUsagePct = cpuUsagePct,
+                cpuTempC = cpuTempC
             )
         }
 
@@ -292,6 +299,11 @@ fun RoadSenseCockpitScreen(
                     CameraDashboardCard(
                         viewModel = viewModel,
                         isCurrentTab = pagerState.currentPage == page
+                    )
+                }
+                CockpitTab.CANEDGE -> {
+                    CanedgeDashboardCard(
+                        viewModel = viewModel
                     )
                 }
                 CockpitTab.SESSION -> {

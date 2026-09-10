@@ -24,7 +24,18 @@ class AppPreferences(context: Context) {
         private const val KEY_CAMERA_RES = "camera_resolution"
         private const val KEY_CAMERA_FPS = "camera_fps"
         private const val KEY_CAMERA_LENS_ID = "camera_lens_id"
+
+        private const val KEY_CANEDGE_LAST_IP = "canedge_last_ip"
+        private const val KEY_CANEDGE_DEVICE_ID = "canedge_device_id"
     }
+
+    var canedgeLastIp: String
+        get() = prefs.getString(KEY_CANEDGE_LAST_IP, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_CANEDGE_LAST_IP, value).apply()
+
+    var canedgeDeviceId: String
+        get() = prefs.getString(KEY_CANEDGE_DEVICE_ID, "7AC5E17F") ?: "7AC5E17F"
+        set(value) = prefs.edit().putString(KEY_CANEDGE_DEVICE_ID, value).apply()
 
     var radarMaxRange: Float
         get() = prefs.getFloat(KEY_RADAR_MAX_RANGE, 30f)

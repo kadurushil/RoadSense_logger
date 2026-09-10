@@ -29,6 +29,8 @@ fun LiveMetricsBar(
     latestFix: GnssFix?,
     batteryPct: Int,
     batteryTempC: Float,
+    cpuUsagePct: Int = 0,
+    cpuTempC: Float? = null,
     modifier: Modifier = Modifier
 ) {
     val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -88,8 +90,18 @@ fun LiveMetricsBar(
                     }
                 }
 
-                // Battery & Device Thermal
-                BatteryTempBadge(batteryPct = batteryPct, batteryTempC = batteryTempC)
+                // Battery & Device Thermal & CPU
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    MetricPill(
+                        label = "CPU",
+                        value = if (cpuTempC != null) "$cpuUsagePct% ${"%.0f".format(cpuTempC)}°C" else "$cpuUsagePct%",
+                        color = if (cpuUsagePct > 80) Color(0xFFFF5252) else if (cpuUsagePct > 40) Color(0xFFFFB300) else Color(0xFF00E676)
+                    )
+                    BatteryTempBadge(batteryPct = batteryPct, batteryTempC = batteryTempC)
+                }
             }
         } else {
             // --- PORTRAIT: Exactly two compact rows under each other ---
@@ -122,14 +134,14 @@ fun LiveMetricsBar(
                     )
                 }
 
-                // Line 2: GNSS precision & Battery / Thermals
+                // Line 2: GNSS precision & CPU & Battery / Thermals
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         MetricPill(
@@ -146,7 +158,17 @@ fun LiveMetricsBar(
                         }
                     }
 
-                    BatteryTempBadge(batteryPct = batteryPct, batteryTempC = batteryTempC)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        MetricPill(
+                            label = "CPU",
+                            value = if (cpuTempC != null) "$cpuUsagePct% ${"%.0f".format(cpuTempC)}°C" else "$cpuUsagePct%",
+                            color = if (cpuUsagePct > 80) Color(0xFFFF5252) else if (cpuUsagePct > 40) Color(0xFFFFB300) else Color(0xFF00E676)
+                        )
+                        BatteryTempBadge(batteryPct = batteryPct, batteryTempC = batteryTempC)
+                    }
                 }
             }
         }
