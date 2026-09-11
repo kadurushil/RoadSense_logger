@@ -169,9 +169,15 @@ class CanedgeIngestionManager(
                 continue
             }
 
-            // Filter for session window: If recording is active, ONLY ingest files belonging to this session
-            val belongsToActiveSession = targetSession != null &&
+            // Filter for session window:
+            // 1. If timestamp matches session start window (lastWrittenMs >= sessionStart - grace)
+            // 2. OR if file is in the highest-numbered session directory discovered on the device
+            val isFromLatestFolder = remoteFilesToProcess.isNotEmpty() &&
+                file.path.contains("/${remoteFilesToProcess.first().path.trim('/').split('/').dropLast(1).last()}/")
+            val isWithinTimeWindow = targetSession != null &&
                 file.lastWrittenMs >= (targetSession.startTimeWallMs - SESSION_WINDOW_GRACE_MS)
+
+            val belongsToActiveSession = targetSession != null && (isWithinTimeWindow || isFromLatestFolder)
 
             if (targetSession != null && !belongsToActiveSession) {
                 // Do not download old historical files into current session's folder
