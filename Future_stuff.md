@@ -1,4 +1,4 @@
-﻿# RoadSense: Future Enhancements & Pending Tasks Backlog
+# RoadSense: Future Enhancements & Pending Tasks Backlog
 
 > **Purpose:** Centralized roadmap and feature backlog for pending architectural upgrades, hardware integrations, and user experience enhancements across RoadSense.  
 > **Document Location:** `Future_stuff.md`  
@@ -65,3 +65,19 @@
 
 ### 3.2 GPS / Radar Dynamic Track Overlay on Video
 * Optional visual preview overlay projecting decoded radar bounding boxes and tracks directly onto the camera preview surface with microsecond alignment using shutter timestamps.
+
+---
+
+## 4. Post-Processing Pipeline & Python Visualizer Tasks
+
+### 4.1 Automated MF4 DBC Signal Decoding in Visualizer
+* **Current State:** MF4 files are downloaded and indexed into `sessions/<session>/can/`. The Python tool syncs them to the PC.
+* **Feature Requirement:**
+  * Integrate an MF4 decoder (`asammdf` / `cantools`) into `sync_and_process_sessions.py`.
+  * Decode CAN signals using vehicle DBC files (e.g. wheel speeds, steering angle, brake pressure, yaw rate).
+  * Align decoded CAN channels against radar frame timestamps using the shared monotonic clock in `session_timeline.csv`.
+
+### 4.2 Cross-Sensor Drift & Clock Jitter Diagnostic Script
+* **Feature Requirement:**
+  * Add a verification script in `tools/` that parses `session_timeline.csv` across all sensors (Radar, GNSS, Camera, CAN) and plots timestamp delta distributions.
+  * Detects missing packets, frame drops, or monotonic drift automatically after each drive test.
