@@ -27,6 +27,7 @@ import com.bajajauto.roadsense.canedge.ingestion.CanedgeIngestionManager
 import com.bajajauto.roadsense.canedge.model.CanedgeConnectionState
 import com.bajajauto.roadsense.canedge.model.CanedgeFile
 import com.bajajauto.roadsense.canedge.model.CanedgeSyncStats
+import com.bajajauto.roadsense.canedge.model.CanedgeUnifiedFileItem
 import com.bajajauto.roadsense.canedge.network.CanedgeHttpClient
 import com.bajajauto.roadsense.canedge.repository.CanedgeRepository
 import com.bajajauto.roadsense.recording.SessionManager
@@ -70,6 +71,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     val canedgeRemoteFiles: StateFlow<List<CanedgeFile>> = canedgeIngestionManager.remoteFiles
     val canedgeLocalSyncedFiles: StateFlow<List<File>> = canedgeIngestionManager.localSyncedFiles
     val canedgeLocalSessionFiles: StateFlow<List<File>> = canedgeIngestionManager.localSessionFiles
+    val canedgeUnifiedFiles: StateFlow<List<CanedgeUnifiedFileItem>> = canedgeIngestionManager.unifiedFiles
 
     val connectionState: StateFlow<RadarConnectionState> = connectionManager.connectionState
     val recordingState: StateFlow<RecordingState> = rawRecorder.recordingState

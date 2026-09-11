@@ -33,6 +33,7 @@ from datetime import datetime
 # Default paths
 DEFAULT_LOGS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
 DEVICE_SESSION_DIR = "/sdcard/Android/data/com.bajajauto.roadsense/files/sessions/"
+DEVICE_APP_LOGS_DIR = "/sdcard/Android/data/com.bajajauto.roadsense/files/app_logs/"
 
 # RoadSense binary framing constants
 ROAD_MAGIC = b"ROAD"
@@ -105,6 +106,16 @@ def sync_sessions_from_device(adb_path, local_logs_dir):
             print(f"    -> Pulling {s_name}...")
             pull_cmd = [adb_path, "-s", device_id, "pull", remote_path, local_logs_dir]
             subprocess.run(pull_cmd, check=True)
+
+        # Pull continuous app-wide diagnostics logs (app_logs/)
+        try:
+            local_app_logs_dir = os.path.join(local_logs_dir, "app_logs")
+            os.makedirs(local_app_logs_dir, exist_ok=True)
+            print(f"[+] Syncing continuous diagnostics logs from {DEVICE_APP_LOGS_DIR}...")
+            pull_app_logs_cmd = [adb_path, "-s", device_id, "pull", DEVICE_APP_LOGS_DIR, local_logs_dir]
+            subprocess.run(pull_app_logs_cmd, capture_output=True, text=True)
+        except Exception as e:
+            print(f"[-] Note: could not pull app_logs: {e}")
 
         print("[+] Device sync complete!")
         return True

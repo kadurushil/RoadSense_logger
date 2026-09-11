@@ -117,17 +117,18 @@ class CanedgeRepository(
         }
 
     /**
-     * Optimized session scan: Discovers only the latest session folder on the device
-     * under /LOG/<DEVICE_ID>/, avoiding scanning dozens of historical folders.
+     * Discovers MF4 log files across the top recent session folders on the device
+     * under /LOG/<DEVICE_ID>/ (e.g. top 5 folders descending).
+     * This captures power-cycled segments while avoiding scanning dozens of historical archives.
      */
-    suspend fun listLatestSessionMf4Files(device: CanedgeDevice): List<CanedgeFile> =
+    suspend fun listRecentSessionMf4Files(device: CanedgeDevice, maxFolders: Int = 5): List<CanedgeFile> =
         withContext(Dispatchers.IO) {
             val logEntries = listDirectory(device, "/LOG/")
             val deviceDir = logEntries.firstOrNull { it.isDirectory && (it.name.equals(device.deviceId, ignoreCase = true) || it.name.length == 8) }
             val targetDevicePath = deviceDir?.path ?: "/LOG/${device.deviceId}/"
 
             val sessionDirs = listDirectory(device, targetDevicePath)
-                .filter { it.isDirectory && !it.name.startsWith(".") }
+                .filter { it.isDirectory && !it.name.startsWith(".") && it.name.matches(Regex("\\d+")) }
                 .sortedByDescending { it.name }
 
             if (sessionDirs.isEmpty()) {
@@ -135,16 +136,25 @@ class CanedgeRepository(
                 return@withContext emptyList()
             }
 
-            // Inspect the latest session directory (and previous one if available)
+            val dirsToScan = sessionDirs.take(maxFolders)
             val files = mutableListOf<CanedgeFile>()
-            val dirsToScan = sessionDirs.take(2)
             for (dir in dirsToScan) {
-                val dirFiles = listDirectory(device, dir.path).filter { it.isMf4 }.sortedBy { it.name }
-                files.addAll(dirFiles)
+                try {
+                    val dirFiles = listDirectory(device, dir.path).filter { it.isMf4 }.sortedBy { it.name }
+                    files.addAll(dirFiles)
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Transient error scanning directory ${dir.path}: ${e.message}")
+                }
             }
-            AppLogger.i(TAG, "Targeted latest session scan (${dirsToScan.map { it.name }}): ${files.size} MF4 files found")
+            AppLogger.i(TAG, "Targeted recent session scan (${dirsToScan.map { it.name }}): ${files.size} MF4 files found")
             files
         }
+
+    /**
+     * Optimized session scan: Discovers only the latest 2 session folders on the device.
+     */
+    suspend fun listLatestSessionMf4Files(device: CanedgeDevice): List<CanedgeFile> =
+        listRecentSessionMf4Files(device, maxFolders = 2)
 
     /**
      * Determines whether an MF4 file is safe to download (i.e. not actively being written).

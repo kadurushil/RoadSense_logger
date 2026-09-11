@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
+import com.bajajauto.roadsense.logging.AppLogger
 import com.bajajauto.roadsense.recording.SessionRecordingState
 import com.bajajauto.roadsense.ui.components.LiveMetricsBar
 import com.bajajauto.roadsense.ui.components.TopSessionHeader
@@ -44,6 +45,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppLogger.initAppLogging(applicationContext)
+        AppLogger.i("MainActivity", "RoadSense started. App run diagnostics logging initialized.")
         enableEdgeToEdge()
         setContent {
             RoadSenseTheme {
@@ -55,6 +58,12 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onDestroy() {
+        AppLogger.i("MainActivity", "RoadSense onDestroy. Closing app run log.")
+        AppLogger.closeAppLogging()
+        super.onDestroy()
     }
 }
 

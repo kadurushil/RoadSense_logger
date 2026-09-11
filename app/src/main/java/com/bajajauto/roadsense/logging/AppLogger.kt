@@ -1,4 +1,4 @@
-﻿package com.bajajauto.roadsense.logging
+package com.bajajauto.roadsense.logging
 
 import android.util.Log
 import java.io.BufferedWriter
@@ -20,6 +20,8 @@ import java.util.concurrent.ConcurrentLinkedQueue
 object AppLogger {
 
     private const val MAX_RING_BUFFER_SIZE = 500
+    private const val MAX_APP_RUN_RETENTION_DAYS = 5
+    private const val MAX_APP_RUN_DIRS = 10
 
     data class LogEntry(
         val timestampMs: Long,
@@ -33,10 +35,123 @@ object AppLogger {
     private val lock = Any()
 
     @Volatile
+    private var appLogWriter: BufferedWriter? = null
+
+    @Volatile
+    private var currentAppRunDir: File? = null
+
+    @Volatile
     private var activeWriter: BufferedWriter? = null
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).apply {
         timeZone = TimeZone.getDefault()
+    }
+
+    private val runStampFormat = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).apply {
+        timeZone = TimeZone.getDefault()
+    }
+
+    /**
+     * Initializes continuous app-wide flight recorder logging upon application start.
+     * Creates: app_logs/app_run_YYYYMMDD_HHMMSS/app_system.log
+     * Auto-prunes older run folders exceeding retention limits.
+     */
+    fun initAppLogging(context: android.content.Context) {
+        synchronized(lock) {
+            if (appLogWriter != null) return // Already initialized
+
+            try {
+                val externalFiles = context.getExternalFilesDir(null) ?: context.filesDir
+                val appLogsBaseDir = File(externalFiles, "app_logs").apply { mkdirs() }
+
+                // 1. Auto-prune stale app runs
+                pruneOldAppRuns(appLogsBaseDir)
+
+                // 2. Create timestamped run directory
+                val runStamp = runStampFormat.format(Date())
+                val runDir = File(appLogsBaseDir, "app_run_$runStamp").apply { mkdirs() }
+                currentAppRunDir = runDir
+
+                val logFile = File(runDir, "app_system.log")
+                val writer = BufferedWriter(FileWriter(logFile, true))
+
+                // 3. Write diagnostic run header
+                val nowStr = dateFormat.format(Date())
+                writer.write("===========================================================================\n")
+                writer.write("RoadSense Continuous Diagnostics Flight Recorder\n")
+                writer.write("App Run: app_run_$runStamp\n")
+                writer.write("Started At: $nowStr\n")
+                writer.write("Package: ${context.packageName}\n")
+                writer.write("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.RELEASE}, API ${android.os.Build.VERSION.SDK_INT})\n")
+                writer.write("Log File: ${logFile.absolutePath}\n")
+                writer.write("===========================================================================\n\n")
+
+                // 4. Flush any pre-init ring buffer entries
+                if (ringBuffer.isNotEmpty()) {
+                    writer.write("--- PRE-INIT LOG ENTRIES ---\n")
+                    for (entry in ringBuffer) {
+                        writer.write(formatEntry(entry))
+                        writer.newLine()
+                    }
+                    writer.write("--- CONTINUOUS LOGGING ACTIVE ---\n\n")
+                }
+                writer.flush()
+
+                appLogWriter = writer
+                Log.i("AppLogger", "Continuous app-wide diagnostics logging initialized: ${logFile.absolutePath}")
+            } catch (e: Exception) {
+                Log.e("AppLogger", "Failed to initialize continuous app logging", e)
+            }
+        }
+    }
+
+    /**
+     * Closes the continuous app run log writer upon app shutdown.
+     */
+    fun closeAppLogging() {
+        synchronized(lock) {
+            appLogWriter?.let { writer ->
+                try {
+                    writer.write("\n===========================================================================\n")
+                    writer.write("RoadSense App Run Closed At: ${dateFormat.format(Date())}\n")
+                    writer.write("===========================================================================\n")
+                    writer.flush()
+                    writer.close()
+                } catch (e: Exception) {
+                    Log.e("AppLogger", "Error closing app log writer", e)
+                } finally {
+                    appLogWriter = null
+                }
+            }
+        }
+    }
+
+    /**
+     * Returns the current app run directory, if initialized.
+     */
+    fun getCurrentAppRunDir(): File? = currentAppRunDir
+
+    private fun pruneOldAppRuns(baseDir: File) {
+        try {
+            val runDirs = baseDir.listFiles { f -> f.isDirectory && f.name.startsWith("app_run_") }
+                ?.sortedBy { it.lastModified() }
+                ?: return
+
+            val now = System.currentTimeMillis()
+            val maxAgeMs = MAX_APP_RUN_RETENTION_DAYS * 24L * 60L * 60L * 1000L
+
+            for (dir in runDirs) {
+                val isExpired = (now - dir.lastModified()) > maxAgeMs
+                val exceedsDirCount = (runDirs.size - runDirs.indexOf(dir)) > MAX_APP_RUN_DIRS
+
+                if (isExpired || exceedsDirCount) {
+                    Log.i("AppLogger", "Pruning old app run logs: ${dir.name}")
+                    dir.deleteRecursively()
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("AppLogger", "Failed during app runs pruning: ${e.message}")
+        }
     }
 
     fun v(tag: String, message: String) = log("VERBOSE", tag, message)
@@ -73,11 +188,24 @@ object AppLogger {
             ringBuffer.poll()
         }
 
-        // 3. Active Session File Writer (if recording)
+        // 3. Write to Continuous App Log and/or Active Session Log
         synchronized(lock) {
+            val formatted = formatEntry(entry)
+
+            // Continuous App Log
+            appLogWriter?.let { writer ->
+                try {
+                    writer.write(formatted)
+                    writer.newLine()
+                    writer.flush()
+                } catch (e: Exception) {
+                    Log.e("AppLogger", "Failed to write to app_system.log", e)
+                }
+            }
+
+            // Active Recording Session Log
             activeWriter?.let { writer ->
                 try {
-                    val formatted = formatEntry(entry)
                     writer.write(formatted)
                     writer.newLine()
                     writer.flush()

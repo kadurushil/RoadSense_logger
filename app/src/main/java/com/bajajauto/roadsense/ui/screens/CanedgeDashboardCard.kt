@@ -4,8 +4,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Wifi
@@ -20,6 +18,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.canedge.model.CanedgeConnectionState
+import com.bajajauto.roadsense.canedge.model.CanedgeFileStatus
+import com.bajajauto.roadsense.canedge.model.CanedgeSyncStats
+import com.bajajauto.roadsense.canedge.model.CanedgeUnifiedFileItem
 import com.bajajauto.roadsense.ui.RadarViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -27,8 +28,8 @@ import java.util.Locale
 
 /**
  * Dedicated CANedge2 Hardware Dashboard Card:
- * Displays connection state, device ID, resolved IP, remote/local sync stats,
- * and controls for discovery and manual sync triggers.
+ * Displays connection state, device ID, resolved IP, planned vs synced ratios with progress bars,
+ * post-recording staging telemetry, and unified OneDrive-style file explorer.
  */
 @Composable
 fun CanedgeDashboardCard(
@@ -38,6 +39,8 @@ fun CanedgeDashboardCard(
     val scrollState = rememberScrollState()
     val connectionState by viewModel.canedgeConnectionState.collectAsState()
     val syncStats by viewModel.canedgeSyncStats.collectAsState()
+    val unifiedFiles by viewModel.canedgeUnifiedFiles.collectAsState()
+    var showExplorerModal by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -122,112 +125,174 @@ fun CanedgeDashboardCard(
             }
         }
 
-        // Dialog / Inspection State
-        var activeModal by remember { mutableStateOf<CanedgeInspectModal?>(null) }
-        val remoteFiles by viewModel.canedgeRemoteFiles.collectAsState()
-        val localSyncedFiles by viewModel.canedgeLocalSyncedFiles.collectAsState()
-        val localSessionFiles by viewModel.canedgeLocalSessionFiles.collectAsState()
-
-        // Three-Metric Cockpit Row (On Device, Total Synced, This Session) - Clickable for Inspection
+        // Three-Metric Cockpit Row: TARGET SCOPE, SYNC STATUS, THIS SESSION (No emojis, with clean progress bars)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            // Card 1: TARGET SCOPE (Planned files in top 5 folders)
             Card(
                 modifier = Modifier.weight(1f),
-                onClick = { activeModal = CanedgeInspectModal.OnDevice },
+                onClick = { showExplorerModal = true },
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Column(
-                    modifier = Modifier.padding(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier.padding(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(text = "ON DEVICE 🔍", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
-                        text = "${syncStats.totalFilesOnDevice}",
-                        fontSize = 22.sp,
+                        text = "TARGET SCOPE",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "${syncStats.targetScopeFiles}",
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.primary
                     )
-                    Text(text = "tap to view tree", fontSize = 9.sp, color = MaterialTheme.colorScheme.outline)
+                    Text(
+                        text = "top 5 folders",
+                        fontSize = 9.sp,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                 }
             }
 
+            // Card 2: SYNC STATUS (Planned vs Synced Ratio with Progress Bar)
             Card(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1.15f),
                 onClick = {
                     viewModel.canedgeIngestionManager.refreshLocalFileList()
-                    activeModal = CanedgeInspectModal.Synced
+                    showExplorerModal = true
                 },
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Column(
-                    modifier = Modifier.padding(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier.padding(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(text = "SYNCED 🔍", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
-                        text = "${syncStats.totalSyncedFiles}",
-                        fontSize = 22.sp,
+                        text = "SYNC STATUS",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = if (syncStats.targetScopeFiles > 0) {
+                            "${syncStats.poolSyncedFiles} / ${syncStats.targetScopeFiles}"
+                        } else if (syncStats.poolSyncedFiles > 0) {
+                            "${syncStats.poolSyncedFiles} files"
+                        } else {
+                            "-- / --"
+                        },
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.secondary
+                        color = if (syncStats.targetScopeFiles > 0 && syncStats.poolSyncedFiles >= syncStats.targetScopeFiles) {
+                            Color(0xFF4CAF50)
+                        } else {
+                            MaterialTheme.colorScheme.secondary
+                        }
                     )
-                    Text(text = "tap to view files", fontSize = 9.sp, color = MaterialTheme.colorScheme.outline)
+
+                    if (syncStats.targetScopeFiles > 0) {
+                        val progress = (syncStats.poolSyncedFiles.toFloat() / syncStats.targetScopeFiles.toFloat()).coerceIn(0f, 1f)
+                        LinearProgressIndicator(
+                            progress = { progress },
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            color = if (progress >= 1f) Color(0xFF4CAF50) else MaterialTheme.colorScheme.secondary
+                        )
+                    }
+
+                    Text(
+                        text = when {
+                            syncStats.targetScopeFiles > 0 && syncStats.poolSyncedFiles >= syncStats.targetScopeFiles -> "All up to date"
+                            syncStats.isSyncing -> "Syncing to pool..."
+                            syncStats.targetScopeFiles > 0 -> "${syncStats.targetScopeFiles - syncStats.poolSyncedFiles} pending"
+                            else -> "in local pool"
+                        },
+                        fontSize = 9.sp,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                 }
             }
 
+            // Card 3: THIS SESSION (Files Staged with Post-Recording Finalizing Progress Bar)
             Card(
                 modifier = Modifier.weight(1f),
                 onClick = {
                     viewModel.canedgeIngestionManager.refreshLocalFileList()
-                    activeModal = CanedgeInspectModal.Session
+                    showExplorerModal = true
                 },
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 Column(
-                    modifier = Modifier.padding(12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    modifier = Modifier.padding(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(text = "SESSION 🔍", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(
-                        text = "${syncStats.currentSessionFiles}",
-                        fontSize = 22.sp,
+                        text = "THIS SESSION",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Text(
+                        text = if (syncStats.sessionTargetFiles > 0) {
+                            "${syncStats.currentSessionFiles} / ${syncStats.sessionTargetFiles}"
+                        } else if (syncStats.currentSessionFiles > 0) {
+                            "${syncStats.currentSessionFiles} files"
+                        } else {
+                            "--"
+                        },
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
-                        color = if (syncStats.currentSessionFiles > 0) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurfaceVariant
+                        color = when {
+                            syncStats.isFinalizingSession -> MaterialTheme.colorScheme.tertiary
+                            syncStats.currentSessionFiles > 0 -> Color(0xFF4CAF50)
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
                     )
-                    Text(text = "tap to view session", fontSize = 9.sp, color = MaterialTheme.colorScheme.outline)
+
+                    if (syncStats.sessionTargetFiles > 0) {
+                        val sessionProgress = (syncStats.currentSessionFiles.toFloat() / syncStats.sessionTargetFiles.toFloat()).coerceIn(0f, 1f)
+                        LinearProgressIndicator(
+                            progress = { sessionProgress },
+                            modifier = Modifier.fillMaxWidth().height(4.dp),
+                            color = if (sessionProgress >= 1f) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+                        )
+                    }
+
+                    Text(
+                        text = when {
+                            syncStats.isFinalizingSession -> "Finalizing drive..."
+                            syncStats.sessionTargetFiles > 0 && syncStats.currentSessionFiles >= syncStats.sessionTargetFiles -> "Staging complete"
+                            syncStats.currentSessionFiles > 0 -> "staged to drive"
+                            else -> "idle / waiting"
+                        },
+                        fontSize = 9.sp,
+                        color = MaterialTheme.colorScheme.outline
+                    )
                 }
             }
         }
 
-        // Render Inspector Dialog
-        when (activeModal) {
-            CanedgeInspectModal.OnDevice -> {
-                OnDeviceFilesDialog(
-                    remoteFiles = remoteFiles,
-                    onDismiss = { activeModal = null }
-                )
-            }
-            CanedgeInspectModal.Synced -> {
-                LocalFilesDialog(
-                    title = "Locally Cached CAN Files (${localSyncedFiles.size})",
-                    subtitle = "Stored in local RoadSense storage pool",
-                    files = localSyncedFiles,
-                    onDismiss = { activeModal = null }
-                )
-            }
-            CanedgeInspectModal.Session -> {
-                LocalFilesDialog(
-                    title = "Current Session CAN Files (${localSessionFiles.size})",
-                    subtitle = "Recorded in active session's 'can/' folder",
-                    files = localSessionFiles,
-                    onDismiss = { activeModal = null }
-                )
-            }
-            null -> Unit
+        // Render Unified File Explorer Dialog
+        if (showExplorerModal) {
+            CanedgeUnifiedFileExplorerDialog(
+                unifiedFiles = unifiedFiles,
+                stats = syncStats,
+                onSyncClick = { viewModel.triggerCanedgeSync() },
+                onPruneClick = { viewModel.canedgeIngestionManager.pruneStagingPool() },
+                onDismiss = { showExplorerModal = false }
+            )
         }
 
         // Action Buttons Row
@@ -263,7 +328,7 @@ fun CanedgeDashboardCard(
 
             Button(
                 onClick = { viewModel.triggerCanedgeSync() },
-                enabled = connectionState is CanedgeConnectionState.Connected && !syncStats.isSyncing,
+                enabled = connectionState is CanedgeConnectionState.Connected && !syncStats.isSyncing && !syncStats.isFinalizingSession,
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
             ) {
@@ -307,8 +372,8 @@ fun CanedgeDashboardCard(
                 DetailRow(label = "Configured Device ID", value = device?.deviceId ?: "7AC5E17F")
                 DetailRow(label = "Resolved IP Address", value = device?.ipAddress ?: "Unassigned")
                 DetailRow(label = "Web Server Base URL", value = device?.apiBaseUrl ?: "http://.../api/")
-                DetailRow(label = "Logging Mode", value = "Cyclic 10s Split (MF4)")
-                DetailRow(label = "CAN Physical Mode", value = "CAN1 @ 500 kbit/s (RX)")
+                DetailRow(label = "Staging Pool Directory", value = "sessions/canedge_pool/")
+                DetailRow(label = "Target Scope", value = "Top 5 Session Folders")
                 DetailRow(
                     label = "Last Sync Event",
                     value = if (syncStats.lastSyncTimeMs > 0) {
@@ -319,7 +384,7 @@ fun CanedgeDashboardCard(
                 if (syncStats.lastError != null) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Last Sync Notice: ${syncStats.lastError}",
+                        text = "Notice: ${syncStats.lastError}",
                         fontSize = 11.sp,
                         color = MaterialTheme.colorScheme.error,
                         fontFamily = FontFamily.Monospace
@@ -343,45 +408,43 @@ private fun DetailRow(label: String, value: String) {
 }
 
 /**
- * Modal states for metric card inspection.
+ * Unified CANedge File Explorer Dialog:
+ * Shows hierarchical folder view with OneDrive-style sync status badges.
  */
-private enum class CanedgeInspectModal {
-    OnDevice,
-    Synced,
-    Session
-}
-
 @Composable
-private fun OnDeviceFilesDialog(
-    remoteFiles: List<com.bajajauto.roadsense.canedge.model.CanedgeFile>,
+private fun CanedgeUnifiedFileExplorerDialog(
+    unifiedFiles: List<CanedgeUnifiedFileItem>,
+    stats: CanedgeSyncStats,
+    onSyncClick: () -> Unit,
+    onPruneClick: () -> Unit,
     onDismiss: () -> Unit
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text(text = "CANedge Remote SD Card Files (${remoteFiles.size})", style = MaterialTheme.typography.titleMedium)
-                Text(text = "Grouped by session directory under /LOG/", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+                Text(text = "CANedge File Explorer", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Scope: ${stats.targetScopeFiles} | Pool: ${stats.poolSyncedFiles} | Session: ${stats.currentSessionFiles}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                    fontFamily = FontFamily.Monospace
+                )
             }
         },
         text = {
-            if (remoteFiles.isEmpty()) {
+            if (unifiedFiles.isEmpty()) {
                 Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                     Text("No files discovered yet. Connect to device and tap Sync.", color = MaterialTheme.colorScheme.outline, fontSize = 13.sp)
                 }
             } else {
-                // Group by parent folder name (e.g. 00000041, 00000040)
-                val grouped = remoteFiles.groupBy { file ->
-                    val parts = file.path.trim('/').split('/')
-                    if (parts.size >= 2) parts[parts.size - 2] else "ROOT"
-                }.toSortedMap(compareByDescending { it })
-
+                val grouped = unifiedFiles.groupBy { it.folderName }.toSortedMap(compareByDescending { it })
                 val latestDir = grouped.keys.firstOrNull()
 
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 420.dp)
+                        .heightIn(max = 440.dp)
                         .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -389,57 +452,100 @@ private fun OnDeviceFilesDialog(
                         val isLatest = dirName == latestDir
                         Card(
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isLatest) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                containerColor = if (isLatest) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                             ),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "📁 $dirName/",
+                                        text = "$dirName/",
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp,
                                         fontFamily = FontFamily.Monospace,
                                         color = if (isLatest) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                                     )
-                                    if (isLatest) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.primary,
-                                            shape = MaterialTheme.shapes.extraSmall
-                                        ) {
-                                            Text(
-                                                text = "LATEST / ACTIVE",
-                                                color = MaterialTheme.colorScheme.onPrimary,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                }
-
-                                filesInDir.forEach { file ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(start = 12.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            text = "📄 ${file.name}",
-                                            fontSize = 12.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                        Text(
-                                            text = "${"%.1f".format(file.sizeBytes / 1024f)} KB",
+                                            text = "${filesInDir.size} files",
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.outline,
                                             fontFamily = FontFamily.Monospace
                                         )
+                                        if (isLatest) {
+                                            Surface(
+                                                color = MaterialTheme.colorScheme.primary,
+                                                shape = MaterialTheme.shapes.extraSmall
+                                            ) {
+                                                Text(
+                                                    text = "LATEST",
+                                                    color = MaterialTheme.colorScheme.onPrimary,
+                                                    fontSize = 9.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                filesInDir.forEach { item ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(start = 6.dp, top = 2.dp, bottom = 2.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = item.file.name,
+                                                fontSize = 12.sp,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                            Text(
+                                                text = "${"%.1f".format(item.file.sizeBytes / 1024f)} KB",
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.outline,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+
+                                        // OneDrive-style Status Column Badge
+                                        Surface(
+                                            color = when (item.status) {
+                                                CanedgeFileStatus.IN_SESSION -> Color(0xFF4CAF50).copy(alpha = 0.2f)
+                                                CanedgeFileStatus.IN_POOL -> MaterialTheme.colorScheme.secondary.copy(alpha = 0.2f)
+                                                CanedgeFileStatus.SYNCING -> MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                                CanedgeFileStatus.REMOTE_ONLY -> MaterialTheme.colorScheme.surfaceVariant
+                                            },
+                                            shape = MaterialTheme.shapes.extraSmall
+                                        ) {
+                                            Text(
+                                                text = when (item.status) {
+                                                    CanedgeFileStatus.IN_SESSION -> "IN SESSION"
+                                                    CanedgeFileStatus.IN_POOL -> "IN POOL"
+                                                    CanedgeFileStatus.SYNCING -> "SYNCING"
+                                                    CanedgeFileStatus.REMOTE_ONLY -> "ON DEVICE"
+                                                },
+                                                color = when (item.status) {
+                                                    CanedgeFileStatus.IN_SESSION -> Color(0xFF2E7D32)
+                                                    CanedgeFileStatus.IN_POOL -> MaterialTheme.colorScheme.secondary
+                                                    CanedgeFileStatus.SYNCING -> MaterialTheme.colorScheme.primary
+                                                    CanedgeFileStatus.REMOTE_ONLY -> MaterialTheme.colorScheme.outline
+                                                },
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                fontFamily = FontFamily.Monospace,
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -452,78 +558,15 @@ private fun OnDeviceFilesDialog(
             TextButton(onClick = onDismiss) {
                 Text("Close")
             }
-        }
-    )
-}
-
-@Composable
-private fun LocalFilesDialog(
-    title: String,
-    subtitle: String,
-    files: List<java.io.File>,
-    onDismiss: () -> Unit
-) {
-    val sdf = remember { SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Column {
-                Text(text = title, style = MaterialTheme.typography.titleMedium)
-                Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-            }
         },
-        text = {
-            if (files.isEmpty()) {
-                Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    Text("No local files available in this storage directory.", color = MaterialTheme.colorScheme.outline, fontSize = 13.sp)
+        dismissButton = {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                TextButton(onClick = onPruneClick) {
+                    Text("Prune Pool", fontSize = 11.sp)
                 }
-            } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 420.dp)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    files.forEach { file ->
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = file.name,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 12.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                    Text(
-                                        text = sdf.format(Date(file.lastModified())),
-                                        fontSize = 10.sp,
-                                        color = MaterialTheme.colorScheme.outline
-                                    )
-                                }
-                                Text(
-                                    text = "${"%.1f".format(file.length() / 1024f)} KB",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-                    }
+                TextButton(onClick = onSyncClick) {
+                    Text("Sync Now", fontSize = 11.sp)
                 }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Close")
             }
         }
     )
