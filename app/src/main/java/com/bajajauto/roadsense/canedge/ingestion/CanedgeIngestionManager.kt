@@ -49,11 +49,43 @@ class CanedgeIngestionManager(
     private val _stats = MutableStateFlow(CanedgeSyncStats())
     val stats: StateFlow<CanedgeSyncStats> = _stats.asStateFlow()
 
+    // Reactive lists for UI drill-down dialogs
+    private val _remoteFiles = MutableStateFlow<List<CanedgeFile>>(emptyList())
+    val remoteFiles: StateFlow<List<CanedgeFile>> = _remoteFiles.asStateFlow()
+
+    private val _localSyncedFiles = MutableStateFlow<List<File>>(emptyList())
+    val localSyncedFiles: StateFlow<List<File>> = _localSyncedFiles.asStateFlow()
+
+    private val _localSessionFiles = MutableStateFlow<List<File>>(emptyList())
+    val localSessionFiles: StateFlow<List<File>> = _localSessionFiles.asStateFlow()
+
     // Tracks set of already downloaded remote paths to prevent duplicate downloads
     private val downloadedPaths = mutableSetOf<String>()
 
     @Volatile
     private var activeSession: SessionInfo? = null
+
+    init {
+        refreshLocalFileList()
+    }
+
+    /**
+     * Refreshes the local file lists for cached and active session files.
+     */
+    fun refreshLocalFileList() {
+        val cacheDir = File(sessionManager.sessionsBaseDir, "canedge_cache")
+        val cached = if (cacheDir.exists()) {
+            cacheDir.listFiles { f -> f.isFile && f.name.endsWith(".mf4", ignoreCase = true) }?.toList() ?: emptyList()
+        } else emptyList()
+
+        val sessionCanDir = activeSession?.let { File(it.sessionDir, CAN_DIR_NAME) }
+        val sessionFiles = if (sessionCanDir != null && sessionCanDir.exists()) {
+            sessionCanDir.listFiles { f -> f.isFile && f.name.endsWith(".mf4", ignoreCase = true) }?.toList() ?: emptyList()
+        } else emptyList()
+
+        _localSyncedFiles.value = (cached + sessionFiles).distinctBy { it.name }.sortedByDescending { it.lastModified() }
+        _localSessionFiles.value = sessionFiles.sortedByDescending { it.lastModified() }
+    }
 
     /**
      * Attaches an active RoadSense recording session and launches background polling.
@@ -62,6 +94,7 @@ class CanedgeIngestionManager(
     fun onSessionStarted(sessionInfo: SessionInfo) {
         activeSession = sessionInfo
         _stats.update { it.copy(currentSessionFiles = 0) }
+        refreshLocalFileList()
         AppLogger.i(TAG, "Attached to active session: ${sessionInfo.sessionId} (startWallMs=${sessionInfo.startTimeWallMs})")
 
         startPolling()
@@ -79,6 +112,7 @@ class CanedgeIngestionManager(
         scope.launch {
             delay(1500) // Brief delay to give CANedge time to flush current split if needed
             triggerSync()
+            refreshLocalFileList()
             activeSession = null
         }
     }
@@ -147,7 +181,12 @@ class CanedgeIngestionManager(
         }
 
         if (targetSession == null) {
+            _remoteFiles.value = remoteFilesToProcess
             _stats.update { it.copy(totalFilesOnDevice = remoteFilesToProcess.size) }
+        } else {
+            // Keep remoteFiles updated with the latest session files
+            val existing = _remoteFiles.value
+            _remoteFiles.value = (remoteFilesToProcess + existing).distinctBy { it.path }
         }
 
         val targetDir = if (targetSession != null) {
@@ -253,6 +292,7 @@ class CanedgeIngestionManager(
             }
         }
 
+        refreshLocalFileList()
         AppLogger.i(TAG, "Sync cycle complete. Ingested $newFilesCount new files.")
     }
 }
