@@ -341,7 +341,11 @@ class CameraEngine(private val context: Context) {
     /**
      * Detaches preview surface when the user swipes away to another tab to save battery.
      */
-    fun detachPreviewSurface() {
+    fun detachPreviewSurface(surfaceTexture: SurfaceTexture? = null) {
+        if (surfaceTexture != null && previewSurfaceTexture != null && previewSurfaceTexture !== surfaceTexture) {
+            AppLogger.d(TAG, "Ignoring detachPreviewSurface for stale surfaceTexture")
+            return
+        }
         AppLogger.i(TAG, "Detaching preview surface (user swiped away or paused)")
         isPreviewActive = false
         previewSurface?.release()
@@ -366,7 +370,7 @@ class CameraEngine(private val context: Context) {
             return
         }
 
-        if (cameraDevice != null) return
+        if (cameraDevice != null || _engineState.value is CameraEngineState.Opening) return
 
         try {
             val targetCameraId = _selectedCamera.value?.id
@@ -382,6 +386,13 @@ class CameraEngine(private val context: Context) {
             _engineState.value = CameraEngineState.Opening
             cameraManager.openCamera(targetCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
+                    if (!isPreviewActive && !isRecordingVideo) {
+                        AppLogger.i(TAG, "Camera opened after preview was cancelled; closing immediately")
+                        camera.close()
+                        cameraDevice = null
+                        _engineState.value = CameraEngineState.Closed
+                        return
+                    }
                     cameraDevice = camera
                     AppLogger.i(TAG, "CameraDevice onOpened: id=${camera.id}")
                     createCaptureSession()

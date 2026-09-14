@@ -74,8 +74,20 @@ fun CameraDashboardCard(
     val windowManager = remember { context.getSystemService(Context.WINDOW_SERVICE) as WindowManager }
     val displayRotation = windowManager.defaultDisplay.rotation
 
+    // Settle delay: avoid touching Camera2 hardware during rapid tab transitions
+    var isSettledPreviewActive by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isCurrentTab, isPreviewMutedByUser) {
+        if (isCurrentTab && !isPreviewMutedByUser) {
+            kotlinx.coroutines.delay(250)
+            isSettledPreviewActive = true
+        } else {
+            isSettledPreviewActive = false
+        }
+    }
+
     // Effect: Detach preview surface when swiped away from Camera tab or muted by user
-    val shouldRenderPreview = isCurrentTab && !isPreviewMutedByUser && hasCameraPermission
+    val shouldRenderPreview = isSettledPreviewActive && hasCameraPermission
     DisposableEffect(shouldRenderPreview) {
         onDispose {
             if (!shouldRenderPreview) {
@@ -116,7 +128,7 @@ fun CameraDashboardCard(
                                     }
 
                                     override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                                        viewModel.cameraEngine.detachPreviewSurface()
+                                        viewModel.cameraEngine.detachPreviewSurface(surface)
                                         return true
                                     }
 
@@ -137,6 +149,7 @@ fun CameraDashboardCard(
                     ViewfinderPlaceholder(
                         hasPermission = hasCameraPermission,
                         isMuted = isPreviewMutedByUser,
+                        isSettling = isCurrentTab && !isPreviewMutedByUser && !isSettledPreviewActive,
                         onGrantPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
                         onResume = { viewModel.setCameraPreviewMuted(false) }
                     )
@@ -254,7 +267,7 @@ fun CameraDashboardCard(
                                         }
 
                                         override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                                            viewModel.cameraEngine.detachPreviewSurface()
+                                            viewModel.cameraEngine.detachPreviewSurface(surface)
                                             return true
                                         }
 
@@ -275,6 +288,7 @@ fun CameraDashboardCard(
                         ViewfinderPlaceholder(
                             hasPermission = hasCameraPermission,
                             isMuted = isPreviewMutedByUser,
+                            isSettling = isCurrentTab && !isPreviewMutedByUser && !isSettledPreviewActive,
                             onGrantPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
                             onResume = { viewModel.setCameraPreviewMuted(false) }
                         )
@@ -552,6 +566,7 @@ private fun CameraSyncSpecCard() {
 private fun ViewfinderPlaceholder(
     hasPermission: Boolean,
     isMuted: Boolean,
+    isSettling: Boolean = false,
     onGrantPermission: () -> Unit,
     onResume: () -> Unit
 ) {
@@ -561,7 +576,12 @@ private fun ViewfinderPlaceholder(
         modifier = Modifier.padding(16.dp)
     ) {
         Text(
-            text = if (!hasPermission) "Camera Permission Required" else if (isMuted) "Viewfinder Paused by User" else "Viewfinder Inactive",
+            text = when {
+                !hasPermission -> "Camera Permission Required"
+                isSettling -> "Connecting Viewfinder..."
+                isMuted -> "Viewfinder Paused by User"
+                else -> "Viewfinder Inactive"
+            },
             color = Color.White,
             style = MaterialTheme.typography.bodyMedium
         )
@@ -573,6 +593,12 @@ private fun ViewfinderPlaceholder(
             Button(onClick = onResume) {
                 Text("Resume Viewfinder")
             }
+        } else if (isSettling) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(20.dp),
+                strokeWidth = 2.dp,
+                color = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }

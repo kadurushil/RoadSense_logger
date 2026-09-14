@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.material.icons.filled.Splitscreen
 import com.bajajauto.roadsense.logging.AppLogger
 import com.bajajauto.roadsense.recording.SessionRecordingState
 import com.bajajauto.roadsense.ui.components.LiveMetricsBar
@@ -35,6 +36,7 @@ import com.bajajauto.roadsense.ui.screens.CameraDashboardCard
 import com.bajajauto.roadsense.ui.screens.CanedgeDashboardCard
 import com.bajajauto.roadsense.ui.screens.GnssDashboardCard
 import com.bajajauto.roadsense.ui.screens.RadarDashboardCard
+import com.bajajauto.roadsense.ui.screens.SbsDashboardCard
 import com.bajajauto.roadsense.ui.screens.SessionDeckCard
 import com.bajajauto.roadsense.ui.theme.RoadSenseTheme
 import kotlinx.coroutines.launch
@@ -72,6 +74,7 @@ enum class CockpitTab(val title: String, val icon: ImageVector) {
     GNSS("GNSS", Icons.Default.MyLocation),
     CAMERA("Camera", Icons.Default.Videocam),
     CANEDGE("CANedge", Icons.Default.DirectionsCar),
+    SBS("SBS", Icons.Default.Splitscreen),
     SESSION("Storage", Icons.Default.Folder)
 }
 
@@ -160,7 +163,7 @@ fun RoadSenseCockpitScreen(
                             Surface(
                                 selected = isSelected,
                                 onClick = {
-                                    coroutineScope.launch { pagerState.animateScrollToPage(index) }
+                                    coroutineScope.launch { pagerState.scrollToPage(index) }
                                 },
                                 shape = RoundedCornerShape(6.dp),
                                 color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
@@ -260,14 +263,15 @@ fun RoadSenseCockpitScreen(
                         selected = pagerState.currentPage == index,
                         onClick = {
                             coroutineScope.launch {
-                                pagerState.animateScrollToPage(index)
+                                pagerState.scrollToPage(index)
                             }
                         },
                         icon = { Icon(imageVector = tab.icon, contentDescription = tab.title, modifier = Modifier.size(18.dp)) },
                         text = {
                             Text(
                                 text = tab.title,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
+                                maxLines = 1,
                                 fontWeight = if (pagerState.currentPage == index) FontWeight.Bold else FontWeight.Normal
                             )
                         }
@@ -307,12 +311,19 @@ fun RoadSenseCockpitScreen(
                 CockpitTab.CAMERA -> {
                     CameraDashboardCard(
                         viewModel = viewModel,
-                        isCurrentTab = pagerState.currentPage == page
+                        isCurrentTab = pagerState.currentPage == page && !pagerState.isScrollInProgress
                     )
                 }
                 CockpitTab.CANEDGE -> {
                     CanedgeDashboardCard(
                         viewModel = viewModel
+                    )
+                }
+                CockpitTab.SBS -> {
+                    SbsDashboardCard(
+                        viewModel = viewModel,
+                        isCurrentTab = pagerState.currentPage == page && !pagerState.isScrollInProgress,
+                        latestFrame = latestFrame
                     )
                 }
                 CockpitTab.SESSION -> {
