@@ -319,7 +319,7 @@ private fun SbsCameraFeedPane(
                             text = when {
                                 !hasCameraPermission -> "Camera Permission Required"
                                 isCurrentTab && !isPreviewMutedByUser && !isSettledPreviewActive -> "Connecting Viewfinder..."
-                                isPreviewMutedByUser -> "Viewfinder Paused"
+                                isPreviewMutedByUser -> "Viewfinder Paused (Off by Default)"
                                 else -> "Viewfinder Inactive"
                             },
                             color = Color(0xFF90A4AE),
@@ -347,7 +347,7 @@ private fun SbsCameraFeedPane(
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                                 modifier = Modifier.height(28.dp)
                             ) {
-                                Text("Resume Viewfinder", fontSize = 11.sp)
+                                Text("Enable Viewfinder", fontSize = 11.sp)
                             }
                         }
                     }

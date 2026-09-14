@@ -119,7 +119,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val _radarMinSnr = MutableStateFlow(appPreferences.radarMinSnrFilter)
     val radarMinSnr: StateFlow<Boolean> = _radarMinSnr.asStateFlow()
 
-    private val _isCameraPreviewMuted = MutableStateFlow(appPreferences.isCameraPreviewMuted)
+    // Camera preview is always off/muted by default on every app launch (lag elimination).
+    // While the app is running in the current session, the state stays as left by the user across cards.
+    private val _isCameraPreviewMuted = MutableStateFlow(true)
     val isCameraPreviewMuted: StateFlow<Boolean> = _isCameraPreviewMuted.asStateFlow()
 
     // Multi-sensor live Hz rates & hardware metrics
@@ -298,7 +300,6 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setCameraPreviewMuted(muted: Boolean) {
         _isCameraPreviewMuted.value = muted
-        appPreferences.isCameraPreviewMuted = muted
     }
 
     fun setHexPreviewEnabled(enabled: Boolean) {

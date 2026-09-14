@@ -579,7 +579,7 @@ private fun ViewfinderPlaceholder(
             text = when {
                 !hasPermission -> "Camera Permission Required"
                 isSettling -> "Connecting Viewfinder..."
-                isMuted -> "Viewfinder Paused by User"
+                isMuted -> "Viewfinder Paused (Off by Default)"
                 else -> "Viewfinder Inactive"
             },
             color = Color.White,
@@ -591,7 +591,7 @@ private fun ViewfinderPlaceholder(
             }
         } else if (isMuted) {
             Button(onClick = onResume) {
-                Text("Resume Viewfinder")
+                Text("Enable Viewfinder")
             }
         } else if (isSettling) {
             CircularProgressIndicator(

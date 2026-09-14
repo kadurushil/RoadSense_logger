@@ -8,8 +8,8 @@
 
 ## 1. Camera Subsystem Upgrades
 
-### 1.1 Start Camera Preview Closed by Default (Lag Elimination)
-* **Problem:** Currently, when switching between dashboard cards (e.g. from Radar to CANedge or Settings), the camera preview surface is continuously rendering frames, causing noticeable GPU/UI thread contention and slight frame stutter during card switching.
+### 1.1 Start Camera Preview Closed by Default (Lag Elimination) [COMPLETED]
+* **Status:** Implemented. Camera preview starts closed/muted by default on every app launch. Viewfinder is activated on-demand via the "Enable Viewfinder" button or eye icon toggle. In-memory state is preserved across tab navigation during an active session and resets to off upon app restart.
 * **Feature Requirement:**
   * The camera preview should start **closed/paused by default** when opening the Camera tab.
   * Provide an explicit **"Enable Preview"** / **"Preview Muted"** toggle button.

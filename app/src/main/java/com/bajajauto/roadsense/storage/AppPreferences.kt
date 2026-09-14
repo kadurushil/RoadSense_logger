@@ -20,7 +20,6 @@ class AppPreferences(context: Context) {
         private const val KEY_RADAR_DYNAMIC_ONLY = "radar_dynamic_only"
         private const val KEY_RADAR_MIN_SNR = "radar_min_snr"
 
-        private const val KEY_CAMERA_MUTED = "camera_preview_muted"
         private const val KEY_CAMERA_RES = "camera_resolution"
         private const val KEY_CAMERA_FPS = "camera_fps"
         private const val KEY_CAMERA_LENS_ID = "camera_lens_id"
@@ -48,10 +47,6 @@ class AppPreferences(context: Context) {
     var radarMinSnrFilter: Boolean
         get() = prefs.getBoolean(KEY_RADAR_MIN_SNR, false)
         set(value) = prefs.edit().putBoolean(KEY_RADAR_MIN_SNR, value).apply()
-
-    var isCameraPreviewMuted: Boolean
-        get() = prefs.getBoolean(KEY_CAMERA_MUTED, false)
-        set(value) = prefs.edit().putBoolean(KEY_CAMERA_MUTED, value).apply()
 
     var cameraResolution: CameraResolution
         get() {
