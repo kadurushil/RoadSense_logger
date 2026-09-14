@@ -113,3 +113,28 @@ Maps every radar frame index to its closest corresponding camera video frame ind
 }
 ```
 If `syncDeltaMs` is positive, the camera frame occurred slightly after the radar frame. The visualizer uses this delta to smoothly interpolate track overlays onto the video player.
+
+---
+
+## 4. Standalone Multi-Sensor Diagnostic & Validation Suite (`scripts/`)
+
+Located in the root `scripts/` folder (with comprehensive documentation in `scripts/README.md`), this suite of 7 standalone Python tools enables rapid post-session triage without launching full visualizer pipelines:
+
+| Script | Purpose | Key Checks / Metrics |
+|---|---|---|
+| `session_health_check.py` | **Master Triage** | Validates presence, non-zero size, and integrity across all 4 sensor directories (`radar/`, `camera/`, `gnss/`, `can/`) |
+| `validate_radar_stream.py` | **Radar Verification** | Validates TI mmWave magic word (`0x0201040306050807`), decodes TLVs, verifies point counts & FPS |
+| `validate_camera_video.py` | **Camera Verification** | Validates MP4 video stream readability, resolution, frame rate, duration, and monotonic PTS alignment |
+| `validate_gnss_fixes.py` | **GNSS Verification** | Verifies NMEA/CSV latitude, longitude, fix accuracy (HDOP), speed (m/s), and satellite lock count |
+| `validate_canedge_staging.py`| **CANedge Verification** | Inspects MF4 (MDF4) chunks in `can/`, verifies physical recording timestamps vs session timeline |
+| `audit_cross_sensor_sync.py`| **Sync Drift Audit** | Parses `session_timeline.csv`, computes cross-sensor latency deltas and inter-sensor time drift |
+| `search_flight_recorder.py` | **Flight Recorder Search** | Regex search across `app_system.log` and `session_debug.log` for errors, warnings, drops, and reconnects |
+
+### Quick Invocation Example:
+```powershell
+# Run all health checks on a session
+python scripts/session_health_check.py logs/session_20260911_141256
+
+# Audit cross-sensor time synchronization
+python scripts/audit_cross_sensor_sync.py logs/session_20260911_141256
+```

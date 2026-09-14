@@ -33,7 +33,7 @@ graph TD
 
 | Subsystem / Layer | Key Kotlin Classes | Primary Responsibility |
 |---|---|---|
-| **UI Cockpit** | `ui/MainActivity.kt`<br>`ui/RadarViewModel.kt`<br>`ui/screens/*.kt` | Multi-tab Compose UI (Radar, GNSS, Camera, CANedge, Session Deck). Exposes single source of truth via `StateFlow`. |
+| **UI Cockpit** | `ui/MainActivity.kt`<br>`ui/RadarViewModel.kt`<br>`ui/screens/*.kt` | Multi-tab Compose UI with 6 cockpit tabs: Radar, GNSS, Camera, CANedge, SBS (Side-by-Side dual feed), and Storage (Session Deck). Exposes single source of truth via `StateFlow`. |
 | **Session Control** | `recording/SessionManager.kt`<br>`recording/SessionInfo.kt`<br>`recording/SessionTimelineWriter.kt` | Manages active recording sessions, folder initialization, metadata generation, and nanosecond monotonic timestamp events. |
 | **Radar Ingestion** | `radar/service/RadarSerialService.kt`<br>`radar/parser/RadarPacketParser.kt`<br>`radar/model/RadarFrame.kt` | Custom USB FTDI/CDC serial driver operating at 3.125 Mbps. Rings buffers and decodes TLV binary frames into point clouds and clusters. |
 | **Camera Capture** | `camera/CameraCaptureManager.kt`<br>`ui/screens/CameraDashboardCard.kt` | CameraX video recording with real-time nanosecond frame timestamp logging into `camera_frames.csv`. |

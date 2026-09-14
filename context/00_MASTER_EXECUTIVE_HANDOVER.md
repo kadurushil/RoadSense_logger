@@ -17,7 +17,7 @@ The application operates as an autonomous multi-sensor logger synchronizing four
 1. **Automotive Radar:** TI AWR1843BOOST 77 GHz mmWave radar streaming raw point clouds, clusters, and hardware EKF target tracks over high-speed USB serial at **3,125,000 baud** (3.125 Mbps).
 2. **Camera Video:** Synchronized video capture (1080p/720p H.264 MP4) via CameraX with nanosecond frame capture timestamps (`camera_frames.csv`).
 3. **GNSS / GPS:** Real-time vehicular trajectory, heading, ground speed, and NMEA fixes via Android Location Services (`gnss_track.csv`).
-4. **Automotive CAN Bus:** CSS Electronics **CANedge2** dual-channel CAN/CAN-FD logger logging cyclic 10-second split MF4 (MDF4) files, synchronized via local Wi-Fi AP using an autonomous staging pool and post-recording finalizer.
+4. **Automotive CAN Bus:** CSS Electronics **CANedge2** dual-channel CAN/CAN-FD logger logging cyclic 1-minute (60s) split MF4 (MDF4) files, synchronized via local Wi-Fi AP using an autonomous 2-folder staging pool and post-recording finalizer.
 
 ---
 
@@ -29,12 +29,14 @@ As of September 11, 2026, the following major architectural milestones have been
 |---|---|---|
 | **High-Speed Radar UART** | **Production Ready** (3.125 Mbps) | `RadarSerialService`, `RadarPacketParser`, `RadarViewModel` |
 | **Monotonic Sync Index** | **Production Ready** (Nanosecond accurate) | `SessionTimelineWriter`, `session_timeline.csv` |
-| **Unified CAN File Explorer** | **Production Ready** (OneDrive-style badges) | `CanedgeDashboardCard`, `CanedgeFile.kt` |
-| **Autonomous CAN Staging Pool**| **Production Ready** (Deferred in-drive sync)| `CanedgeIngestionManager`, `canedge_pool/` |
+| **Unified 3-Col File Explorer**| **Production Ready** (Nested tree + 3 indicators) | `CanedgeDashboardCard`, `CanedgeFile.kt` |
+| **Autonomous CAN Staging Pool**| **Production Ready** (2-folder prioritized sync)| `CanedgeIngestionManager`, `canedge_pool/` |
 | **Robust Name-by-Name Sync** | **Production Ready** (Overflow fixed) | Lookup table against `_remoteFiles` in `CanedgeIngestionManager` |
 | **Smart Auto-Pruning Engine** | **Production Ready** (Auto-rescue & duplicate clearing)| Background FIFO + session rescue in `CanedgeIngestionManager` |
 | **Continuous App Diagnostics** | **Production Ready** (Continuous idle logging) | `AppLogger`, `app_logs/app_run_*/app_system.log` |
 | **PC ADB Processing Pipeline** | **Production Ready** (Automated sync & visualizer JSON) | `tools/sync_and_process_sessions.py`, `sync_and_process_logs.bat` |
+| **Synchronized SBS Dashboard** | **Production Ready** (Camera & Radar side-by-side) | `SbsDashboardCard.kt`, `CockpitTab.SBS` in `MainActivity.kt` |
+| **Offline Validation Scripts** | **Production Ready** (7 diagnostic & health tools) | `scripts/*.py`, `scripts/README.md` |
 
 ---
 

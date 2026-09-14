@@ -12,8 +12,8 @@
 * **Target Device ID:** `7AC5E17F`
 * **Firmware Version:** `01.09.03` (Configuration version: `01.09`).
 * **Wi-Fi AP Credentials:** SSID: `M21` | Pass: `987654321` (2.4 GHz WPA2).
-* **Fallback Endpoints:** `http://192.168.x.x` or `http://7AC5E17F/`.
-* **Logging Mode:** Cyclic FIFO logging enabled (`"cyclic": 1`), splitting `.MF4` (MDF4) files every 10 seconds.
+* **Logging Mode:** Cyclic FIFO logging enabled (`"cyclic": 1`), splitting `.MF4` (MDF4) files every 1 minute (60 seconds).
+* **Target Sync Scope:** 2 most recent folders on the logger (reduced from 5 folders for rapid synchronizations).
 * **CAN Physical Layer:** CAN1 @ 500 kbit/s (RX mode, all standard 11-bit and extended 29-bit identifiers accepted).
 
 ---
@@ -54,9 +54,9 @@ Attempting to pull multi-megabyte MF4 files over Wi-Fi while driving causes CPU 
 * **Post-Recording Finalizer (`onSessionStopped`):** Once the drive completes, the finalizer launches, queries the CANedge logger for closed chunks covering the drive's time window, pulls missing chunks into `canedge_pool/`, and stages them into `session_*/can/`.
 
 ### 3.2 Physical Recording Monotonic Timestamp Calculation
-Because a 10-second MF4 chunk was recorded during the 10 seconds *preceding* its file creation time, RoadSense computes its exact physical start offset:
+Because a 1-minute (60s) MF4 chunk was recorded during the 60 seconds *preceding* its file creation time, RoadSense computes its exact physical start offset:
 ```kotlin
-val chunkStartOffsetMs = (file.lastWrittenMs - 10_000L) - session.startTimeWallMs
+val chunkStartOffsetMs = (file.lastWrittenMs - CHUNK_DURATION_MS) - session.startTimeWallMs // CHUNK_DURATION_MS = 60_000L
 val chunkMonoNs = session.startTimeMonotonicNs + (chunkStartOffsetMs.coerceAtLeast(0L) * 1_000_000L)
 ```
 This physical monotonic timestamp is stamped into `session_timeline.csv`.
@@ -85,7 +85,7 @@ Before deleting any file from `canedge_pool/`, the engine scans all recorded ses
 Once a chunk has been copied into a session folder, the duplicate copy in `canedge_pool/` is deleted. This immediately eliminates duplicate disk usage.
 
 ### 5.3 Out-of-Scope & Stale Purging
-Chunks that accumulated from drives where RoadSense was not recording, or from folders outside the top-5 recent scope on CANedge, are purged. If offline, files older than 48 hours not belonging to any session are deleted.
+Chunks that accumulated from drives where RoadSense was not recording, or from folders outside the 2 most recent folders on CANedge, are purged. If offline, files older than 48 hours not belonging to any session are deleted.
 
 ### 5.4 300 MB FIFO Storage Cap
 If total pool size exceeds `MAX_POOL_SIZE_BYTES` (300 MB), the oldest pool files (by `lastModified`) are pruned in FIFO order, strictly protecting active session chunks.
@@ -98,13 +98,43 @@ If total pool size exceeds `MAX_POOL_SIZE_BYTES` (300 MB), the oldest pool files
 
 ---
 
-## 6. Unified File Explorer Dialog
+## 6. De-Cluttered 3-Column Unified File Explorer Dialog
 
-The file explorer modal (`CanedgeUnifiedFileExplorerDialog`) presents an interactive tree view grouped by folder (e.g. `00000041/`), with OneDrive-style badges:
+The file explorer modal (`CanedgeUnifiedFileExplorerDialog`) presents an uncluttered, modern tree view grouped into collapsible folders (e.g. `00000047/`), replacing bulky text badges with **3 dedicated indicator columns** beside each file:
 
-| Status Badge | Color Scheme | Condition / Location |
-|---|---|---|
-| **`IN SESSION`** | Deep Green (`#2E7D32`) | Staged inside a recording session's `can/` folder |
-| **`IN POOL`** | Secondary Accent | Cached in phone staging pool `canedge_pool/` |
-| **`SYNCING`** | Primary Highlight | Actively downloading chunk |
-| **`ON DEVICE`** | Outline Dim | Located on remote CANedge SD card only |
+```text
+FOLDER: 00000047/ (3 files • 4.2 MB)                     [CAN] [DEV] [SES]
+  ├── 00000047_00000001.MF4 (1.4 MB)                      ●     ●     ●
+  ├── 00000047_00000002.MF4 (1.4 MB)                      ●     ●     ○
+  └── 00000047_00000003.MF4 (1.4 MB)                      ●     ○     ○
+```
+
+### 6.1 Column Indicators
+| Column | Header | Icon Component | Active Meaning | Dimmed Meaning (`alpha = 0.2f`) |
+|---|---|---|---|---|
+| **Col 1** | `CAN` | `Icons.Default.SdStorage` | File physically present on remote CANedge SD card | Not on remote SD card |
+| **Col 2** | `DEV` | `Icons.Default.PhoneAndroid` (or spinner) | File cached locally on phone (in `canedge_pool/` or `session_*/can/`) | Not downloaded to phone |
+| **Col 3** | `SES` | `Icons.Default.CheckCircle` (Green `#4CAF50`) | File staged & attached to a recorded drive session folder | Unattached to any session |
+
+### 6.2 Top Explanatory Legend
+A compact top bar directly explains the 3 columns:
+* **CAN**: On Logger SD
+* **DEV**: Copied to Phone
+* **SES**: Attached to Session
+
+---
+
+## 7. Real-Time Transfer Telemetry & Landscape Cockpit Layout
+
+### 7.1 Real-Time Transfer Telemetry Engine
+`CanedgeSyncStats` continuously streams transfer telemetry during staging or idle pool synchronization:
+* **`activeFileName`:** Specific MF4 file actively being fetched (e.g. `00000045_00000002.MF4`).
+* **`activeFileProgress`:** Real-time completion fraction ($0.0 \rightarrow 1.0$) tied to `LinearProgressIndicator`.
+* **`transferSpeedBytesPerSec` / `formattedSpeed`:** Live throughput calculated dynamically (`elapsedMs = SystemClock.elapsedRealtime() - startDownloadMs`), cleanly formatted as `KB/s` or `MB/s`.
+* **`formattedTransferSize`:** Exact payload progress (e.g. `1.7 / 2.8 MB`).
+* **`etaSeconds`:** Dynamic estimated time to completion remaining.
+
+### 7.2 Adaptive Dual-Pane Landscape Cockpit
+When the device is mounted in landscape orientation (`Configuration.ORIENTATION_LANDSCAPE`):
+* **Left Pane (Hardware & Controls):** Hardware connection status, AP credentials, Device ID/IP, action controls (Discover/Disconnect, Sync Scope, File Explorer, Prune Pool), and diagnostic telemetry.
+* **Right Pane (Live Operations Console):** `CanedgeLiveTransferCard` with active chunk name, progress bar, live speed, bytes transferred, and ETA, alongside the three cockpit metric cards (`TARGET SCOPE`, `SYNC STATUS`, `THIS SESSION`).

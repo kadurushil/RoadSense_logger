@@ -78,7 +78,7 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
 * **Firmware Version:** `01.09.03` (Config: `01.09`)
 * **Wi-Fi AP Credentials:** SSID: `M21` | Pass: `987654321` (2.4 GHz WPA2)
 * **Default Fallback IP:** `http://192.168.x.x` or `http://7AC5E17F/`
-* **Logging Mode:** 10-second MF4 file splitting, cyclic logging enabled (`"cyclic": 1`).
+* **Logging Mode:** 1-minute (60s) MF4 file splitting, cyclic logging enabled (`"cyclic": 1`).
 * **CAN Physical Mode:** CAN1 @ 500 kbit/s (RX mode, all standard and extended IDs accepted).
 
 ### Single-Connection MCU Web Server Quirks (Bug #10):
@@ -99,7 +99,7 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
  │    └── app_run_YYYYMMDD_HHMMSS/
  │         └── app_system.log          <-- Idle boot, discovery, sync & UI events
  └── sessions/
-      ├── canedge_pool/                <-- Staging cache for top-5 session folders
+      ├── canedge_pool/                <-- Staging cache for 2 recent session folders
       │    ├── 00000033_00000001.MF4
       │    └── 00000034_00000001.MF4
       └── session_YYYYMMDD_HHMMSS/     <-- Permanent recording session
@@ -121,7 +121,9 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
 
 ## 6. Project Documentation Map
 
-* **`Future_stuff.md`**: Centralized backlog of future enhancements (Camera AF tap-to-focus, CANedge unified file explorer, always-on ingestion, post-processing DBC decoding).
+* **`context/`**: Authoritative, modularized context folder containing 8 specialized intelligence files for AI agents and incoming developers (`00_MASTER_EXECUTIVE_HANDOVER.md` through `07_ENVIRONMENT_PITFALLS_AND_RUNBOOK.md`).
+* **`scripts/`**: Standalone PC diagnostic & sensor validation tools (`session_health_check.py`, `audit_cross_sensor_sync.py`, etc.) with usage guide in `scripts/README.md`.
+* **`Future_stuff.md`**: Centralized backlog of future enhancements (Camera AF tap-to-focus, always-on ingestion, post-processing DBC decoding).
 * **`intel/debugging_and_troubleshooting_knowledge_base.md`**: In-depth post-mortem and architectural analysis of Bugs #1 through #10.
 * **`intel/CANedge2_Android_Integration_Guide.md`**: Full hardware integration specification for CSS Electronics CANedge2.
 * **`sync_and_process_logs.bat`**: PC ADB extraction and python visualizer pipeline.

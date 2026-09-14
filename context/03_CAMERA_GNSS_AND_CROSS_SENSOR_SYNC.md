@@ -57,6 +57,10 @@ This enables the PC Python pipeline (`tools/sync_and_process_sessions.py`) to pe
    * *Solution:* Hyperfocal Road Mode (`CaptureRequest.CONTROL_AF_MODE = CONTROL_AF_MODE_OFF` with `LENS_FOCUS_DISTANCE = 0.0f`) to lock focus to infinity (>= 3m).
    * *Interactive Tap-to-Focus:* Compose touch listener using `MeteringRectangle` on `CONTROL_AF_REGIONS`.
 
+### 2.4 Side-by-Side (SBS) Synchronized Feed & Surface Handoff
+* **Dual Viewport:** The SBS tab (`SbsDashboardCard.kt`) displays the live Camera viewfinder (50% width) and real-time Radar Bird's-Eye View (50% width) simultaneously.
+* **Surface Handoff Protection:** Switching between the standalone `CameraDashboardCard` and `SbsDashboardCard` destroys and recreates TextureView surfaces. To prevent race conditions where tearing down the old surface closes the newly attached preview surface, `CameraEngine.detachPreviewSurface(surfaceTexture)` validates that the detached texture matches `previewSurfaceTexture` before releasing HAL capture requests.
+
 ---
 
 ## 3. GNSS Subsystem & Track Logging
