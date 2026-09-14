@@ -43,9 +43,10 @@ class CanedgeIngestionManager(
         private const val CAN_DIR_NAME = "can"
         private const val POOL_DIR_NAME = "canedge_pool"
         private const val LEGACY_CACHE_DIR_NAME = "canedge_cache"
-        private const val SESSION_WINDOW_GRACE_MS = 15_000L // 15s grace before session start
+        private const val CHUNK_DURATION_MS = 60_000L // 1-minute split chunks
+        private const val SESSION_WINDOW_GRACE_MS = 65_000L // 65s grace to capture in-progress 1-min chunk
         private const val MAX_POOL_SIZE_BYTES = 300 * 1024 * 1024L // 300 MB cap
-        private const val TOP_RECENT_FOLDERS = 5
+        private const val TOP_RECENT_FOLDERS = 2 // Scope restricted to 2 most recent session folders
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + Job())
@@ -142,16 +143,14 @@ class CanedgeIngestionManager(
         val poolFilesByName = distinctPoolFiles.associateBy { it.name }
         val plannedFiles = _remoteFiles.value
 
-        // Exact name-by-name lookup table against planned target scope
-        // Verified count: A file is verified on phone if it exists in canedge_pool/ OR any recorded session!
         val verifiedSyncedCount = if (plannedFiles.isNotEmpty()) {
             plannedFiles.count { rFile ->
                 val localName = getLocalFileName(rFile)
                 val pFile = poolFilesByName[localName] ?: allSessionFilesByName[localName]
                 pFile != null && (pFile.length() == rFile.sizeBytes || rFile.sizeBytes == 0L)
-            }
+            }.coerceAtMost(plannedFiles.size)
         } else {
-            distinctPoolFiles.size
+            0
         }
 
         // Update stats
@@ -159,6 +158,7 @@ class CanedgeIngestionManager(
             current.copy(
                 targetScopeFiles = plannedFiles.size,
                 poolSyncedFiles = verifiedSyncedCount,
+                poolFilesCount = distinctPoolFiles.size,
                 currentSessionFiles = sortedSessionFiles.size
             )
         }
@@ -179,9 +179,13 @@ class CanedgeIngestionManager(
                 if (parts.size >= 2) parts[parts.size - 2] else "ROOT"
             }
 
+            val inSession = sessionFile != null && sessionFile.length() > 0
+            val inPool = poolFile != null && (poolFile.length() == rFile.sizeBytes || rFile.sizeBytes == 0L)
+            val isCopied = inPool || inSession
+
             val status = when {
-                sessionFile != null && sessionFile.length() > 0 -> CanedgeFileStatus.IN_SESSION
-                poolFile != null && (poolFile.length() == rFile.sizeBytes || rFile.sizeBytes == 0L) -> CanedgeFileStatus.IN_POOL
+                inSession -> CanedgeFileStatus.IN_SESSION
+                inPool -> CanedgeFileStatus.IN_POOL
                 else -> CanedgeFileStatus.REMOTE_ONLY
             }
 
@@ -191,7 +195,10 @@ class CanedgeIngestionManager(
                 file = rFile,
                 folderName = folderName,
                 status = status,
-                localFile = localRef
+                localFile = localRef,
+                isOnCanedge = true,
+                isCopiedToDevice = isCopied,
+                isAssignedToSession = inSession
             )
         }
 
@@ -240,7 +247,18 @@ class CanedgeIngestionManager(
                 AppLogger.e(TAG, "Error in post-recording staging finalizer: ${e.message}", e)
                 _stats.update { it.copy(lastError = "Finalizing error: ${e.message}") }
             } finally {
-                _stats.update { it.copy(isFinalizingSession = false, lastSyncTimeMs = System.currentTimeMillis()) }
+                _stats.update {
+                    it.copy(
+                        isFinalizingSession = false,
+                        lastSyncTimeMs = System.currentTimeMillis(),
+                        activeFileName = null,
+                        activeFileBytesTransferred = 0L,
+                        activeFileTotalBytes = 0L,
+                        activeFileProgress = 0f,
+                        transferSpeedBytesPerSec = 0L,
+                        etaSeconds = 0
+                    )
+                }
                 refreshLocalFileList()
                 pruneStagingPool()
             }
@@ -292,7 +310,38 @@ class CanedgeIngestionManager(
                     val tempFile = File(poolDir, "$localName.download")
                     val remoteUrl = "${device.apiBaseUrl}${file.path.trimStart('/')}"
                     AppLogger.i(TAG, "Pulling remaining chunk for drive: ${file.path} (${file.sizeBytes} bytes)...")
-                    val downloaded = httpClient.downloadToFile(remoteUrl, tempFile)
+
+                    val downloadStartTime = SystemClock.elapsedRealtime()
+                    _stats.update {
+                        it.copy(
+                            activeFileName = localName,
+                            activeFileBytesTransferred = 0L,
+                            activeFileTotalBytes = file.sizeBytes,
+                            activeFileProgress = 0f,
+                            transferSpeedBytesPerSec = 0L,
+                            etaSeconds = 0
+                        )
+                    }
+
+                    val downloaded = httpClient.downloadToFile(remoteUrl, tempFile) { bytesCopied, totalBytes ->
+                        val elapsedMs = (SystemClock.elapsedRealtime() - downloadStartTime).coerceAtLeast(1L)
+                        val speedBps = (bytesCopied * 1000L) / elapsedMs
+                        val remainingBytes = (totalBytes - bytesCopied).coerceAtLeast(0L)
+                        val etaSec = if (speedBps > 0) (remainingBytes / speedBps).toInt() else 0
+                        val progress = if (totalBytes > 0) (bytesCopied.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
+
+                        _stats.update {
+                            it.copy(
+                                activeFileName = localName,
+                                activeFileBytesTransferred = bytesCopied,
+                                activeFileTotalBytes = totalBytes,
+                                activeFileProgress = progress,
+                                transferSpeedBytesPerSec = speedBps,
+                                etaSeconds = etaSec
+                            )
+                        }
+                    }
+
                     if (downloaded && tempFile.exists() && (tempFile.length() == file.sizeBytes || file.sizeBytes == 0L)) {
                         if (poolFile.exists()) poolFile.delete()
                         tempFile.renameTo(poolFile)
@@ -313,8 +362,8 @@ class CanedgeIngestionManager(
                 _stats.update { it.copy(currentSessionFiles = stagedCount) }
 
                 // Step 3: Record accurate physical recording monotonic timestamp
-                // 10s split chunk was logged between (file.lastWrittenMs - 10_000) and file.lastWrittenMs
-                val chunkStartOffsetMs = (file.lastWrittenMs - 10_000L) - session.startTimeWallMs
+                // 1-minute split chunk was logged between (file.lastWrittenMs - CHUNK_DURATION_MS) and file.lastWrittenMs
+                val chunkStartOffsetMs = (file.lastWrittenMs - CHUNK_DURATION_MS) - session.startTimeWallMs
                 val chunkMonoNs = session.startTimeMonotonicNs + (chunkStartOffsetMs.coerceAtLeast(0L) * 1_000_000L)
 
                 sessionManager.recordTimelineEvent(
@@ -327,6 +376,18 @@ class CanedgeIngestionManager(
                 )
                 AppLogger.i(TAG, "Staged chunk #${index + 1} (${sessionDestFile.name}) into session at offset +${chunkStartOffsetMs / 1000f}s")
             }
+        }
+
+        // Reset active transfer telemetry after staging completes
+        _stats.update {
+            it.copy(
+                activeFileName = null,
+                activeFileBytesTransferred = 0L,
+                activeFileTotalBytes = 0L,
+                activeFileProgress = 0f,
+                transferSpeedBytesPerSec = 0L,
+                etaSeconds = 0
+            )
         }
 
         // Step 4: Finalize session metadata
@@ -364,7 +425,18 @@ class CanedgeIngestionManager(
                 AppLogger.e(TAG, "Sync error: ${e.message}", e)
                 _stats.update { it.copy(lastError = e.message) }
             } finally {
-                _stats.update { it.copy(isSyncing = false, lastSyncTimeMs = System.currentTimeMillis()) }
+                _stats.update {
+                    it.copy(
+                        isSyncing = false,
+                        lastSyncTimeMs = System.currentTimeMillis(),
+                        activeFileName = null,
+                        activeFileBytesTransferred = 0L,
+                        activeFileTotalBytes = 0L,
+                        activeFileProgress = 0f,
+                        transferSpeedBytesPerSec = 0L,
+                        etaSeconds = 0
+                    )
+                }
                 refreshLocalFileList()
                 pruneStagingPool()
             }
@@ -405,7 +477,37 @@ class CanedgeIngestionManager(
             val remoteUrl = "${device.apiBaseUrl}${file.path.trimStart('/')}"
 
             AppLogger.i(TAG, "Downloading to pool: ${file.path} (${file.sizeBytes} bytes)...")
-            val success = httpClient.downloadToFile(remoteUrl, tempFile)
+
+            val downloadStartTime = SystemClock.elapsedRealtime()
+            _stats.update {
+                it.copy(
+                    activeFileName = localFileName,
+                    activeFileBytesTransferred = 0L,
+                    activeFileTotalBytes = file.sizeBytes,
+                    activeFileProgress = 0f,
+                    transferSpeedBytesPerSec = 0L,
+                    etaSeconds = 0
+                )
+            }
+
+            val success = httpClient.downloadToFile(remoteUrl, tempFile) { bytesCopied, totalBytes ->
+                val elapsedMs = (SystemClock.elapsedRealtime() - downloadStartTime).coerceAtLeast(1L)
+                val speedBps = (bytesCopied * 1000L) / elapsedMs
+                val remainingBytes = (totalBytes - bytesCopied).coerceAtLeast(0L)
+                val etaSec = if (speedBps > 0) (remainingBytes / speedBps).toInt() else 0
+                val progress = if (totalBytes > 0) (bytesCopied.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
+
+                _stats.update {
+                    it.copy(
+                        activeFileName = localFileName,
+                        activeFileBytesTransferred = bytesCopied,
+                        activeFileTotalBytes = totalBytes,
+                        activeFileProgress = progress,
+                        transferSpeedBytesPerSec = speedBps,
+                        etaSeconds = etaSec
+                    )
+                }
+            }
 
             if (success && tempFile.exists() && (tempFile.length() == file.sizeBytes || file.sizeBytes == 0L)) {
                 if (poolFile.exists()) poolFile.delete()
@@ -419,6 +521,18 @@ class CanedgeIngestionManager(
             } else {
                 if (tempFile.exists()) tempFile.delete()
             }
+        }
+
+        // Reset active transfer telemetry after sync completes
+        _stats.update {
+            it.copy(
+                activeFileName = null,
+                activeFileBytesTransferred = 0L,
+                activeFileTotalBytes = 0L,
+                activeFileProgress = 0f,
+                transferSpeedBytesPerSec = 0L,
+                etaSeconds = 0
+            )
         }
 
         AppLogger.i(TAG, "Idle pool sync complete. Ingested $newFilesCount new files into staging pool.")
