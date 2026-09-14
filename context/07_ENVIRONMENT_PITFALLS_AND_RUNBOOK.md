@@ -42,6 +42,11 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
 * **High Baud Rate:** Operates at `3,125,000 baud`. Standard USB cables or unpowered OTG adapters may introduce bit errors or packet drops.
 * **Android USB Permissions:** Android requires explicit runtime user consent to access USB devices. `RadarSerialService` manages the `UsbManager.requestPermission` flow.
 
+### 3.3 Camera2 HAL Streams & Hardware OIS Constraints
+* **HAL Surface Allocation Limits:** Many midrange Android chipsets (e.g. Exynos 9611 on Samsung M21) limit concurrent Camera2 HAL output streams. Attempting to attach an `ImageReader` YUV stream concurrently with Preview (`TextureView`) and Recording (`MediaRecorder`) surfaces can fail with `onConfigureFailed` or silent buffer drops.
+  * *Solution:* In-app luminance analysis extracts downsampled 32x24 bitmaps directly from the active `TextureView` on `Dispatchers.Default` (takes ~30 µs) rather than allocating a 3rd hardware HAL stream.
+* **Hardware Optical Image Stabilization (OIS):** Query `LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION` before presenting OIS controls. Devices without physical OIS voice-coil actuators will fail silently or log warnings if `LENS_OPTICAL_STABILIZATION_MODE_ON` is requested. UI should hide or grey out OIS toggles on unsupported hardware.
+
 ---
 
 ## 4. Operational Runbook & Command Cheat Sheet

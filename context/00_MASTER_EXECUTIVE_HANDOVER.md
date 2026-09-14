@@ -37,6 +37,9 @@ As of September 11, 2026, the following major architectural milestones have been
 | **PC ADB Processing Pipeline** | **Production Ready** (Automated sync & visualizer JSON) | `tools/sync_and_process_sessions.py`, `sync_and_process_logs.bat` |
 | **Synchronized SBS Dashboard** | **Production Ready** (Camera & Radar side-by-side) | `SbsDashboardCard.kt`, `CockpitTab.SBS` in `MainActivity.kt` |
 | **Offline Validation Scripts** | **Production Ready** (7 diagnostic & health tools) | `scripts/*.py`, `scripts/README.md` |
+| **Robust Viewfinder Continuity**| **Production Ready** (Touch/swipe glitch eliminated) | `CameraDashboardCard.kt`, `SbsDashboardCard.kt`, `CameraEngine.kt` |
+| **Hyperfocal Infinity & Tap-to-Lock**| **Production Ready** (Auto infinity on REC, tap AF/AE lock)| `CameraEngine.kt`, `CameraDashboardCard.kt` |
+| **Autonomous Road AE Engine**| **Production Ready** (Dual-zone photometric sky bloom elimination)| `CameraEngine.kt`, `RoadAeMode`, `RoadAeState`, `RadarViewModel.kt` |
 
 ---
 

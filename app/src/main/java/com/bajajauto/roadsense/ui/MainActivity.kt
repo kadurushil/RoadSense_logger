@@ -311,7 +311,7 @@ fun RoadSenseCockpitScreen(
                 CockpitTab.CAMERA -> {
                     CameraDashboardCard(
                         viewModel = viewModel,
-                        isCurrentTab = pagerState.currentPage == page && !pagerState.isScrollInProgress
+                        isCurrentTab = pagerState.currentPage == page
                     )
                 }
                 CockpitTab.CANEDGE -> {
@@ -322,7 +322,7 @@ fun RoadSenseCockpitScreen(
                 CockpitTab.SBS -> {
                     SbsDashboardCard(
                         viewModel = viewModel,
-                        isCurrentTab = pagerState.currentPage == page && !pagerState.isScrollInProgress,
+                        isCurrentTab = pagerState.currentPage == page,
                         latestFrame = latestFrame
                     )
                 }

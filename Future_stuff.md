@@ -15,19 +15,34 @@
   * Provide an explicit **"Enable Preview"** / **"Preview Muted"** toggle button.
   * During active session recording, recording can continue in the background with the preview surface detached/muted to save thermal budget and prevent any UI lag.
 
-### 1.2 Interactive Tap-to-Focus with Metering Regions
-* **Problem:** Windshield dust, wiper marks, and reflections are high-contrast obstacles near the lens. Android's default `CONTROL_AF_MODE_CONTINUOUS_VIDEO` often locks focus onto the windshield glass instead of the road ahead, blurring vehicular targets.
-* **Feature Requirement:**
-  * Implement an interactive Compose gesture listener (`pointerInput`) on the camera preview surface.
-  * When the user taps the preview (e.g. pointing towards the horizon/road), calculate the sensor-relative coordinates via `CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE`.
-  * Construct a `MeteringRectangle` centered on the tap point and apply `CaptureRequest.CONTROL_AF_REGIONS` + `CaptureRequest.CONTROL_AE_REGIONS`.
-  * Trigger an explicit AF cycle (`CONTROL_AF_TRIGGER_START`) and render a brief, animated focus ring / reticle at the touch point.
+### 1.2 Interactive Tap-to-Focus with Metering Regions & AE Lock [COMPLETED]
+* **Status:** Implemented. Viewfinder touch gestures capture normalized coordinates, map to sensor active array with orientation compensation, trigger single-shot AF sweep & AE precapture, and lock both focus distance (`CONTROL_AF_MODE_AUTO` + `IDLE`) and auto-exposure (`CONTROL_AE_LOCK = true`). Visual feedback includes an interactive target reticle (`AF/AE LOCK`) and a one-tap `[Reset Lock]` button.
 
-### 1.3 Optical Hyperfocal / Infinity Focus Mode
-* **Feature Requirement:**
-  * Add an **"Infinity / Road Mode"** toggle in camera settings.
-  * Set `CaptureRequest.CONTROL_AF_MODE = CONTROL_AF_MODE_OFF` with `CaptureRequest.LENS_FOCUS_DISTANCE = 0.0f` (diopters).
-  * This physically locks lens focus to optical infinity (>= 3 meters), making it physically impossible for the lens to focus on the windshield glass.
+### 1.3 Optical Hyperfocal / Infinity Focus Mode [COMPLETED]
+* **Status:** Implemented. Setting `CaptureRequest.CONTROL_AF_MODE = CONTROL_AF_MODE_OFF` with `CaptureRequest.LENS_FOCUS_DISTANCE = 0.0f` (diopters) physically clamps the lens motor to optical infinity (>= 3m), preventing windshield dust, glare, and wiper blades from stealing focus. Seamlessly integrated with session recording.
+
+### 1.4 Autonomous Dual-Zone Luminance Analysis (Dynamic Sky-Bloom Elimination)
+* **Problem:** In forward-facing automotive cameras, the upper 30–40% of the frame captures bright ambient sky, direct sunlight, and cloud glare. Default matrix/evaluative 3A metering averages over the entire scene, causing the camera's ISP to aggressively lower exposure. As a result, the bottom 60–70% of the frame (road asphalt, oncoming vehicles, shadows, license plates, and lane markers) becomes severely underexposed and plunged into dark shadows.
+* **Algorithmic Architecture (Approach 3: Real-Time Dual-Zone Photometric Contrast):**
+  1. **Dual-Zone Luminance Partitioning:**
+     - The scene is partitioned along real-world orientation into two photometric zones:
+       - **Zone 1 (Sky / Upper 35%):** $\mathcal{Z}_{\text{sky}} = \{ (x, y) \mid y \in [0.0, 0.35], x \in [0.1, 0.9] \}$
+       - **Zone 2 (Road / Lower 65%):** $\mathcal{Z}_{\text{road}} = \{ (x, y) \mid y \in [0.35, 1.0], x \in [0.1, 0.9] \}$
+  2. **Photometric Contrast Ratio Evaluation:**
+     - A lightweight background analyzer samples frame luminance at 5–10 Hz (e.g. from downsampled Y-luminance buffers or Camera2 metadata):
+       $$R_{\text{contrast}} = \frac{\bar{L}_{\text{sky}}}{\bar{L}_{\text{road}}}$$
+     - **Condition A (Sky Bloom / Harsh Daytime):** $R_{\text{contrast}} \ge 2.0$  
+       $\rightarrow$ Sky is blowing out the scene. Restrict `CaptureRequest.CONTROL_AE_REGIONS` strictly to $\mathcal{Z}_{\text{road}}$ and apply adaptive EV boost ($+0.5$ to $+1.0$ EV) to maintain road visibility.
+     - **Condition B (Balanced / Overcast):** $1.0 \le R_{\text{contrast}} < 2.0$  
+       $\rightarrow$ Soft cloud cover or uniform light. Meter with center-weighted road focus with neutral EV bias ($0.0$ EV).
+     - **Condition C (Night / Tunnel / Inverted):** $R_{\text{contrast}} < 1.0$  
+       $\rightarrow$ Headlights on dark road or entering a tunnel. Automatically relax back to full-frame matrix metering to prevent over-amplifying noise on the dark road.
+  3. **Hysteresis & Temporal Smoothing:**
+     - Filter $R_{\text{contrast}}$ with an Exponential Moving Average (EMA, $\alpha = 0.2$) across consecutive frames to prevent rapid exposure oscillation under overhead power lines, traffic lights, or road bridges.
+  4. **Driver Controls & Telemetry:**
+     - **Mode Deck:** `AUTO ROAD AE` (Smart Dual-Zone, Default) vs `FULL MATRIX` (Legacy standard metering).
+     - **Status Badge:** Live viewfinder pill displaying `ROAD AE` when sky rejection is active.
+     - **Tap Lock Precedence:** Any explicit tap-to-focus lock immediately overrides the autonomous metering zone until `[Reset Lock]` is pressed.
 
 ---
 

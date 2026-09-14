@@ -10,14 +10,19 @@ import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.AllInclusive
+import androidx.compose.material.icons.filled.MotionPhotosOn
+import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,6 +41,8 @@ import com.bajajauto.roadsense.camera.CameraDeviceInfo
 import com.bajajauto.roadsense.camera.CameraEngineState
 import com.bajajauto.roadsense.camera.CameraFrameRate
 import com.bajajauto.roadsense.camera.CameraResolution
+import com.bajajauto.roadsense.camera.RoadAeMode
+import com.bajajauto.roadsense.camera.RoadAeState
 import com.bajajauto.roadsense.ui.RadarViewModel
 
 /**
@@ -67,6 +74,13 @@ fun CameraDashboardCard(
     val sessionFrames by viewModel.cameraSessionFrames.collectAsState()
     val isPreviewMutedByUser by viewModel.isCameraPreviewMuted.collectAsState()
     val isInfinityLocked by viewModel.isInfinityFocusLocked.collectAsState()
+    val isAfAeLocked by viewModel.isAfAeLocked.collectAsState()
+    val tapPoint by viewModel.tapFocusPoint.collectAsState()
+
+    // Autonomous Road AE states
+    val roadAeMode by viewModel.roadAeMode.collectAsState()
+    val roadAeState by viewModel.roadAeState.collectAsState()
+    val roadAeContrastRatio by viewModel.roadAeContrastRatio.collectAsState()
 
     var hasCameraPermission by remember { mutableStateOf(viewModel.hasCameraPermission()) }
 
@@ -80,27 +94,9 @@ fun CameraDashboardCard(
     val windowManager = remember { context.getSystemService(Context.WINDOW_SERVICE) as WindowManager }
     val displayRotation = windowManager.defaultDisplay.rotation
 
-    // Settle delay: avoid touching Camera2 hardware during rapid tab transitions
-    var isSettledPreviewActive by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isCurrentTab, isPreviewMutedByUser) {
-        if (isCurrentTab && !isPreviewMutedByUser) {
-            kotlinx.coroutines.delay(250)
-            isSettledPreviewActive = true
-        } else {
-            isSettledPreviewActive = false
-        }
-    }
-
-    // Effect: Detach preview surface when swiped away from Camera tab or muted by user
-    val shouldRenderPreview = isSettledPreviewActive && hasCameraPermission
-    DisposableEffect(shouldRenderPreview) {
-        onDispose {
-            if (!shouldRenderPreview) {
-                viewModel.cameraEngine.detachPreviewSurface()
-            }
-        }
-    }
+    // Directly render preview whenever permitted and not muted by user.
+    // Preserves preview continuity across card swipes and touch gestures.
+    val shouldRenderPreview = !isPreviewMutedByUser && hasCameraPermission
 
     if (isLandscape) {
         // --- LANDSCAPE LAYOUT (Side-by-Side) ---
@@ -160,11 +156,13 @@ fun CameraDashboardCard(
                             .aspectRatio(if (selectedRes == CameraResolution.RES_480P) 4f / 3f else 16f / 9f)
                             .clip(RoundedCornerShape(12.dp))
                     )
+                    if (isAfAeLocked) {
+                        TapFocusReticleOverlay(tapPoint = tapPoint)
+                    }
                 } else {
                     ViewfinderPlaceholder(
                         hasPermission = hasCameraPermission,
                         isMuted = isPreviewMutedByUser,
-                        isSettling = isCurrentTab && !isPreviewMutedByUser && !isSettledPreviewActive,
                         onGrantPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
                         onResume = { viewModel.setCameraPreviewMuted(false) }
                     )
@@ -178,10 +176,23 @@ fun CameraDashboardCard(
                         .align(Alignment.TopStart)
                         .padding(8.dp)
                 ) {
+                    val lockBadge = when {
+                        isInfinityLocked -> " • ∞ LOCK"
+                        isAfAeLocked -> " • AF/AE LOCK"
+                        else -> ""
+                    }
+                    val aeBadge = if (roadAeMode == RoadAeMode.AUTO_ROAD) {
+                        when (roadAeState) {
+                            RoadAeState.SKY_BLOOM -> " • ROAD AE ☀️"
+                            RoadAeState.NIGHT_TUNNEL -> " • ROAD AE 🌙"
+                            RoadAeState.BALANCED -> " • ROAD AE"
+                            RoadAeState.TAP_LOCKED -> ""
+                        }
+                    } else ""
                     Text(
                         text = when (engineState) {
-                            is CameraEngineState.Recording -> "● REC ($sessionFrames f)"
-                            is CameraEngineState.Previewing -> "${selectedCamera?.displayName ?: "Camera"} • ${selectedRes.label}${if (isInfinityLocked) " • ∞ LOCK" else ""}"
+                            is CameraEngineState.Recording -> "● REC ($sessionFrames f)$aeBadge"
+                            is CameraEngineState.Previewing -> "${selectedCamera?.displayName ?: "Camera"} • ${selectedRes.label}$lockBadge$aeBadge"
                             else -> "PAUSED"
                         },
                         color = Color.White,
@@ -214,8 +225,13 @@ fun CameraDashboardCard(
 
                 CameraFocusControlCard(
                     isInfinityLocked = isInfinityLocked,
+                    isAfAeLocked = isAfAeLocked,
+                    roadAeMode = roadAeMode,
+                    roadAeState = roadAeState,
+                    contrastRatio = roadAeContrastRatio,
                     onTriggerAf = { viewModel.triggerCameraAf() },
-                    onToggleInfinity = { viewModel.toggleInfinityFocus() }
+                    onToggleInfinity = { viewModel.toggleInfinityFocus() },
+                    onToggleRoadAe = { viewModel.toggleRoadAeMode() }
                 )
 
                 CameraLensSelectorCard(
@@ -314,13 +330,49 @@ fun CameraDashboardCard(
                                 .fillMaxSize()
                                 .clip(RoundedCornerShape(12.dp))
                         )
+                        if (isAfAeLocked) {
+                            TapFocusReticleOverlay(tapPoint = tapPoint)
+                        }
                     } else {
                         ViewfinderPlaceholder(
                             hasPermission = hasCameraPermission,
                             isMuted = isPreviewMutedByUser,
-                            isSettling = isCurrentTab && !isPreviewMutedByUser && !isSettledPreviewActive,
                             onGrantPermission = { permissionLauncher.launch(Manifest.permission.CAMERA) },
                             onResume = { viewModel.setCameraPreviewMuted(false) }
+                        )
+                    }
+
+                    // Overlay Status Badge
+                    Surface(
+                        color = if (engineState is CameraEngineState.Recording) MaterialTheme.colorScheme.error else Color.Black.copy(alpha = 0.65f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(8.dp)
+                    ) {
+                        val lockBadge = when {
+                            isInfinityLocked -> " • ∞ LOCK"
+                            isAfAeLocked -> " • AF/AE LOCK"
+                            else -> ""
+                        }
+                        val aeBadge = if (roadAeMode == RoadAeMode.AUTO_ROAD) {
+                            when (roadAeState) {
+                                RoadAeState.SKY_BLOOM -> " • ROAD AE ☀️"
+                                RoadAeState.NIGHT_TUNNEL -> " • ROAD AE 🌙"
+                                RoadAeState.BALANCED -> " • ROAD AE"
+                                RoadAeState.TAP_LOCKED -> ""
+                            }
+                        } else ""
+                        Text(
+                            text = when (engineState) {
+                                is CameraEngineState.Recording -> "● REC ($sessionFrames f)$aeBadge"
+                                is CameraEngineState.Previewing -> "${selectedCamera?.displayName ?: "Camera"} • ${selectedRes.label}$lockBadge$aeBadge"
+                                else -> "PAUSED"
+                            },
+                            color = Color.White,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -328,8 +380,13 @@ fun CameraDashboardCard(
 
             CameraFocusControlCard(
                 isInfinityLocked = isInfinityLocked,
+                isAfAeLocked = isAfAeLocked,
+                roadAeMode = roadAeMode,
+                roadAeState = roadAeState,
+                contrastRatio = roadAeContrastRatio,
                 onTriggerAf = { viewModel.triggerCameraAf() },
-                onToggleInfinity = { viewModel.toggleInfinityFocus() }
+                onToggleInfinity = { viewModel.toggleInfinityFocus() },
+                onToggleRoadAe = { viewModel.toggleRoadAeMode() }
             )
 
             CameraLensSelectorCard(
@@ -419,16 +476,21 @@ private fun CameraPipelineStatusHeader(
 @Composable
 private fun CameraFocusControlCard(
     isInfinityLocked: Boolean,
+    isAfAeLocked: Boolean,
+    roadAeMode: RoadAeMode,
+    roadAeState: RoadAeState,
+    contrastRatio: Float,
     onTriggerAf: () -> Unit,
-    onToggleInfinity: () -> Unit
+    onToggleInfinity: () -> Unit,
+    onToggleRoadAe: () -> Unit
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
-            modifier = Modifier.padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -436,7 +498,7 @@ private fun CameraFocusControlCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "FOCUS & OPTICAL CONTROLS",
+                    text = "FOCUS & EXPOSURE",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color.Gray,
                     fontWeight = FontWeight.Bold
@@ -454,6 +516,19 @@ private fun CameraFocusControlCard(
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
+                } else if (isAfAeLocked) {
+                    Surface(
+                        color = Color(0xFFFFD54F).copy(alpha = 0.25f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "TAP AF/AE LOCKED",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFFFD54F),
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
 
@@ -461,23 +536,44 @@ private fun CameraFocusControlCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Button 1: Re-Focus (Centered AF cycle or clears infinity lock)
-                OutlinedButton(
-                    onClick = onTriggerAf,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CenterFocusStrong,
-                        contentDescription = "Re-Focus",
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = "Re-Focus",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                // Button 1: Re-Focus (Centered AF sweep) or Reset Lock if AF/AE locked
+                if (isAfAeLocked) {
+                    Button(
+                        onClick = onTriggerAf,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100)), // High-visibility Amber/Orange
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CenterFocusStrong,
+                            contentDescription = "Reset AF/AE Lock",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Reset Lock",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onTriggerAf,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CenterFocusStrong,
+                            contentDescription = "Re-Focus",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Re-Focus",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
 
                 // Button 2: Infinity Focus Lock
@@ -486,12 +582,12 @@ private fun CameraFocusControlCard(
                         onClick = onToggleInfinity,
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.AllInclusive,
                             contentDescription = "Infinity Focus Locked",
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
@@ -504,12 +600,12 @@ private fun CameraFocusControlCard(
                     OutlinedButton(
                         onClick = onToggleInfinity,
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.AllInclusive,
                             contentDescription = "Infinity Focus Lock",
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
@@ -520,6 +616,124 @@ private fun CameraFocusControlCard(
                     }
                 }
             }
+
+            // Road AE Mode Toggle & Telemetry Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val isAutoRoad = roadAeMode == RoadAeMode.AUTO_ROAD
+                if (isAutoRoad) {
+                    Button(
+                        onClick = onToggleRoadAe,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.WbSunny,
+                            contentDescription = "Road AE Mode Active",
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Road AE: Auto",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onToggleRoadAe,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GridOn,
+                            contentDescription = "Full Frame AE",
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Road AE: Off",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Normal
+                        )
+                    }
+                }
+
+                // Road AE Dynamic Status / Telemetry Chip
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    val statusText = if (!isAutoRoad) {
+                        "Matrix AE"
+                    } else {
+                        when (roadAeState) {
+                            RoadAeState.SKY_BLOOM -> "Sky Bloom (${String.format("%.1f", contrastRatio)}x)"
+                            RoadAeState.BALANCED -> "Balanced (${String.format("%.1f", contrastRatio)}x)"
+                            RoadAeState.NIGHT_TUNNEL -> "Night/Tunnel (${String.format("%.1f", contrastRatio)}x)"
+                            RoadAeState.TAP_LOCKED -> "Tap-Locked"
+                        }
+                    }
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (roadAeState == RoadAeState.SKY_BLOOM && isAutoRoad) MaterialTheme.colorScheme.primary else Color.Gray,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Focus & Exposure lock reticle drawn at the normalized tap position on top of the viewfinder.
+ */
+@Composable
+private fun TapFocusReticleOverlay(
+    tapPoint: Pair<Float, Float>?,
+    modifier: Modifier = Modifier
+) {
+    if (tapPoint == null) return
+    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
+        val targetX = maxWidth * tapPoint.first
+        val targetY = maxHeight * tapPoint.second
+        val boxSize = 54.dp
+        val halfSize = boxSize / 2
+        val left = (targetX - halfSize).coerceIn(4.dp, maxWidth - boxSize - 4.dp)
+        val top = (targetY - halfSize).coerceIn(4.dp, maxHeight - boxSize - 4.dp)
+
+        Box(
+            modifier = Modifier
+                .offset(x = left, y = top)
+                .size(boxSize)
+                .border(
+                    width = 2.dp,
+                    color = Color(0xFFFFD54F),
+                    shape = RoundedCornerShape(8.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(6.dp)
+                    .background(Color(0xFFFFD54F), CircleShape)
+            )
+            Text(
+                text = "AF/AE LOCK",
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFFFD54F),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .offset(y = 12.dp)
+            )
         }
     }
 }

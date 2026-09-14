@@ -358,9 +358,44 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         cameraEngine.setInfinityFocus(newState)
     }
 
+    val isAfAeLocked: StateFlow<Boolean> = cameraEngine.isAfAeLocked
+    val tapFocusPoint: StateFlow<Pair<Float, Float>?> = cameraEngine.tapFocusPoint
+
     fun triggerCameraAf(normX: Float? = null, normY: Float? = null) {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User triggered camera AF (tap: x=$normX, y=$normY)")
         cameraEngine.triggerAutoFocus(normX, normY)
+    }
+
+    val isOisEnabled: StateFlow<Boolean> = cameraEngine.isOisEnabled
+    val isOisSupported: StateFlow<Boolean> = cameraEngine.isOisSupported
+
+    fun toggleOis() {
+        val newState = !cameraEngine.isOisEnabled.value
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User toggled OIS -> $newState")
+        cameraEngine.setOisEnabled(newState)
+    }
+
+    // Dynamic Road Auto-Exposure state flows & controls
+    val roadAeMode: StateFlow<com.bajajauto.roadsense.camera.RoadAeMode> = cameraEngine.roadAeMode
+    val roadAeState: StateFlow<com.bajajauto.roadsense.camera.RoadAeState> = cameraEngine.roadAeState
+    val roadAeContrastRatio: StateFlow<Float> = cameraEngine.contrastRatio
+    val roadAeSkyLuminance: StateFlow<Float> = cameraEngine.skyLuminance
+    val roadAeRoadLuminance: StateFlow<Float> = cameraEngine.roadLuminance
+
+    fun toggleRoadAeMode() {
+        val current = cameraEngine.roadAeMode.value
+        val next = if (current == com.bajajauto.roadsense.camera.RoadAeMode.AUTO_ROAD) {
+            com.bajajauto.roadsense.camera.RoadAeMode.FULL_MATRIX
+        } else {
+            com.bajajauto.roadsense.camera.RoadAeMode.AUTO_ROAD
+        }
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User toggled Road AE mode -> $next")
+        cameraEngine.setRoadAeMode(next)
+    }
+
+    fun setRoadAeMode(mode: com.bajajauto.roadsense.camera.RoadAeMode) {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User set Road AE mode -> $mode")
+        cameraEngine.setRoadAeMode(mode)
     }
 
     fun startSessionRecording(): SessionInfo? {

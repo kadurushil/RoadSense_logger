@@ -1,4 +1,4 @@
-﻿package com.bajajauto.roadsense.camera
+package com.bajajauto.roadsense.camera
 
 import android.hardware.camera2.CameraCharacteristics
 
@@ -10,7 +10,8 @@ data class CameraDeviceInfo(
     val displayName: String,
     val facing: Int, // CameraCharacteristics.LENS_FACING_BACK or LENS_FACING_FRONT
     val focalLengthMm: Float,
-    val isUltraWide: Boolean = false
+    val isUltraWide: Boolean = false,
+    val supportsOis: Boolean = false
 ) {
     val isBackFacing: Boolean
         get() = facing == CameraCharacteristics.LENS_FACING_BACK

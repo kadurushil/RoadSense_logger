@@ -133,19 +133,9 @@ private fun SbsCameraFeedPane(
     val windowManager = remember { context.getSystemService(Context.WINDOW_SERVICE) as WindowManager }
     val displayRotation = windowManager.defaultDisplay.rotation
 
-    // Settle delay: avoid touching Camera2 hardware during rapid tab transitions
-    var isSettledPreviewActive by remember { mutableStateOf(false) }
-
-    LaunchedEffect(isCurrentTab, isPreviewMutedByUser) {
-        if (isCurrentTab && !isPreviewMutedByUser) {
-            kotlinx.coroutines.delay(250)
-            isSettledPreviewActive = true
-        } else {
-            isSettledPreviewActive = false
-        }
-    }
-
-    val shouldRenderPreview = isSettledPreviewActive && hasCameraPermission
+    // Directly render preview whenever permitted and not muted by user.
+    // Preserves preview continuity across card swipes and touch gestures.
+    val shouldRenderPreview = !isPreviewMutedByUser && hasCameraPermission
 
     Card(
         modifier = modifier,
@@ -318,20 +308,13 @@ private fun SbsCameraFeedPane(
                         Text(
                             text = when {
                                 !hasCameraPermission -> "Camera Permission Required"
-                                isCurrentTab && !isPreviewMutedByUser && !isSettledPreviewActive -> "Connecting Viewfinder..."
                                 isPreviewMutedByUser -> "Viewfinder Paused (Off by Default)"
                                 else -> "Viewfinder Inactive"
                             },
                             color = Color(0xFF90A4AE),
                             style = MaterialTheme.typography.bodySmall
                         )
-                        if (isCurrentTab && !isPreviewMutedByUser && !isSettledPreviewActive) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        } else if (!hasCameraPermission) {
+                        if (!hasCameraPermission) {
                             Button(
                                 onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) },
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
