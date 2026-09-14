@@ -58,6 +58,12 @@ class CameraEngine(private val context: Context) {
     private var previewSurface: Surface? = null
     private var recorderSurface: Surface? = null
 
+    private var repeatingRequestBuilder: CaptureRequest.Builder? = null
+    private var repeatingCaptureCallback: CameraCaptureSession.CaptureCallback? = null
+
+    private val _isInfinityFocusLocked = MutableStateFlow(false)
+    val isInfinityFocusLocked: StateFlow<Boolean> = _isInfinityFocusLocked.asStateFlow()
+
     private val _engineState = MutableStateFlow<CameraEngineState>(CameraEngineState.Closed)
     val engineState: StateFlow<CameraEngineState> = _engineState.asStateFlow()
 
@@ -520,6 +526,11 @@ class CameraEngine(private val context: Context) {
                         )
                         requestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
 
+                        // Apply current focus mode (infinity lock vs continuous AF)
+                        applyFocusSettings(requestBuilder)
+
+                        repeatingRequestBuilder = requestBuilder
+
                         // Shutter exposure timestamp callback for microsecond cross-sensor sync
                         val captureCallback = object : CameraCaptureSession.CaptureCallback() {
                             override fun onCaptureStarted(
@@ -538,6 +549,7 @@ class CameraEngine(private val context: Context) {
                             }
                         }
 
+                        repeatingCaptureCallback = captureCallback
                         session.setRepeatingRequest(requestBuilder.build(), captureCallback, backgroundHandler)
 
                         if (isRecordingVideo) {
@@ -578,9 +590,214 @@ class CameraEngine(private val context: Context) {
             captureSession?.stopRepeating()
             captureSession?.close()
             captureSession = null
+            repeatingRequestBuilder = null
+            repeatingCaptureCallback = null
             createCaptureSession()
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error restarting capture session", e)
+        }
+    }
+
+    /**
+     * Applies focus settings to a CaptureRequest.Builder based on infinity lock state.
+     */
+    private fun applyFocusSettings(builder: CaptureRequest.Builder) {
+        val targetCameraId = _selectedCamera.value?.id ?: getBackCameraId() ?: "0"
+        val chars = try { cameraManager.getCameraCharacteristics(targetCameraId) } catch (e: Exception) { null }
+        val afModes = chars?.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
+
+        if (_isInfinityFocusLocked.value) {
+            // Lock focus to optical infinity (0 diopters)
+            if (afModes.contains(CameraMetadata.CONTROL_AF_MODE_OFF)) {
+                builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
+                builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f)
+                AppLogger.d(TAG, "Applied AF_MODE_OFF with lens focus distance = 0.0f (Infinity)")
+            }
+        } else {
+            // Default Continuous Auto-Focus for video/preview
+            val preferredAfMode = when {
+                afModes.contains(CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO) -> CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO
+                afModes.contains(CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE) -> CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE
+                afModes.contains(CameraMetadata.CONTROL_AF_MODE_AUTO) -> CameraMetadata.CONTROL_AF_MODE_AUTO
+                else -> CameraMetadata.CONTROL_AF_MODE_OFF
+            }
+            builder.set(CaptureRequest.CONTROL_AF_MODE, preferredAfMode)
+            AppLogger.d(TAG, "Applied AF mode: $preferredAfMode")
+        }
+    }
+
+    /**
+     * Toggles or sets optical infinity focus lock.
+     * When locked, focus distance is clamped to 0.0f (infinity diopters), preventing
+     * windshield glare, rain, or dust from pulling focus away from distant road targets.
+     */
+    fun setInfinityFocus(locked: Boolean) {
+        if (_isInfinityFocusLocked.value == locked) return
+        _isInfinityFocusLocked.value = locked
+        AppLogger.i(TAG, "Infinity focus lock set to: $locked")
+
+        val session = captureSession
+        val builder = repeatingRequestBuilder
+        val callback = repeatingCaptureCallback
+        if (session != null && builder != null) {
+            try {
+                applyFocusSettings(builder)
+                session.setRepeatingRequest(builder.build(), callback, backgroundHandler)
+                AppLogger.i(TAG, "Updated repeating request with infinity lock = $locked")
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed to apply infinity focus to repeating request", e)
+            }
+        }
+    }
+
+    /**
+     * Triggers an explicit Auto-Focus cycle.
+     * If normX and normY are provided in [0..1] range (e.g. from screen tap), the AF/AE metering
+     * rectangle is placed at the corresponding sensor coordinates. Otherwise, centers on frame.
+     * If infinity focus was locked, this automatically unlocks it to allow refocusing.
+     */
+    fun triggerAutoFocus(normX: Float? = null, normY: Float? = null) {
+        if (_isInfinityFocusLocked.value) {
+            _isInfinityFocusLocked.value = false
+            AppLogger.i(TAG, "Infinity focus unlocked due to re-focus trigger")
+        }
+
+        val session = captureSession ?: run {
+            AppLogger.w(TAG, "triggerAutoFocus: CaptureSession is null")
+            return
+        }
+        val builder = repeatingRequestBuilder ?: run {
+            AppLogger.w(TAG, "triggerAutoFocus: repeatingRequestBuilder is null")
+            return
+        }
+        val callback = repeatingCaptureCallback
+
+        try {
+            val targetCameraId = _selectedCamera.value?.id ?: getBackCameraId() ?: "0"
+            val chars = try { cameraManager.getCameraCharacteristics(targetCameraId) } catch (e: Exception) { null }
+            val activeArray = chars?.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+            val maxAfRegions = chars?.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AF) ?: 0
+            val maxAeRegions = chars?.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AE) ?: 0
+
+            // Set continuous video or auto mode
+            builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+
+            if (activeArray != null && (maxAfRegions > 0 || maxAeRegions > 0)) {
+                val focusX = (normX ?: 0.5f).coerceIn(0f, 1f)
+                val focusY = (normY ?: 0.5f).coerceIn(0f, 1f)
+
+                val sensorOrientation = chars?.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
+                val rotationDegrees = when (currentDisplayRotation) {
+                    Surface.ROTATION_90 -> 90
+                    Surface.ROTATION_180 -> 180
+                    Surface.ROTATION_270 -> 270
+                    else -> 0
+                }
+                val isFacingFront = chars?.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+
+                // Effective rotation from screen space to sensor space
+                val effectiveRotation = if (isFacingFront) {
+                    (sensorOrientation + rotationDegrees) % 360
+                } else {
+                    (sensorOrientation - rotationDegrees + 360) % 360
+                }
+
+                // Map normalized view (x, y) to sensor normalized (sensorX, sensorY)
+                val (sensorNormX, sensorNormY) = when (effectiveRotation) {
+                    90 -> Pair(focusY, 1f - focusX)
+                    180 -> Pair(1f - focusX, 1f - focusY)
+                    270 -> Pair(1f - focusY, focusX)
+                    else -> Pair(focusX, focusY)
+                }
+
+                val centerX = (activeArray.left + sensorNormX * activeArray.width()).toInt()
+                val centerY = (activeArray.top + sensorNormY * activeArray.height()).toInt()
+                val regionWidth = (activeArray.width() * 0.15f).toInt()
+                val regionHeight = (activeArray.height() * 0.15f).toInt()
+
+                val afRect = android.graphics.Rect(
+                    (centerX - regionWidth / 2).coerceIn(activeArray.left, activeArray.right - regionWidth),
+                    (centerY - regionHeight / 2).coerceIn(activeArray.top, activeArray.bottom - regionHeight),
+                    (centerX + regionWidth / 2).coerceIn(activeArray.left + regionWidth, activeArray.right),
+                    (centerY + regionHeight / 2).coerceIn(activeArray.top + regionHeight, activeArray.bottom)
+                )
+
+                val meteringRegion = android.hardware.camera2.params.MeteringRectangle(
+                    afRect,
+                    android.hardware.camera2.params.MeteringRectangle.METERING_WEIGHT_MAX
+                )
+
+                if (maxAfRegions > 0) {
+                    builder.set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(meteringRegion))
+                }
+                if (maxAeRegions > 0) {
+                    builder.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(meteringRegion))
+                }
+                AppLogger.i(TAG, "Setting AF/AE metering region: $afRect (norm: $focusX, $focusY)")
+            }
+
+            // To ensure the lens motor visibly breaks out of a locked or settled state,
+            // we first momentarily set manual focus to kick the motor away from infinity,
+            // then cancel and trigger a fresh AF sweep.
+            builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
+            builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 5.0f) // ~0.2 meters (near focus)
+            session.capture(builder.build(), null, backgroundHandler)
+
+            // Switch to AF AUTO mode with AF_TRIGGER_CANCEL to reset the AF state machine
+            builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_AUTO)
+            builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL)
+            session.capture(builder.build(), null, backgroundHandler)
+
+            // Trigger active AF scan
+            builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
+            session.capture(builder.build(), object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(
+                    session: CameraCaptureSession,
+                    request: CaptureRequest,
+                    result: TotalCaptureResult
+                ) {
+                    val afState = result.get(CaptureResult.CONTROL_AF_STATE)
+                    val focusDist = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
+                    AppLogger.i(TAG, "AF Trigger completed: afState=$afState, focusDist=$focusDist")
+                }
+            }, backgroundHandler)
+
+            // Settle repeating request back into CONTINUOUS_VIDEO with IDLE trigger
+            backgroundHandler?.postDelayed({
+                try {
+                    val currentSession = captureSession
+                    val currentBuilder = repeatingRequestBuilder
+                    if (currentSession != null && currentBuilder != null && !_isInfinityFocusLocked.value) {
+                        currentBuilder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
+                        currentBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE)
+                        currentSession.setRepeatingRequest(currentBuilder.build(), callback, backgroundHandler)
+                        AppLogger.i(TAG, "Resumed CONTINUOUS_VIDEO repeating request after refocus sweep")
+                    }
+                } catch (e: Exception) {
+                    AppLogger.e(TAG, "Error resuming repeating request after AF sweep", e)
+                }
+            }, 800)
+            AppLogger.i(TAG, "Auto-focus cycle successfully triggered")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to trigger auto-focus", e)
+        }
+    }
+
+    fun closeCamera() {
+        try {
+            captureSession?.close()
+            captureSession = null
+            repeatingRequestBuilder = null
+            repeatingCaptureCallback = null
+            cameraDevice?.close()
+            cameraDevice = null
+            mediaRecorder?.release()
+            mediaRecorder = null
+            recorderSurface = null
+            _engineState.value = CameraEngineState.Closed
+            AppLogger.i(TAG, "Closed CameraDevice")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Error closing camera", e)
         }
     }
 
@@ -596,6 +813,13 @@ class CameraEngine(private val context: Context) {
             isRecordingVideo = true
             recordingStartTimeMs = SystemClock.elapsedRealtime()
             _totalFramesLogged.value = 0L
+
+            // Smart Focus: Automatically lock to optical infinity on recording start
+            // to prevent windshield reflections, dust, or rain from hunting focus during drives.
+            if (!_isInfinityFocusLocked.value) {
+                _isInfinityFocusLocked.value = true
+                AppLogger.i(TAG, "Auto-engaged infinity focus lock for video recording session")
+            }
 
             if (cameraDevice == null) {
                 openCamera()
@@ -648,22 +872,6 @@ class CameraEngine(private val context: Context) {
         }
 
         return total
-    }
-
-    fun closeCamera() {
-        try {
-            captureSession?.close()
-            captureSession = null
-            cameraDevice?.close()
-            cameraDevice = null
-            mediaRecorder?.release()
-            mediaRecorder = null
-            recorderSurface = null
-            _engineState.value = CameraEngineState.Closed
-            AppLogger.i(TAG, "Closed CameraDevice")
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error closing camera", e)
-        }
     }
 
     fun release() {

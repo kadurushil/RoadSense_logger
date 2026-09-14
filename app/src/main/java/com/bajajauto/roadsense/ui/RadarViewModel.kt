@@ -86,6 +86,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     val cameraEngineState = cameraEngine.engineState
     val selectedResolution = cameraEngine.selectedResolution
     val selectedFps = cameraEngine.selectedFps
+    val isInfinityFocusLocked = cameraEngine.isInfinityFocusLocked
     val cameraSessionFrames: StateFlow<Long> = cameraSessionRecorder.framesRecorded
 
     private val _rawHexData = MutableStateFlow("No data received yet. Connect to radar and start stream.")
@@ -349,6 +350,17 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User selected frame rate: ${fps.label}")
         appPreferences.cameraFrameRate = fps
         cameraEngine.setFrameRate(fps)
+    }
+
+    fun toggleInfinityFocus() {
+        val newState = !cameraEngine.isInfinityFocusLocked.value
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User toggled infinity focus lock -> $newState")
+        cameraEngine.setInfinityFocus(newState)
+    }
+
+    fun triggerCameraAf(normX: Float? = null, normY: Float? = null) {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User triggered camera AF (tap: x=$normX, y=$normY)")
+        cameraEngine.triggerAutoFocus(normX, normY)
     }
 
     fun startSessionRecording(): SessionInfo? {

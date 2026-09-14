@@ -10,16 +10,21 @@ import android.view.WindowManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.AllInclusive
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -61,6 +66,7 @@ fun CameraDashboardCard(
     val selectedFps by viewModel.selectedFps.collectAsState()
     val sessionFrames by viewModel.cameraSessionFrames.collectAsState()
     val isPreviewMutedByUser by viewModel.isCameraPreviewMuted.collectAsState()
+    val isInfinityLocked by viewModel.isInfinityFocusLocked.collectAsState()
 
     var hasCameraPermission by remember { mutableStateOf(viewModel.hasCameraPermission()) }
 
@@ -110,7 +116,16 @@ fun CameraDashboardCard(
                     .weight(0.55f)
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color.Black),
+                    .background(Color.Black)
+                    .pointerInput(shouldRenderPreview) {
+                        if (shouldRenderPreview) {
+                            detectTapGestures { offset ->
+                                val normX = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                                val normY = (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
+                                viewModel.triggerCameraAf(normX, normY)
+                            }
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 if (shouldRenderPreview) {
@@ -166,7 +181,7 @@ fun CameraDashboardCard(
                     Text(
                         text = when (engineState) {
                             is CameraEngineState.Recording -> "● REC ($sessionFrames f)"
-                            is CameraEngineState.Previewing -> "${selectedCamera?.displayName ?: "Camera"} • ${selectedRes.label}"
+                            is CameraEngineState.Previewing -> "${selectedCamera?.displayName ?: "Camera"} • ${selectedRes.label}${if (isInfinityLocked) " • ∞ LOCK" else ""}"
                             else -> "PAUSED"
                         },
                         color = Color.White,
@@ -195,6 +210,12 @@ fun CameraDashboardCard(
                     isPreviewMutedByUser = isPreviewMutedByUser,
                     onGrant = { permissionLauncher.launch(Manifest.permission.CAMERA) },
                     onToggleMute = { viewModel.setCameraPreviewMuted(!isPreviewMutedByUser) }
+                )
+
+                CameraFocusControlCard(
+                    isInfinityLocked = isInfinityLocked,
+                    onTriggerAf = { viewModel.triggerCameraAf() },
+                    onToggleInfinity = { viewModel.toggleInfinityFocus() }
                 )
 
                 CameraLensSelectorCard(
@@ -249,7 +270,16 @@ fun CameraDashboardCard(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(if (selectedRes == CameraResolution.RES_480P) 4f / 3f else 16f / 9f),
+                        .aspectRatio(if (selectedRes == CameraResolution.RES_480P) 4f / 3f else 16f / 9f)
+                        .pointerInput(shouldRenderPreview) {
+                            if (shouldRenderPreview) {
+                                detectTapGestures { offset ->
+                                    val normX = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                                    val normY = (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
+                                    viewModel.triggerCameraAf(normX, normY)
+                                }
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     if (shouldRenderPreview) {
@@ -295,6 +325,12 @@ fun CameraDashboardCard(
                     }
                 }
             }
+
+            CameraFocusControlCard(
+                isInfinityLocked = isInfinityLocked,
+                onTriggerAf = { viewModel.triggerCameraAf() },
+                onToggleInfinity = { viewModel.toggleInfinityFocus() }
+            )
 
             CameraLensSelectorCard(
                 availableCameras = availableCameras,
@@ -374,6 +410,114 @@ private fun CameraPipelineStatusHeader(
             } else {
                 TextButton(onClick = onToggleMute) {
                     Text(if (isPreviewMutedByUser) "Resume" else "Mute")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CameraFocusControlCard(
+    isInfinityLocked: Boolean,
+    onTriggerAf: () -> Unit,
+    onToggleInfinity: () -> Unit
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "FOCUS & OPTICAL CONTROLS",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.Gray,
+                    fontWeight = FontWeight.Bold
+                )
+                if (isInfinityLocked) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = "∞ ROAD LOCKED",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Button 1: Re-Focus (Centered AF cycle or clears infinity lock)
+                OutlinedButton(
+                    onClick = onTriggerAf,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CenterFocusStrong,
+                        contentDescription = "Re-Focus",
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Re-Focus",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                // Button 2: Infinity Focus Lock
+                if (isInfinityLocked) {
+                    Button(
+                        onClick = onToggleInfinity,
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AllInclusive,
+                            contentDescription = "Infinity Focus Locked",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "∞ Locked",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = onToggleInfinity,
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AllInclusive,
+                            contentDescription = "Infinity Focus Lock",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "∞ Lock",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Normal
+                        )
+                    }
                 }
             }
         }
