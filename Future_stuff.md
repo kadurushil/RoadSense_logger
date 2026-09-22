@@ -203,3 +203,53 @@ Automotive engineers have several powerful tools to inspect, graph, and analyze 
     * **Live/Playback Time-Series Chart:** Plots vehicle speed as a dynamic line graph beside the radar track list.
     * **Ego-Motion Compensation for Radar:** Uses the decoded vehicle speed to differentiate between truly stationary roadside objects and moving vehicles ahead.
     * **Driver Reaction Analysis:** Visualizes brake activation timing relative to radar forward collision warnings (TTC - Time To Collision).
+
+---
+
+## 5. FUSION_STEPS — Radar-Camera Spatial Calibration & Multimodal ADAS Fusion
+
+> **Reference Spec:** See full theoretical, mathematical, and keystone formulation in [`intel/Sensor fusion basics.md`](intel/Sensor%20fusion%20basics.md).
+
+### 5.1 Strategic Architecture & The 3 Critical Safeguards
+1. **Radar Ground Truth:** TI AWR1843 mmWave radar provides absolute metric range ($Y_r$) and radial Doppler velocity ($V_{\text{doppler}}$) immune to glare, shadows, and darkness. The camera provides dense semantic classification and 2D bounding boxes.
+2. **Field-Deployable Calibration (Under 60 Seconds):** Traditional lab checkerboards and laser alignment cannot be required every time the phone mount is adjusted. RoadSense employs a **Keystone HUD** and **Target Pin & Snap** interaction.
+3. **Flat-Earth Road-Plane Anchor ($Z_{\text{road}} \equiv 0$):** Due to the coarse elevation resolution of the standard AWR1843 antenna layout ($\approx 58^\circ$), road obstacles and vehicle bounding boxes are anchored to the ground plane to prevent false vertical floating.
+
+---
+
+### 5.2 Phase 1: Spatial Projection Engine & Keystone Calibration (Immediate Priority) [COMPLETED]
+* **Status:** Implemented. 2D planar radar forward projection engine (`SpatialProjectionEngine.kt`), Camera2 intrinsics extraction (`CameraIntrinsicsProvider.kt`), closed-form reverse solver for real-time drag alignment over parked target vehicle, 100% GUI-adjustable 6-DOF vehicle extrinsics (`CalibrationParameters.kt`), dedicated `CameraCalibrationCard.kt`, `QuickNudgeBar.kt`, and edge-to-edge `FullscreenCalibrationStudio.kt`. Persists to `radar_camera_calib.json` via `CalibrationStorageManager.kt`. Unit tests in `SpatialProjectionEngineTest.kt`.
+* **Pinhole Camera Intrinsics ($K$):**
+  * Automatically extracted via Android Camera2 `CameraCharacteristics.LENS_INTRINSIC_CALIBRATION` or calculated from sensor active array and HFOV:
+    $$f_{\text{pixels}} = \frac{W_{\text{pixels}}}{2 \cdot \tan(\text{HFOV} / 2)}, \quad c_x = \frac{W}{2}, \quad c_y = \frac{H}{2}$$
+* **6-DOF Extrinsic Rigid Transformation ($[\mathbf{R} \mid \mathbf{T}]$):**
+  $$\mathbf{P}_c = \mathbf{R} \cdot \mathbf{P}_r + \mathbf{T}$$
+  * $\mathbf{T} = [\Delta X, \Delta Y, \Delta Z]^T$ (lateral clamp offset $\approx 0.0\text{m}$, longitudinal setback $\approx 1.8\text{m}$, bumper-to-windshield height $\approx 1.0\text{m}$).
+  * $\mathbf{R} = \mathbf{R}_x(\theta) \cdot \mathbf{R}_y(\psi) \cdot \mathbf{R}_z(\phi)$ (pitch tilt $\theta$, heading yaw $\psi$, mount roll $\phi$).
+* **Screen Projection Equation:**
+  $$u = f_x \frac{X_c}{Z_c} + c_x, \quad v = f_y \frac{Y_c}{Z_c} + c_y$$
+* **Interactive Calibration UX:**
+  * **Proposal 3 (Keystone HUD):** Sliders and $\pm 0.1^\circ$ nudge buttons for Pitch (horizon), Yaw (boresight), Roll, Height, and Setback.
+  * **Proposal 1 (Target Pin & Snap):** Floating radar reticle at target distance (e.g. parked car at $10.2\text{m}$). Tester drags reticle onto vehicle bumper; solver auto-calculates $\Delta \theta$ and $\Delta \psi$.
+  * **Persistence:** Stored in `calibration/radar_camera_calib.json` with hardware mount presets.
+
+---
+
+### 5.3 Phase 2: Live Viewfinder Fusion & ADAS HUD Overlay
+* **Doppler-Aware Point Cloud Rendering:**
+  * Real-time 20 Hz projection onto active `TextureView` via Compose `Canvas`.
+  * Velocity color-coding: **Cyan** (stationary road furniture), **Green** (receding traffic), **Amber/Red** (closing/approaching hazards).
+  * Transparency modulated by radar SNR.
+* **3D Perspective Obstacle Bounding Boxes:**
+  * For TI EKF tracks (TLV Type 7), project perspective 3D cuboids or road contact footprints.
+  * Floating telemetry tag: `ID #3 | 18.4 m | -28 km/h | TTC: 1.6s ⚠️`.
+* **Forward Collision Warning (FCW):**
+  * Real-time Time-to-Collision ($\text{TTC} = Y / |V_r|$). Auditory beep and visual flashing border when $\text{TTC} < 2.0\text{ s}$.
+
+---
+
+### 5.4 Phase 3: Semantic AI Association & Deep Fusion (Advanced)
+* **On-Device 2D Detection:** Lightweight YOLOv8-nano running via TFLite / NNAPI for vehicle, two-wheeler, and pedestrian bounding boxes.
+* **IoU & Mahalanobis Distance Gating:** Associating 2D vision detections with 3D radar tracks.
+* **Result:** High-confidence multimodal objects where the camera supplies the semantic label and the radar supplies exact metric depth and velocity.
+

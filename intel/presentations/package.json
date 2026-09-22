@@ -1,0 +1,13 @@
+{
+  "name": "roadsense-presentations",
+  "version": "1.0.0",
+  "description": "Programmatic executive presentation generator for RoadSense",
+  "main": "generate_roadsense_deck.js",
+  "type": "module",
+  "scripts": {
+    "build": "node generate_roadsense_deck.js"
+  },
+  "dependencies": {
+    "pptxgenjs": "^3.12.0"
+  }
+}
