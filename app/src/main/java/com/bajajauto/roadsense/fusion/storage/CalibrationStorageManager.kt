@@ -43,7 +43,16 @@ class CalibrationStorageManager(private val context: Context) {
         try {
             val content = file.readText(Charsets.UTF_8)
             val json = JSONObject(content)
-            val params = CalibrationParameters.fromJson(json)
+            var params = CalibrationParameters.fromJson(json)
+            if ((params.pitchDeg == -2.0f || params.pitchDeg == -7.0f) && params.yawDeg == 0.0f) {
+                AppLogger.i(TAG, "Migrating baseline calibration to Pitch=+7.0°, Yaw=-1.0°")
+                params = params.copy(pitchDeg = 7.0f, yawDeg = -1.0f)
+                try {
+                    file.writeText(params.toJson().toString(2), Charsets.UTF_8)
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Failed to save migrated calibration profile: ${e.message}")
+                }
+            }
             AppLogger.i(TAG, "Loaded calibration profile '${params.profileName}' from ${file.name}: Pitch=${params.pitchDeg}°, Yaw=${params.yawDeg}°")
             params
         } catch (e: Exception) {

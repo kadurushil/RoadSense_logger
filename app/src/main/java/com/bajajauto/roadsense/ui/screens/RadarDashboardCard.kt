@@ -77,7 +77,7 @@ fun RadarDashboardCard(
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                RadarHardwareStatusCard(connectionState, totalBytes, totalPackets)
+                RadarHardwareStatusCard(connectionState, totalBytes, totalPackets, latestFrame)
                 RadarConnectionButtons(viewModel, connectionState)
                 RadarTargetHudCard(latestFrame)
                 // RadarQuickCommands hidden from view per user request
@@ -93,7 +93,7 @@ fun RadarDashboardCard(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            RadarHardwareStatusCard(connectionState, totalBytes, totalPackets)
+            RadarHardwareStatusCard(connectionState, totalBytes, totalPackets, latestFrame)
             RadarBevPlot(
                 viewModel = viewModel,
                 frame = latestFrame,
@@ -115,7 +115,8 @@ fun RadarDashboardCard(
 private fun RadarHardwareStatusCard(
     connectionState: RadarConnectionState,
     totalBytes: Long,
-    totalPackets: Long
+    totalPackets: Long,
+    latestFrame: RadarFrame?
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -179,7 +180,8 @@ private fun RadarHardwareStatusCard(
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 val formattedBytes = if (totalBytes > 1024 * 1024) {
                     "${"%.1f".format(totalBytes / (1024.0 * 1024.0))} MB"
@@ -191,6 +193,21 @@ private fun RadarHardwareStatusCard(
                     style = MaterialTheme.typography.labelMedium,
                     fontFamily = FontFamily.Monospace
                 )
+                val tlvVersion = latestFrame?.tlvVersion ?: "v2.2"
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                    shape = RoundedCornerShape(4.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Text(
+                        text = "TLV $tlvVersion",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
                 Text(
                     text = "Frames: $totalPackets",
                     style = MaterialTheme.typography.labelMedium,

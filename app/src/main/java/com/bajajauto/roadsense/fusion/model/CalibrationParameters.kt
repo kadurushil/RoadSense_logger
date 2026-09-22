@@ -17,8 +17,8 @@ data class CalibrationParameters(
     val targetWidthM: Float = 1.30f,      // Known physical width (W) of target car in front (e.g. 1.3m)
     val targetHeightM: Float = 0.00f,     // Target feature height relative to radar plane (0.0m = bonnet level)
     val radarHeightM: Float = 0.95f,      // Radar elevation above road surface (bonnet mount ~ 95 cm)
-    val pitchDeg: Float = -2.0f,          // Baseline camera tilt down towards the road
-    val yawDeg: Float = 0.0f,             // Baseline camera heading pan relative to vehicle boresight
+    val pitchDeg: Float = 7.0f,           // Baseline camera tilt (positive = +7.0°)
+    val yawDeg: Float = -1.0f,            // Baseline camera heading pan (-1.0°)
     val rollDeg: Float = 0.0f,            // Clamp mount roll level
     val nudgePitchDeg: Float = 0.0f,      // Live in-field session nudge for pitch
     val nudgeYawDeg: Float = 0.0f,        // Live in-field session nudge for yaw
@@ -57,8 +57,8 @@ data class CalibrationParameters(
                 targetWidthM = json.optDouble("targetWidthM", 1.30).toFloat(),
                 targetHeightM = json.optDouble("targetHeightM", 0.00).toFloat(),
                 radarHeightM = json.optDouble("radarHeightM", 0.95).toFloat(),
-                pitchDeg = json.optDouble("pitchDeg", -2.0).toFloat(),
-                yawDeg = json.optDouble("yawDeg", 0.0).toFloat(),
+                pitchDeg = json.optDouble("pitchDeg", 7.0).toFloat(),
+                yawDeg = json.optDouble("yawDeg", -1.0).toFloat(),
                 rollDeg = json.optDouble("rollDeg", 0.0).toFloat(),
                 nudgePitchDeg = json.optDouble("nudgePitchDeg", 0.0).toFloat(),
                 nudgeYawDeg = json.optDouble("nudgeYawDeg", 0.0).toFloat(),
