@@ -38,6 +38,8 @@ import com.bajajauto.roadsense.ui.screens.GnssDashboardCard
 import com.bajajauto.roadsense.ui.screens.RadarDashboardCard
 import com.bajajauto.roadsense.ui.screens.SbsDashboardCard
 import com.bajajauto.roadsense.ui.screens.SessionDeckCard
+import com.bajajauto.roadsense.ui.components.FullscreenCalibrationStudio
+import com.bajajauto.roadsense.ui.components.FullscreenCameraPreview
 import com.bajajauto.roadsense.ui.theme.RoadSenseTheme
 import kotlinx.coroutines.launch
 
@@ -107,6 +109,8 @@ fun RoadSenseCockpitScreen(
     val batteryTempC by viewModel.batteryTempC.collectAsState()
     val cpuUsagePct by viewModel.cpuUsagePct.collectAsState()
     val cpuTempC by viewModel.cpuTempC.collectAsState()
+    val isCalibrationFullScreen by viewModel.isCalibrationFullScreen.collectAsState()
+    val isCameraFullScreen by viewModel.isCameraFullScreen.collectAsState()
 
     val coroutineScope = rememberCoroutineScope()
     val tabs = CockpitTab.values()
@@ -119,11 +123,12 @@ fun RoadSenseCockpitScreen(
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "Swiped to dashboard tab: ${tabs[pagerState.currentPage].title}")
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(top = if (isLandscape) 1.dp else 4.dp)
-    ) {
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = if (isLandscape) 1.dp else 4.dp)
+        ) {
         // High-Density Live Telemetry Ticker (Sensors Hz, GNSS Lock, Battery, CPU & Temp)
         Box(modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp, vertical = 2.dp)) {
             LiveMetricsBar(
@@ -280,9 +285,10 @@ fun RoadSenseCockpitScreen(
             }
         }
 
-        // Swipeable Horizontal Deck of Dedicated Sensor Dashboards
+        // Deck of Dedicated Sensor Dashboards (Swipe disabled: navigation strictly via top tab icons)
         HorizontalPager(
             state = pagerState,
+            userScrollEnabled = false,
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
@@ -336,5 +342,22 @@ fun RoadSenseCockpitScreen(
                 }
             }
         }
+    }
+
+    if (isCameraFullScreen) {
+        FullscreenCameraPreview(
+            viewModel = viewModel,
+            onExit = { viewModel.setCameraFullScreen(false) },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+
+    if (isCalibrationFullScreen) {
+        FullscreenCalibrationStudio(
+            viewModel = viewModel,
+            onExit = { viewModel.setCalibrationFullScreen(false) },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
     }
 }

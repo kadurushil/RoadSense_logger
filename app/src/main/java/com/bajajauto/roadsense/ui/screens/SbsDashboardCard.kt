@@ -133,9 +133,11 @@ private fun SbsCameraFeedPane(
     val windowManager = remember { context.getSystemService(Context.WINDOW_SERVICE) as WindowManager }
     val displayRotation = windowManager.defaultDisplay.rotation
 
-    // Directly render preview whenever permitted and not muted by user.
-    // Preserves preview continuity across card swipes and touch gestures.
-    val shouldRenderPreview = !isPreviewMutedByUser && hasCameraPermission
+    val isCameraFullScreen by viewModel.isCameraFullScreen.collectAsState()
+    val isCalibrationFullScreen by viewModel.isCalibrationFullScreen.collectAsState()
+
+    // Render preview only when this tab is active, not covered by fullscreen, and permitted/unmuted.
+    val shouldRenderPreview = isCurrentTab && !isCameraFullScreen && !isCalibrationFullScreen && !isPreviewMutedByUser && hasCameraPermission
 
     Card(
         modifier = modifier,
@@ -272,6 +274,10 @@ private fun SbsCameraFeedPane(
                         },
                         update = { textureView ->
                             if (textureView.isAvailable) {
+                                val st = textureView.surfaceTexture
+                                if (shouldRenderPreview && st != null && (engineState is CameraEngineState.Closed || !viewModel.cameraEngine.isSurfaceAttached(st))) {
+                                    viewModel.cameraEngine.attachPreviewSurface(st, textureView.width, textureView.height)
+                                }
                                 viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
                             }
                         },

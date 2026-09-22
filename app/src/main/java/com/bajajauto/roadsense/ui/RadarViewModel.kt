@@ -40,6 +40,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import com.bajajauto.roadsense.fusion.engine.CameraIntrinsics
+import com.bajajauto.roadsense.fusion.engine.CameraIntrinsicsProvider
+import com.bajajauto.roadsense.fusion.engine.SpatialProjectionEngine
+import com.bajajauto.roadsense.fusion.model.CalibrationParameters
+import com.bajajauto.roadsense.fusion.storage.CalibrationStorageManager
 
 class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -72,6 +77,29 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     val canedgeLocalSyncedFiles: StateFlow<List<File>> = canedgeIngestionManager.localSyncedFiles
     val canedgeLocalSessionFiles: StateFlow<List<File>> = canedgeIngestionManager.localSessionFiles
     val canedgeUnifiedFiles: StateFlow<List<CanedgeUnifiedFileItem>> = canedgeIngestionManager.unifiedFiles
+
+    // Sensor Fusion & Camera Calibration
+    private val calibrationStorage = CalibrationStorageManager(application)
+    private val _calibrationParams = MutableStateFlow(CalibrationParameters())
+    val calibrationParams: StateFlow<CalibrationParameters> = _calibrationParams.asStateFlow()
+
+    private val _savedBaselineParams = MutableStateFlow<CalibrationParameters?>(null)
+    val savedBaselineParams: StateFlow<CalibrationParameters?> = _savedBaselineParams.asStateFlow()
+
+    private val _isCalibrationFullScreen = MutableStateFlow(false)
+    val isCalibrationFullScreen: StateFlow<Boolean> = _isCalibrationFullScreen.asStateFlow()
+
+    private val _isCameraFullScreen = MutableStateFlow(false)
+    val isCameraFullScreen: StateFlow<Boolean> = _isCameraFullScreen.asStateFlow()
+
+    private val _isRadarOverlayEnabled = MutableStateFlow(true)
+    val isRadarOverlayEnabled: StateFlow<Boolean> = _isRadarOverlayEnabled.asStateFlow()
+
+    private val _isRadarArcsEnabled = MutableStateFlow(true)
+    val isRadarArcsEnabled: StateFlow<Boolean> = _isRadarArcsEnabled.asStateFlow()
+
+    private val _activeIntrinsics = MutableStateFlow<CameraIntrinsics?>(null)
+    val activeIntrinsics: StateFlow<CameraIntrinsics?> = _activeIntrinsics.asStateFlow()
 
     val connectionState: StateFlow<RadarConnectionState> = connectionManager.connectionState
     val recordingState: StateFlow<RecordingState> = rawRecorder.recordingState
@@ -155,6 +183,13 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         // Restore persistent camera settings
         cameraEngine.setResolution(appPreferences.cameraResolution)
         cameraEngine.setFrameRate(appPreferences.cameraFrameRate)
+
+        // Load persistent radar-camera calibration
+        viewModelScope.launch {
+            val loaded = calibrationStorage.loadCalibration()
+            _calibrationParams.value = loaded
+            _savedBaselineParams.value = loaded
+        }
 
         // Periodic 1-second ticker for multi-sensor rates & battery/CPU telemetry
         viewModelScope.launch(Dispatchers.Default) {
@@ -467,6 +502,212 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     fun sendConfig(command: String) {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User sent CLI config command: $command")
         connectionManager.sendConfigCommand(command)
+    }
+
+    // --- Radar-Camera Viewfinder Calibration & Sensor Fusion Methods ---
+
+    fun setCalibrationFullScreen(enabled: Boolean) {
+        _isCalibrationFullScreen.value = enabled
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Calibration fullscreen set to $enabled")
+    }
+
+    fun setCameraFullScreen(enabled: Boolean) {
+        _isCameraFullScreen.value = enabled
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Camera fullscreen set to $enabled")
+    }
+
+    fun toggleRadarOverlay() {
+        val next = !_isRadarOverlayEnabled.value
+        _isRadarOverlayEnabled.value = next
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Radar overlay toggled to $next")
+    }
+
+    fun setRadarOverlayEnabled(enabled: Boolean) {
+        _isRadarOverlayEnabled.value = enabled
+    }
+
+    fun setRadarArcsEnabled(enabled: Boolean) {
+        _isRadarArcsEnabled.value = enabled
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Radar arcs toggled to $enabled")
+    }
+
+    fun updateCameraIntrinsics(viewWidth: Int, viewHeight: Int) {
+        if (viewWidth <= 0 || viewHeight <= 0) return
+        val selectedCamId = cameraEngine.selectedCamera.value?.id
+        _activeIntrinsics.value = CameraIntrinsicsProvider.getIntrinsics(
+            context = getApplication(),
+            cameraId = selectedCamId,
+            viewWidth = viewWidth,
+            viewHeight = viewHeight
+        )
+    }
+
+    fun updateExtrinsics(
+        setbackM: Float? = null,
+        heightOffsetM: Float? = null,
+        lateralOffsetM: Float? = null,
+        targetDistanceM: Float? = null,
+        targetWidthM: Float? = null,
+        targetHeightM: Float? = null,
+        radarHeightM: Float? = null,
+        rollDeg: Float? = null
+    ) {
+        val current = _calibrationParams.value
+        _calibrationParams.value = current.copy(
+            setbackM = setbackM ?: current.setbackM,
+            heightOffsetM = heightOffsetM ?: current.heightOffsetM,
+            lateralOffsetM = lateralOffsetM ?: current.lateralOffsetM,
+            targetDistanceM = targetDistanceM ?: current.targetDistanceM,
+            targetWidthM = targetWidthM ?: current.targetWidthM,
+            targetHeightM = targetHeightM ?: current.targetHeightM,
+            radarHeightM = radarHeightM ?: current.radarHeightM,
+            rollDeg = rollDeg ?: current.rollDeg
+        )
+    }
+
+    fun applyCalibrationDrag(normX: Float, normY: Float, viewWidth: Int, viewHeight: Int) {
+        val intrinsics = _activeIntrinsics.value ?: CameraIntrinsicsProvider.fallbackIntrinsics(viewWidth, viewHeight)
+        val current = _calibrationParams.value
+        val (newPitch, newYaw) = SpatialProjectionEngine.solveExtrinsicsFromTouch(
+            normX = normX,
+            normY = normY,
+            params = current,
+            intrinsics = intrinsics,
+            viewWidth = viewWidth,
+            viewHeight = viewHeight
+        )
+        _calibrationParams.value = current.copy(
+            pitchDeg = newPitch,
+            yawDeg = newYaw,
+            nudgePitchDeg = 0f,
+            nudgeYawDeg = 0f
+        )
+    }
+
+    /**
+     * Relative delta dragging (trackpad style): Moves the reticle incrementally
+     * by (deltaXPx, deltaYPx) from its current screen position.
+     * Prevents the user's finger from covering/blocking the target vehicle or reticle.
+     */
+    fun applyCalibrationDelta(deltaXPx: Float, deltaYPx: Float, viewWidth: Int, viewHeight: Int) {
+        if (viewWidth <= 0 || viewHeight <= 0) return
+        val intrinsics = _activeIntrinsics.value ?: CameraIntrinsicsProvider.fallbackIntrinsics(viewWidth, viewHeight)
+        val current = _calibrationParams.value
+        val currentPt = SpatialProjectionEngine.project2DRadarToScreen(
+            xRadar = 0f,
+            yRadar = current.targetDistanceM,
+            params = current,
+            intrinsics = intrinsics,
+            viewWidth = viewWidth,
+            viewHeight = viewHeight
+        )
+        val curX = currentPt?.xPx ?: (viewWidth / 2f)
+        val curY = currentPt?.yPx ?: (viewHeight / 2f)
+
+        val newX = (curX + deltaXPx).coerceIn(0f, viewWidth.toFloat())
+        val newY = (curY + deltaYPx).coerceIn(0f, viewHeight.toFloat())
+
+        val normX = newX / viewWidth.toFloat()
+        val normY = newY / viewHeight.toFloat()
+
+        val (newPitch, newYaw) = SpatialProjectionEngine.solveExtrinsicsFromTouch(
+            normX = normX,
+            normY = normY,
+            params = current,
+            intrinsics = intrinsics,
+            viewWidth = viewWidth,
+            viewHeight = viewHeight
+        )
+        _calibrationParams.value = current.copy(
+            pitchDeg = newPitch,
+            yawDeg = newYaw,
+            nudgePitchDeg = 0f,
+            nudgeYawDeg = 0f
+        )
+    }
+
+    fun nudgePitch(deltaDeg: Float) {
+        val current = _calibrationParams.value
+        _calibrationParams.value = current.copy(
+            nudgePitchDeg = (current.nudgePitchDeg + deltaDeg).coerceIn(-15f, 15f)
+        )
+    }
+
+    fun nudgeYaw(deltaDeg: Float) {
+        val current = _calibrationParams.value
+        _calibrationParams.value = current.copy(
+            nudgeYawDeg = (current.nudgeYawDeg + deltaDeg).coerceIn(-15f, 15f)
+        )
+    }
+
+    fun saveBaselineCalibration(profileName: String = "Default Mount") {
+        val current = _calibrationParams.value
+        val consolidated = current.copy(
+            pitchDeg = current.effectivePitchDeg,
+            yawDeg = current.effectiveYawDeg,
+            nudgePitchDeg = 0f,
+            nudgeYawDeg = 0f,
+            profileName = profileName,
+            lastCalibratedTimestampMs = System.currentTimeMillis()
+        )
+        _calibrationParams.value = consolidated
+        _savedBaselineParams.value = consolidated
+        viewModelScope.launch {
+            calibrationStorage.saveCalibration(consolidated)
+        }
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Saved baseline calibration: Pitch=${consolidated.pitchDeg}°, Yaw=${consolidated.yawDeg}°")
+    }
+
+    fun loadSavedCalibration() {
+        val saved = _savedBaselineParams.value ?: return
+        _calibrationParams.value = saved
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Restored saved baseline calibration: Pitch=${saved.pitchDeg}°, Yaw=${saved.yawDeg}°")
+    }
+
+    fun resetAnglesToZero() {
+        val current = _calibrationParams.value
+        _calibrationParams.value = current.copy(
+            pitchDeg = 0f,
+            yawDeg = 0f,
+            nudgePitchDeg = 0f,
+            nudgeYawDeg = 0f
+        )
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Reset Pitch & Yaw angles to zero (0.0°)")
+    }
+
+    fun resetPitchToZero() {
+        val current = _calibrationParams.value
+        _calibrationParams.value = current.copy(
+            pitchDeg = 0f,
+            nudgePitchDeg = 0f
+        )
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Reset Pitch angle to zero (0.0°)")
+    }
+
+    fun resetYawToZero() {
+        val current = _calibrationParams.value
+        _calibrationParams.value = current.copy(
+            yawDeg = 0f,
+            nudgeYawDeg = 0f
+        )
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Reset Yaw angle to zero (0.0°)")
+    }
+
+    fun revertNudges() {
+        val current = _calibrationParams.value
+        _calibrationParams.value = current.copy(
+            nudgePitchDeg = 0f,
+            nudgeYawDeg = 0f
+        )
+    }
+
+    fun resetCalibrationToDefaults() {
+        val defaults = CalibrationParameters()
+        _calibrationParams.value = defaults
+        viewModelScope.launch {
+            calibrationStorage.saveCalibration(defaults)
+        }
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Reset calibration to defaults")
     }
 
     override fun onCleared() {

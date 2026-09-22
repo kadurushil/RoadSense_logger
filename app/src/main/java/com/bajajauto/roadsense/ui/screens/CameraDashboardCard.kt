@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.AllInclusive
 import androidx.compose.material.icons.filled.MotionPhotosOn
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,6 +45,9 @@ import com.bajajauto.roadsense.camera.CameraResolution
 import com.bajajauto.roadsense.camera.RoadAeMode
 import com.bajajauto.roadsense.camera.RoadAeState
 import com.bajajauto.roadsense.ui.RadarViewModel
+import com.bajajauto.roadsense.ui.components.CameraCalibrationCard
+import com.bajajauto.roadsense.ui.components.QuickNudgeBar
+import com.bajajauto.roadsense.ui.components.ViewfinderRadarOverlay
 
 /**
  * Camera & Computer Vision Deck:
@@ -82,6 +86,16 @@ fun CameraDashboardCard(
     val roadAeState by viewModel.roadAeState.collectAsState()
     val roadAeContrastRatio by viewModel.roadAeContrastRatio.collectAsState()
 
+    // Sensor Fusion & Calibration states
+    val calibrationParams by viewModel.calibrationParams.collectAsState()
+    val isRadarOverlayEnabled by viewModel.isRadarOverlayEnabled.collectAsState()
+    val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
+    val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
+    val radarFrame by viewModel.latestFrame.collectAsState()
+
+    var previewWidth by remember { mutableStateOf(1920) }
+    var previewHeight by remember { mutableStateOf(1080) }
+
     var hasCameraPermission by remember { mutableStateOf(viewModel.hasCameraPermission()) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -94,9 +108,11 @@ fun CameraDashboardCard(
     val windowManager = remember { context.getSystemService(Context.WINDOW_SERVICE) as WindowManager }
     val displayRotation = windowManager.defaultDisplay.rotation
 
-    // Directly render preview whenever permitted and not muted by user.
-    // Preserves preview continuity across card swipes and touch gestures.
-    val shouldRenderPreview = !isPreviewMutedByUser && hasCameraPermission
+    val isCameraFullScreen by viewModel.isCameraFullScreen.collectAsState()
+    val isCalibrationFullScreen by viewModel.isCalibrationFullScreen.collectAsState()
+
+    // Render preview only when this tab is active, not covered by fullscreen, and permitted/unmuted.
+    val shouldRenderPreview = isCurrentTab && !isCameraFullScreen && !isCalibrationFullScreen && !isPreviewMutedByUser && hasCameraPermission
 
     if (isLandscape) {
         // --- LANDSCAPE LAYOUT (Side-by-Side) ---
@@ -112,52 +128,90 @@ fun CameraDashboardCard(
                     .weight(0.55f)
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color.Black)
-                    .pointerInput(shouldRenderPreview) {
-                        if (shouldRenderPreview) {
-                            detectTapGestures { offset ->
-                                val normX = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
-                                val normY = (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
-                                viewModel.triggerCameraAf(normX, normY)
-                            }
-                        }
-                    },
+                    .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
                 if (shouldRenderPreview) {
-                    AndroidView(
-                        factory = { ctx ->
-                            TextureView(ctx).apply {
-                                surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                                    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                                        viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
-                                        viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                                    }
-
-                                    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-                                        viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                                    }
-
-                                    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                                        viewModel.cameraEngine.detachPreviewSurface(surface)
-                                        return true
-                                    }
-
-                                    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-                                }
-                            }
-                        },
-                        update = { textureView ->
-                            if (textureView.isAvailable) {
-                                viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
-                            }
-                        },
+                    val cameraAspect = if (selectedRes == CameraResolution.RES_480P) 4f / 3f else 16f / 9f
+                    Box(
                         modifier = Modifier
-                            .aspectRatio(if (selectedRes == CameraResolution.RES_480P) 4f / 3f else 16f / 9f)
+                            .aspectRatio(cameraAspect)
                             .clip(RoundedCornerShape(12.dp))
-                    )
-                    if (isAfAeLocked) {
-                        TapFocusReticleOverlay(tapPoint = tapPoint)
+                            .pointerInput(shouldRenderPreview) {
+                                if (shouldRenderPreview) {
+                                    detectTapGestures { offset ->
+                                        val normX = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                                        val normY = (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
+                                        viewModel.triggerCameraAf(normX, normY)
+                                    }
+                                }
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AndroidView(
+                            factory = { ctx ->
+                                TextureView(ctx).apply {
+                                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                                        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                                            previewWidth = width
+                                            previewHeight = height
+                                            viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
+                                            viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
+                                            viewModel.updateCameraIntrinsics(width, height)
+                                        }
+
+                                        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
+                                            previewWidth = width
+                                            previewHeight = height
+                                            viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
+                                            viewModel.updateCameraIntrinsics(width, height)
+                                        }
+
+                                        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                                            viewModel.cameraEngine.detachPreviewSurface(surface)
+                                            return true
+                                        }
+
+                                        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+                                    }
+                                }
+                            },
+                            update = { textureView ->
+                                if (textureView.isAvailable) {
+                                    previewWidth = textureView.width
+                                    previewHeight = textureView.height
+                                    val st = textureView.surfaceTexture
+                                    if (shouldRenderPreview && st != null && (engineState is CameraEngineState.Closed || !viewModel.cameraEngine.isSurfaceAttached(st))) {
+                                        viewModel.cameraEngine.attachPreviewSurface(st, textureView.width, textureView.height)
+                                    }
+                                    viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
+                                    viewModel.updateCameraIntrinsics(textureView.width, textureView.height)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        if (isAfAeLocked) {
+                            TapFocusReticleOverlay(tapPoint = tapPoint)
+                        }
+                        if (isRadarOverlayEnabled) {
+                            ViewfinderRadarOverlay(
+                                radarFrame = radarFrame,
+                                calibrationParams = calibrationParams,
+                                intrinsics = activeIntrinsics,
+                                viewWidth = previewWidth,
+                                viewHeight = previewHeight,
+                                showRangeArcs = isRadarArcsEnabled,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        QuickNudgeBar(
+                            calibrationParams = calibrationParams,
+                            onNudgePitch = { viewModel.nudgePitch(it) },
+                            onNudgeYaw = { viewModel.nudgeYaw(it) },
+                            onRevert = { viewModel.revertNudges() },
+                            onSave = { viewModel.saveBaselineCalibration() },
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                        )
                     }
                 } else {
                     ViewfinderPlaceholder(
@@ -190,15 +244,34 @@ fun CameraDashboardCard(
                         }
                     } else ""
                     Text(
-                        text = when (engineState) {
+                        text = when (val state = engineState) {
                             is CameraEngineState.Recording -> "● REC ($sessionFrames f)$aeBadge"
                             is CameraEngineState.Previewing -> "${selectedCamera?.displayName ?: "Camera"} • ${selectedRes.label}$lockBadge$aeBadge"
-                            else -> "PAUSED"
+                            is CameraEngineState.Opening -> "OPENING..."
+                            is CameraEngineState.Error -> "ERROR: ${state.message.take(16)}"
+                            CameraEngineState.Closed -> if (isPreviewMutedByUser) "PAUSED" else "STANDBY"
                         },
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+
+                // Fullscreen Expand Button (Landscape)
+                IconButton(
+                    onClick = { viewModel.setCameraFullScreen(true) },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .size(34.dp)
+                        .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Fullscreen,
+                        contentDescription = "Full Screen Preview",
+                        tint = Color.White,
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -221,6 +294,14 @@ fun CameraDashboardCard(
                     isPreviewMutedByUser = isPreviewMutedByUser,
                     onGrant = { permissionLauncher.launch(Manifest.permission.CAMERA) },
                     onToggleMute = { viewModel.setCameraPreviewMuted(!isPreviewMutedByUser) }
+                )
+
+                CameraCalibrationCard(
+                    calibrationParams = calibrationParams,
+                    isRadarOverlayEnabled = isRadarOverlayEnabled,
+                    onLaunchCalibration = { viewModel.setCalibrationFullScreen(true) },
+                    onToggleRadarOverlay = { viewModel.toggleRadarOverlay() },
+                    onResetDefaults = { viewModel.resetCalibrationToDefaults() }
                 )
 
                 CameraFocusControlCard(
@@ -304,12 +385,18 @@ fun CameraDashboardCard(
                                 TextureView(ctx).apply {
                                     surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                                         override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                                            previewWidth = width
+                                            previewHeight = height
                                             viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
                                             viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
+                                            viewModel.updateCameraIntrinsics(width, height)
                                         }
 
                                         override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
+                                            previewWidth = width
+                                            previewHeight = height
                                             viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
+                                            viewModel.updateCameraIntrinsics(width, height)
                                         }
 
                                         override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
@@ -323,7 +410,14 @@ fun CameraDashboardCard(
                             },
                             update = { textureView ->
                                 if (textureView.isAvailable) {
+                                    previewWidth = textureView.width
+                                    previewHeight = textureView.height
+                                    val st = textureView.surfaceTexture
+                                    if (shouldRenderPreview && st != null && (engineState is CameraEngineState.Closed || !viewModel.cameraEngine.isSurfaceAttached(st))) {
+                                        viewModel.cameraEngine.attachPreviewSurface(st, textureView.width, textureView.height)
+                                    }
                                     viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
+                                    viewModel.updateCameraIntrinsics(textureView.width, textureView.height)
                                 }
                             },
                             modifier = Modifier
@@ -333,6 +427,25 @@ fun CameraDashboardCard(
                         if (isAfAeLocked) {
                             TapFocusReticleOverlay(tapPoint = tapPoint)
                         }
+                        if (isRadarOverlayEnabled) {
+                            ViewfinderRadarOverlay(
+                                radarFrame = radarFrame,
+                                calibrationParams = calibrationParams,
+                                intrinsics = activeIntrinsics,
+                                viewWidth = previewWidth,
+                                viewHeight = previewHeight,
+                                showRangeArcs = isRadarArcsEnabled,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        QuickNudgeBar(
+                            calibrationParams = calibrationParams,
+                            onNudgePitch = { viewModel.nudgePitch(it) },
+                            onNudgeYaw = { viewModel.nudgeYaw(it) },
+                            onRevert = { viewModel.revertNudges() },
+                            onSave = { viewModel.saveBaselineCalibration() },
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                        )
                     } else {
                         ViewfinderPlaceholder(
                             hasPermission = hasCameraPermission,
@@ -364,10 +477,12 @@ fun CameraDashboardCard(
                             }
                         } else ""
                         Text(
-                            text = when (engineState) {
+                            text = when (val state = engineState) {
                                 is CameraEngineState.Recording -> "● REC ($sessionFrames f)$aeBadge"
                                 is CameraEngineState.Previewing -> "${selectedCamera?.displayName ?: "Camera"} • ${selectedRes.label}$lockBadge$aeBadge"
-                                else -> "PAUSED"
+                                is CameraEngineState.Opening -> "OPENING..."
+                                is CameraEngineState.Error -> "ERROR: ${state.message.take(16)}"
+                                CameraEngineState.Closed -> if (isPreviewMutedByUser) "PAUSED" else "STANDBY"
                             },
                             color = Color.White,
                             fontSize = 11.sp,
@@ -375,8 +490,33 @@ fun CameraDashboardCard(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
+
+                    // Fullscreen Expand Button (Portrait)
+                    IconButton(
+                        onClick = { viewModel.setCameraFullScreen(true) },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .size(34.dp)
+                            .background(Color.Black.copy(alpha = 0.65f), CircleShape)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fullscreen,
+                            contentDescription = "Full Screen Preview",
+                            tint = Color.White,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
+
+            CameraCalibrationCard(
+                calibrationParams = calibrationParams,
+                isRadarOverlayEnabled = isRadarOverlayEnabled,
+                onLaunchCalibration = { viewModel.setCalibrationFullScreen(true) },
+                onToggleRadarOverlay = { viewModel.toggleRadarOverlay() },
+                onResetDefaults = { viewModel.resetCalibrationToDefaults() }
+            )
 
             CameraFocusControlCard(
                 isInfinityLocked = isInfinityLocked,
@@ -696,7 +836,7 @@ private fun CameraFocusControlCard(
  * Focus & Exposure lock reticle drawn at the normalized tap position on top of the viewfinder.
  */
 @Composable
-private fun TapFocusReticleOverlay(
+fun TapFocusReticleOverlay(
     tapPoint: Pair<Float, Float>?,
     modifier: Modifier = Modifier
 ) {
