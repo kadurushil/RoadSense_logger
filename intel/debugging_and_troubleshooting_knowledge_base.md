@@ -17,7 +17,8 @@
 8. [Bug #8: Local JVM Unit Test NullPointerException on JSONObject](#bug-8-local-jvm-unit-test-nullpointerexception-on-jsonobject)
 9. [Bug #9: (0, 0) High-Velocity Phantom Tracks & Stride Misalignment in TLV Type 3](#bug-9-0-0-high-velocity-phantom-tracks--stride-misalignment-in-tlv-type-3)
 10. [Bug #10: CANedge Single-Socket MCU Lockup & Historical File Download Flooding](#bug-10-canedge-single-socket-mcu-lockup--historical-file-download-flooding)
-11. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
+11. [Bug #11: Visualizer Track Deserialization Failure & 28-Byte Stride Corruption in PC Processing Pipeline](#bug-11-visualizer-track-deserialization-failure--28-byte-stride-corruption-in-pc-processing-pipeline)
+12. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
 
 ---
 
@@ -304,6 +305,64 @@
 
 ---
 
+## Bug #11: Visualizer Track Deserialization Failure & 28-Byte Stride Corruption in PC Processing Pipeline
+
+### Symptoms
+* Following the deployment of Custom MRR v2.1/v2.2 radar firmware, multi-sensor sessions (such as `session_20260922_120145`) failed to display active radar tracks properly in downstream PC visualizers (`track_history.json`).
+* In the visualizer, tracks either appeared for only 1–2 frames before vanishing or were completely absent.
+* Inspection of the generated `track_history.json` revealed that the unique track count exploded to **1,563 fragmented tracks** for a 6-minute drive (compared to typical ~100–200 persistent tracks).
+* Track IDs were corrupted (e.g. `tid=1750`), coordinates were scattered/erratic, velocities were inaccurate, and point clouds appeared noisy/misaligned.
+* Older sessions captured with legacy firmware (such as `session_20260914_172150`) processed and visualized with 100% accuracy.
+
+### Root Cause Analysis
+1. **Multi-TLV v2.2 Hardware Struct Evolution:**
+   The upgraded AWR1843 Custom MRR firmware introduced extended multi-TLV definitions:
+   - **TLV 3 (EKF Tracks):** Stride expanded from legacy 20 bytes (`<7h3H`) to **28 bytes** (`<hhhhhhhHHHhBBBBH`), packing `x, y, vx, vy, majorSize, minorSize, orientation, tid, state, clusterID, tti, risk, isStationary, ttcCategory, confidence, reserved`.
+   - **TLV 1 (Point Cloud):** Stride expanded from legacy 10 bytes (`<hH3h`) to **12 bytes** (`<hHhhhBB`), adding `clusterID` and `isOutlier`.
+   - **TLV 2 (DBSCAN Clusters):** Stride expanded to **16 bytes** (`<hhhhHHBBBB`).
+   - **TLVs 4, 5, 6:** 48-byte Tracker Diagnostics, 56-byte Vehicle CAN Inputs, and 24-byte Safety ADAS CAN Outputs.
+2. **False Stride Match & Byte Offset Corruption in `tools/sync_and_process_sessions.py`:**
+   In the PC session converter, TLV 3 stride detection used static modulo checks:
+   ```python
+   # PROBLEMATIC CODE in tools/sync_and_process_sessions.py
+   if payload_size % 20 == 0:
+       stride = 20
+   elif payload_size % 14 == 0:
+       stride = 14
+   else:
+       stride = 12
+   ```
+   Because 28 is divisible by 14 ($28 = 2 \times 14$), `payload_size % 14 == 0` evaluated to **True** for all 28-byte track payloads!
+3. **The Struct Offset Cascade:**
+   The parser assumed `stride = 14`, incrementing the track offset by only 14 bytes per target instead of 28:
+   - **Track 0:** Read bytes 0..11 as coordinates. Then for byte 12..13, it read `orientation` as `tid`! A target heading of $175.0^\circ$ produced `tid = 1750`!
+   - **Phantom Track 1:** Jumped by 14 bytes into the *middle of Track 0* (bytes 14..27). Bytes `state, clusterID, tti, risk...` were unpacked as $X, Y, V_x, V_y$, generating phantom tracks with random coordinates.
+   - The actual Track 1 was never unpacked properly.
+4. **Point Cloud & Cluster Scrambling:**
+   - TLV 1 hardcoded `point_size = 10` instead of 12, accumulating $+2 \times i$ bytes of stride drift per point and corrupting all reflections after point 0.
+   - TLV 2 fell back to 8 bytes instead of 16 bytes.
+   - TLVs 4, 5, and 6 were bypassed and populated with static dummy zeros.
+
+### Solution & Fix
+1. **Adaptive Multi-Stride Resolution:**
+   Updated [`tools/sync_and_process_sessions.py`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/sync_and_process_sessions.py) to dynamically calculate element stride per frame:
+   ```python
+   # VERIFIED FIX in tools/sync_and_process_sessions.py
+   calc_stride = payload_size // num_objs if num_objs > 0 else 0
+   stride = 28 if calc_stride >= 28 else (20 if calc_stride >= 20 else (14 if calc_stride >= 14 else 12))
+   ```
+2. **28-Byte Track Unpacking:**
+   Unpacks `<hhhhhhhHHHhBBBBH`, extracting native `tid`, `orientation` (heading in degrees), `tti` (Time-to-Interception in seconds), `risk`, and `isStationary`. Unallocated (`status == 0`) and dead (`status == 5`) slots are filtered out.
+3. **12-Byte Point & 16-Byte Cluster Unpacking:**
+   Unpacks `<hHhhhBB` for points (retaining cluster association and outlier flags) and `<hhhhHHBBBB` for clusters.
+4. **Full TLVs 4–6 Telemetry Pipeline:**
+   Ingests road boundary barriers (`road_boundary_left_x` / `road_boundary_right_x`), ego velocities, powertrain CAN inputs, and bit-exact physical ADAS warnings (FCW, BSD, ACC) into `viz_frame`.
+5. **Session Verification & Backward Compatibility:**
+   - **`session_20260922_120145` (Updated v2.2):** Re-processed all 7,400 frames. Fragmented phantom tracks collapsed from 1,563 down to 1,049 clean, continuous tracks (e.g. Track #1722 tracked across 402 consecutive frames; Track #1701 tracked across 346 frames up to 122m range).
+   - **`session_20260914_172150` (Legacy 20B/10B):** Re-processed all 6,723 frames. Yielded exactly 2,454 tracks, preserving 100% backward compatibility.
+
+---
+
 ## Summary of Core Engineering Rules
 
 1. **Never pass high-frequency raw byte streams through `StateFlow`:** Always use direct callbacks or channels to background workers.
@@ -314,3 +373,4 @@
 6. **Use monotonic timestamps for synchronization:** Never rely on wall-clock time for microsecond sensor alignment.
 7. **Always verify TLV element strides adaptively:** Firmware structs evolve across releases; check `payloadSize % numElements` before assuming struct byte size.
 8. **Never download historical mass archives over constrained embedded HTTP bridges:** Target only active session directories, and enforce MCU socket cooldowns on network errors.
+9. **Never rely on modulo checks without divisor prioritization in binary converters:** Modulo tests on integer multiples (e.g. $28 \pmod{14} == 0$) cause stride aliasing. Always test larger strides first or divide directly by `numElements`.

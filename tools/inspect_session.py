@@ -266,8 +266,9 @@ def inspect_session(target_path):
         1: "Detected Points (Point Cloud)",
         2: "Target Clusters (Pre-Track Clusters)",
         3: "Active Tracks (Tracker Table)",
-        4: "Parking Assist",
-        6: "Stats Information",
+        4: "Tracker Diagnostics / Parking Assist",
+        5: "Vehicle CAN Inputs",
+        6: "Vehicle Safety ADAS CAN Outputs / Stats",
         7: "Side Info (SNR / Noise)",
         8: "Cluster Information (Legacy)",
         1010: "3D Target List"

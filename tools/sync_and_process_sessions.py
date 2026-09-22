@@ -269,7 +269,10 @@ def parse_radar_frames_bin(radar_bin_path):
             "num_detected_obj": num_det,
             "pointCloud": [],
             "clusters": [],
-            "tracks": []
+            "tracks": [],
+            "diags": None,
+            "can_inputs": None,
+            "adas_can": None
         }
 
         tlv_offset = TI_HEADER_SIZE
@@ -284,116 +287,291 @@ def parse_radar_frames_bin(radar_bin_path):
             if len(tlv_data) < 4:
                 continue
 
-            num_objs, q_format = struct.unpack_from("<HH", tlv_data, 0)
-            if q_format > 31:
-                q_format = 15
-            inv_q = 1.0 / (1 << q_format)
+            # --- TLV 1, 2, 3: Array TLVs with 4-byte Descriptor (<HH: num_objs, q_format) ---
+            if tlv_type in (1, 2, 3):
+                num_objs, q_format = struct.unpack_from("<HH", tlv_data, 0)
+                if q_format > 31:
+                    q_format = 15
+                inv_q = 1.0 / (1 << q_format)
+                payload_size = len(tlv_data) - 4
 
-            payload_size = len(tlv_data) - 4
-
-            # --- TLV 1: Detected Point Cloud ---
-            if tlv_type == 1:
-                point_size = 10
-                count = min(num_objs, payload_size // point_size)
-                for i in range(count):
-                    poff = 4 + i * point_size
-                    doppler_raw, peak_raw, x_raw, y_raw, z_raw = struct.unpack_from("<hHhhh", tlv_data, poff)
-                    snr_db = (peak_raw / 512.0) * 6.0206
-                    frame_dict["pointCloud"].append({
-                        "x": safe_float(x_raw * inv_q),
-                        "y": safe_float(y_raw * inv_q),
-                        "z": safe_float(z_raw * inv_q),
-                        "velocity": safe_float(doppler_raw * inv_q),
-                        "snr": safe_float(snr_db),
-                        "noise": 0.0,
-                        "pointId": i,
-                        "clusterNumber": 0,
-                        "isOutlier": False
-                    })
-
-            # --- TLV 2: Target Clusters ---
-            elif tlv_type == 2:
-                is_10_byte = (payload_size % 10 == 0) and (payload_size // 10 >= num_objs)
-                cluster_size = 10 if is_10_byte else 8
-                count = min(num_objs, payload_size // cluster_size)
-                for i in range(count):
-                    coff = 4 + i * cluster_size
-                    if is_10_byte:
-                        x_raw, y_raw, vx_raw, vy_raw, cid = struct.unpack_from("<hhhhH", tlv_data, coff)
-                        x_size, y_size = 1.2, 1.2
+                # --- TLV 1: Detected Point Cloud (12B Extended / 10B Legacy) ---
+                if tlv_type == 1:
+                    if num_objs > 0:
+                        calc_stride = payload_size // num_objs
+                        stride = 12 if calc_stride >= 12 else 10
                     else:
-                        x_raw, y_raw, xs_raw, ys_raw = struct.unpack_from("<hhhh", tlv_data, coff)
-                        vx_raw, vy_raw, cid = 0, 0, i + 1
-                        x_size = xs_raw * inv_q
-                        y_size = ys_raw * inv_q
+                        stride = 12 if (payload_size % 12 == 0 and payload_size > 0) else 10
 
-                    x_val = x_raw * inv_q
-                    y_val = y_raw * inv_q
-                    vx_val = vx_raw * inv_q
-                    vy_val = vy_raw * inv_q
+                    count = min(num_objs, payload_size // stride)
+                    for i in range(count):
+                        poff = 4 + i * stride
+                        if stride >= 12:
+                            doppler_raw, peak_raw, x_raw, y_raw, z_raw, cluster_id, is_outlier = struct.unpack_from(
+                                "<hHhhhBB", tlv_data, poff
+                            )
+                        else:
+                            doppler_raw, peak_raw, x_raw, y_raw, z_raw = struct.unpack_from(
+                                "<hHhhh", tlv_data, poff
+                            )
+                            cluster_id = 0
+                            is_outlier = 0
 
-                    dist = math.hypot(x_val, y_val)
-                    rad_speed = (x_val * vx_val + y_val * vy_val) / dist if dist > 0 else 0.0
-                    azimuth = math.degrees(math.atan2(x_val, y_val)) if dist > 0 else 0.0
+                        snr_db = (peak_raw / 512.0) * 6.0206
+                        frame_dict["pointCloud"].append({
+                            "x": safe_float(x_raw * inv_q),
+                            "y": safe_float(y_raw * inv_q),
+                            "z": safe_float(z_raw * inv_q),
+                            "velocity": safe_float(doppler_raw * inv_q),
+                            "snr": safe_float(snr_db),
+                            "noise": 0.0,
+                            "pointId": i,
+                            "clusterNumber": int(cluster_id),
+                            "isOutlier": bool(is_outlier)
+                        })
 
-                    frame_dict["clusters"].append({
-                        "id": int(cid),
-                        "x": safe_float(x_val),
-                        "y": safe_float(y_val),
-                        "vx": safe_float(vx_val),
-                        "vy": safe_float(vy_val),
-                        "radialSpeed": safe_float(rad_speed),
-                        "azimuth": safe_float(azimuth),
-                        "isOutlier": False,
-                        "isStationaryInBox": False
-                    })
-
-            # --- TLV 3: EKF Tracked Objects ---
-            elif tlv_type == 3:
-                if payload_size % 20 == 0:
-                    stride = 20
-                elif payload_size % 14 == 0:
-                    stride = 14
-                else:
-                    stride = 12
-
-                count = min(num_objs, payload_size // stride)
-                for i in range(count):
-                    toff = 4 + i * stride
-                    x_raw, y_raw, vx_raw, vy_raw, xs_raw, ys_raw = struct.unpack_from("<hhhhhh", tlv_data, toff)
-                    
-                    if stride == 20:
-                        aux, tid, status = struct.unpack_from("<hHI", tlv_data, toff + 12)
-                    elif stride == 14:
-                        tid = struct.unpack_from("<H", tlv_data, toff + 12)[0]
-                        status = 3
-                        aux = 0
+                # --- TLV 2: Target Clusters (16B Extended / 10B / 8B Legacy) ---
+                elif tlv_type == 2:
+                    if num_objs > 0:
+                        calc_stride = payload_size // num_objs
+                        stride = 16 if calc_stride >= 16 else (10 if calc_stride >= 10 else 8)
                     else:
-                        tid = i + 1
-                        status = 3
-                        aux = 0
+                        stride = 16 if (payload_size % 16 == 0 and payload_size > 0) else (
+                            10 if (payload_size % 10 == 0 and payload_size > 0) else 8
+                        )
 
-                    x_val = x_raw * inv_q
-                    y_val = y_raw * inv_q
-                    vx_val = vx_raw * inv_q
-                    vy_val = vy_raw * inv_q
-                    xs_val = xs_raw * inv_q
-                    ys_val = ys_raw * inv_q
+                    count = min(num_objs, payload_size // stride)
+                    for i in range(count):
+                        coff = 4 + i * stride
+                        if stride >= 16:
+                            x_raw, y_raw, xs_raw, ys_raw, cid, num_pts, is_out, is_stat, is_dead, _ = struct.unpack_from(
+                                "<hhhhHHBBBB", tlv_data, coff
+                            )
+                            x_val = x_raw * inv_q
+                            y_val = y_raw * inv_q
+                            vx_val = 0.0
+                            vy_val = 0.0
+                            is_outlier_bool = bool(is_out)
+                            is_stat_bool = bool(is_stat)
+                        elif stride >= 10:
+                            x_raw, y_raw, xs_raw, ys_raw, cid = struct.unpack_from("<hhhhH", tlv_data, coff)
+                            x_val = x_raw * inv_q
+                            y_val = y_raw * inv_q
+                            vx_val = xs_raw * inv_q
+                            vy_val = ys_raw * inv_q
+                            is_outlier_bool = False
+                            is_stat_bool = False
+                        else:
+                            x_raw, y_raw, xs_raw, ys_raw = struct.unpack_from("<hhhh", tlv_data, coff)
+                            cid = i + 1
+                            x_val = x_raw * inv_q
+                            y_val = y_raw * inv_q
+                            vx_val = 0.0
+                            vy_val = 0.0
+                            is_outlier_bool = False
+                            is_stat_bool = False
 
-                    if status == 0 or (x_val == 0.0 and y_val == 0.0 and vx_val == 0.0 and vy_val == 0.0):
-                        continue
+                        dist = math.hypot(x_val, y_val)
+                        rad_speed = (x_val * vx_val + y_val * vy_val) / dist if dist > 0 and (vx_val != 0.0 or vy_val != 0.0) else 0.0
+                        azimuth = math.degrees(math.atan2(x_val, y_val)) if dist > 0 else 0.0
 
-                    frame_dict["tracks"].append({
-                        "tid": int(tid),
-                        "status": int(status),
-                        "x": safe_float(x_val),
-                        "y": safe_float(y_val),
-                        "vx": safe_float(vx_val),
-                        "vy": safe_float(vy_val),
-                        "xSize": safe_float(xs_val),
-                        "ySize": safe_float(ys_val),
-                        "aux": safe_float(aux * inv_q)
-                    })
+                        frame_dict["clusters"].append({
+                            "id": int(cid),
+                            "x": safe_float(x_val),
+                            "y": safe_float(y_val),
+                            "vx": safe_float(vx_val),
+                            "vy": safe_float(vy_val),
+                            "radialSpeed": safe_float(rad_speed),
+                            "azimuth": safe_float(azimuth),
+                            "isOutlier": is_outlier_bool,
+                            "isStationaryInBox": is_stat_bool
+                        })
+
+                # --- TLV 3: EKF Tracked Objects (28B v2.2 / 20B / 14B / 12B) ---
+                elif tlv_type == 3:
+                    if num_objs > 0:
+                        calc_stride = payload_size // num_objs
+                        stride = 28 if calc_stride >= 28 else (20 if calc_stride >= 20 else (14 if calc_stride >= 14 else 12))
+                    else:
+                        stride = 28 if (payload_size % 28 == 0 and payload_size > 0) else (
+                            20 if (payload_size % 20 == 0 and payload_size > 0) else (
+                                14 if (payload_size % 14 == 0 and payload_size > 0) else 12
+                            )
+                        )
+
+                    count = min(num_objs, payload_size // stride)
+                    for i in range(count):
+                        toff = 4 + i * stride
+                        if stride >= 28:
+                            x_raw, y_raw, vx_raw, vy_raw, maj_raw, min_raw, ori_raw, tid, status, cluster_id, tti_raw, risk, is_stat, ttc_cat, conf, res = struct.unpack_from(
+                                "<hhhhhhhHHHhBBBBH", tlv_data, toff
+                            )
+                            x_val = x_raw * inv_q
+                            y_val = y_raw * inv_q
+                            vx_val = vx_raw * inv_q
+                            vy_val = vy_raw * inv_q
+                            maj_val = maj_raw * inv_q
+                            min_val = min_raw * inv_q
+                            ori_deg = ori_raw * 0.1
+                            tti_sec = (tti_raw * 0.01) if tti_raw >= 0 else 100.0
+                            risk_val = int(risk)
+                            is_stat_bool = bool(is_stat)
+                            aux = 0.0
+                        elif stride >= 20:
+                            x_raw, y_raw, vx_raw, vy_raw, maj_raw, min_raw, ori_raw, tid, status, res = struct.unpack_from(
+                                "<hhhhhhhHHH", tlv_data, toff
+                            )
+                            x_val = x_raw * inv_q
+                            y_val = y_raw * inv_q
+                            vx_val = vx_raw * inv_q
+                            vy_val = vy_raw * inv_q
+                            maj_val = maj_raw * inv_q
+                            min_val = min_raw * inv_q
+                            ori_deg = ori_raw * 0.1
+                            tti_sec = 100.0
+                            risk_val = 0
+                            is_stat_bool = False
+                            aux = 0.0
+                        elif stride >= 14:
+                            x_raw, y_raw, vx_raw, vy_raw, xs_raw, ys_raw, tid = struct.unpack_from(
+                                "<hhhhhhH", tlv_data, toff
+                            )
+                            x_val = x_raw * inv_q
+                            y_val = y_raw * inv_q
+                            vx_val = vx_raw * inv_q
+                            vy_val = vy_raw * inv_q
+                            maj_val = xs_raw * inv_q
+                            min_val = ys_raw * inv_q
+                            ori_deg = 0.0
+                            status = 3
+                            tti_sec = 100.0
+                            risk_val = 0
+                            is_stat_bool = False
+                            aux = 0.0
+                        else:
+                            x_raw, y_raw, vx_raw, vy_raw, xs_raw, ys_raw = struct.unpack_from(
+                                "<hhhhhh", tlv_data, toff
+                            )
+                            x_val = x_raw * inv_q
+                            y_val = y_raw * inv_q
+                            vx_val = vx_raw * inv_q
+                            vy_val = vy_raw * inv_q
+                            maj_val = xs_raw * inv_q
+                            min_val = ys_raw * inv_q
+                            ori_deg = 0.0
+                            tid = i + 1
+                            status = 3
+                            tti_sec = 100.0
+                            risk_val = 0
+                            is_stat_bool = False
+                            aux = 0.0
+
+                        # Filter out inactive / free (0) or dead (5) or zero-vector track slots
+                        if status == 0 or status == 5 or (x_val == 0.0 and y_val == 0.0 and vx_val == 0.0 and vy_val == 0.0):
+                            continue
+
+                        frame_dict["tracks"].append({
+                            "tid": int(tid),
+                            "status": int(status),
+                            "x": safe_float(x_val),
+                            "y": safe_float(y_val),
+                            "vx": safe_float(vx_val),
+                            "vy": safe_float(vy_val),
+                            "xSize": safe_float(maj_val),
+                            "ySize": safe_float(min_val),
+                            "orientation": safe_float(ori_deg),
+                            "tti": safe_float(tti_sec),
+                            "risk": risk_val,
+                            "isStationary": is_stat_bool,
+                            "aux": safe_float(aux)
+                        })
+
+            # --- TLV 4: Tracker Diagnostics (48 Bytes) ---
+            elif tlv_type == 4 and len(tlv_data) >= 48:
+                d = struct.unpack_from("<HBb10fHBB", tlv_data, 0)
+                frame_dict["diags"] = {
+                    "num_inliers": int(d[0]),
+                    "ransac_ok": bool(d[1]),
+                    "motion_state": int(d[2]),
+                    "filtered_vx_iir": float(d[3]),
+                    "filtered_vy_iir": float(d[4]),
+                    "ego_vy": float(d[5]),
+                    "ego_vx": float(d[6]),
+                    "ego_ax": float(d[7]),
+                    "ego_ay": float(d[8]),
+                    "ego_yaw_rate": float(d[9]),
+                    "road_boundary_left_x": float(d[10]),
+                    "road_boundary_right_x": float(d[11]),
+                    "ax_dynamics": float(d[12]),
+                    "tracker_proc_time_us": int(d[13]),
+                    "imu_stuck": bool(d[14])
+                }
+
+            # --- TLV 5: Vehicle CAN Inputs (56 Bytes) ---
+            elif tlv_type == 5 and len(tlv_data) >= 56:
+                c = struct.unpack_from("<fffffffffffIBBbBB3s", tlv_data, 0)
+                frame_dict["can_inputs"] = {
+                    "speed_kmph": float(c[0]),
+                    "yaw_rate_radps": float(c[1]),
+                    "pitch_rate_radps": float(c[2]),
+                    "roll_rate_radps": float(c[3]),
+                    "accel_x_mps2": float(c[4]),
+                    "accel_y_mps2": float(c[5]),
+                    "accel_avg_mps2": float(c[6]),
+                    "road_grade_deg": float(c[7]),
+                    "shaft_torque_nm": float(c[8]),
+                    "roll_cf_deg": float(c[9]),
+                    "yaw_cf_deg": float(c[10]),
+                    "timestamp_ms": int(c[11]),
+                    "gear": int(c[12]),
+                    "brake_status": int(c[13]),
+                    "motion_state": int(c[14]),
+                    "is_vcu_can_valid": bool(c[15]),
+                    "imu_stuck_flag": bool(c[16]),
+                    "accel_pedal_pct": 0.0
+                }
+
+            # --- TLV 6: Vehicle Safety ADAS Outputs (24 Bytes) ---
+            elif tlv_type == 6 and len(tlv_data) >= 24:
+                fcw = tlv_data[0:8]
+                bsd = tlv_data[8:16]
+                acc = tlv_data[16:24]
+                fcw_stage = fcw[0] & 0x03
+                fcw_trk_id = ((fcw[0] >> 2) & 0x3F) | (fcw[1] << 6)
+                fcw_ttc = fcw[2] * 0.1
+                fcw_ty = fcw[3] * 0.5
+                fcw_tx = fcw[4] * 0.2 - 25.6
+                fcw_tvy = fcw[5] * 0.5 - 64.0
+                fcw_tvx = fcw[6] * 0.2 - 25.6
+
+                bsd_l = bool(bsd[0] & 1)
+                bsd_r = bool(bsd[1] & 1)
+                lca = bsd[2]
+                app_ttc = bsd[3] * 0.1
+
+                acc_id = struct.unpack_from("<H", acc, 0)[0]
+                acc_dist = acc[2] * 0.5
+                acc_rel_v = acc[4] * 0.5 - 64.0
+                acc_tti = acc[5] * 0.1
+
+                frame_dict["adas_can"] = {
+                    "poi_id": int(acc_id),
+                    "acc_dist": safe_float(acc_dist),
+                    "acc_rel_v": safe_float(acc_rel_v),
+                    "acc_rel_a": 0.0,
+                    "acc_status": 1 if acc_id > 0 else 0,
+                    "tti": safe_float(acc_tti),
+                    "aeb_risk": 0,
+                    "fcw_stage": int(fcw_stage),
+                    "brake_prefill_req": bool(fcw_stage >= 2),
+                    "target_confidence": 0.0,
+                    "bsd_left_active": bsd_l,
+                    "bsd_right_active": bsd_r,
+                    "lca_warning_level": int(lca),
+                    "approach_ttc": safe_float(app_ttc),
+                    "corridor_width": 3.75,
+                    "sensor_blindness": 0
+                }
 
         frames.append(frame_dict)
 
@@ -469,6 +647,7 @@ def process_session(session_dir, force=False):
                 "camera_frame_hw": cam_hw_fn
             })
 
+        # Fallback ego speed from GNSS
         ego_speed_kmh = 0.0
         if gnss_fixes:
             closest_gnss = min(gnss_fixes, key=lambda g: abs(g["mono_ns"] - mono_ns))
@@ -476,53 +655,87 @@ def process_session(session_dir, force=False):
                 ego_speed_kmh = closest_gnss["speed_kmh"]
         ego_vy_mps = safe_float(ego_speed_kmh / 3.6)
 
+        # TLV 4 Tracker Diagnostics
+        diags = rf.get("diags")
+        motion_state = diags["motion_state"] if diags else 0
+        left_barrier = diags["road_boundary_left_x"] if diags else -10.0
+        right_barrier = diags["road_boundary_right_x"] if diags else 10.0
+        t_track_ms = (diags["tracker_proc_time_us"] / 1000.0) if diags else 0.0
+        ego_vx_mps = diags["ego_vx"] if diags else 0.0
+        if diags and abs(diags.get("ego_vy", 0.0)) > 0.01:
+            ego_vy_mps = diags["ego_vy"]
+
+        # TLV 5 Vehicle CAN Inputs
+        can_in = rf.get("can_inputs")
+        if can_in:
+            veh_speed_kmph = can_in["speed_kmph"]
+            accel_pedal = can_in.get("accel_pedal_pct", 0.0)
+            torque_nm = can_in.get("shaft_torque_nm", 0.0)
+            gear = can_in.get("gear", 0)
+            road_grade = can_in.get("road_grade_deg", 0.0)
+            accel_avg = can_in.get("accel_avg_mps2", 0.0)
+            if motion_state == 0 and can_in.get("motion_state", 0) != 0:
+                motion_state = can_in["motion_state"]
+        else:
+            veh_speed_kmph = safe_float(ego_speed_kmh)
+            accel_pedal = 0.0
+            torque_nm = 0.0
+            gear = 0
+            road_grade = 0.0
+            accel_avg = 0.0
+
         sensor_stats = [{
             "frame_number": hw_fn,
             "cpu_cycles": rf["cpu_cycles"],
             "subframe": rf["subframe"]
         }]
 
-        adas_data = [{
-            "poi_id": 0,
-            "acc_dist": 0.0,
-            "acc_rel_v": 0.0,
-            "acc_rel_a": 0.0,
-            "acc_status": 0,
-            "tti": 10.23,
-            "aeb_risk": 0,
-            "fcw_stage": 0,
-            "brake_prefill_req": False,
-            "target_confidence": 0.0,
-            "bsd_left_active": False,
-            "bsd_right_active": False,
-            "lca_warning_level": 0,
-            "approach_ttc": 10.23,
-            "corridor_width": 3.75,
-            "sensor_blindness": 0
-        }]
+        # TLV 6 ADAS CAN Outputs
+        adas_can = rf.get("adas_can")
+        if adas_can:
+            adas_data = [adas_can]
+        else:
+            adas_data = [{
+                "poi_id": 0,
+                "acc_dist": 0.0,
+                "acc_rel_v": 0.0,
+                "acc_rel_a": 0.0,
+                "acc_status": 0,
+                "tti": 10.23,
+                "aeb_risk": 0,
+                "fcw_stage": 0,
+                "brake_prefill_req": False,
+                "target_confidence": 0.0,
+                "bsd_left_active": False,
+                "bsd_right_active": False,
+                "lca_warning_level": 0,
+                "approach_ttc": 10.23,
+                "corridor_width": 3.75,
+                "sensor_blindness": 0
+            }]
 
         perf_stats = [{
             "t_pre_ms": 0.0,
-            "t_track_ms": 0.0,
-            "t_total_ms": 0.0
+            "t_track_ms": safe_float(t_track_ms),
+            "t_total_ms": safe_float(t_track_ms)
         }]
 
         viz_frame = {
             "frameIdx": rel_idx,
             "timestamp": safe_float(timestamp_ms),
             "numPoints": len(rf["pointCloud"]),
-            "motionState": 0,
-            "egoVelocity": [0.0, ego_vy_mps],
-            "canVehSpeed_kmph": safe_float(ego_speed_kmh),
-            "AccelPedal_Act_perc": 0.0,
-            "shaftTorque_Nm": 0.0,
-            "engagedGear": 0,
-            "roadGrade_Deg": 0.0,
-            "acceleration_avg": 0.0,
+            "motionState": motion_state,
+            "egoVelocity": [safe_float(ego_vx_mps), safe_float(ego_vy_mps)],
+            "canVehSpeed_kmph": safe_float(veh_speed_kmph),
+            "AccelPedal_Act_perc": safe_float(accel_pedal),
+            "shaftTorque_Nm": safe_float(torque_nm),
+            "engagedGear": gear,
+            "roadGrade_Deg": safe_float(road_grade),
+            "acceleration_avg": safe_float(accel_avg),
             "sensorStats": sensor_stats,
             "video_frame_index": v_frame_idx,
             "video_time_delta": v_time_delta,
-            "filtered_barrier_x": [-10.0, 10.0],
+            "filtered_barrier_x": [safe_float(left_barrier), safe_float(right_barrier)],
             "adas": adas_data,
             "performance_stats": perf_stats,
             "pointCloud": rf["pointCloud"],
@@ -538,6 +751,10 @@ def process_session(session_dir, force=False):
             vy = trk["vy"]
             x_size = trk["xSize"]
             y_size = trk["ySize"]
+            orientation = trk.get("orientation", 0.0)
+            risk = trk.get("risk", 0)
+            tti = trk.get("tti", 100.0)
+            is_stat = trk.get("isStationary", False)
 
             object_extent_radii = [safe_float(y_size / 2.0 if y_size > 0 else 1.0),
                                    safe_float(x_size / 2.0 if x_size > 0 else 0.5)]
@@ -557,14 +774,14 @@ def process_session(session_dir, force=False):
                 "omega": 0.0,
                 "modelProbabilities": [1.0, 0.0, 0.0],
                 "ttc": 100.0,
-                "risk": 0,
-                "tti": 100.0,
-                "isStationary": False,
+                "risk": risk,
+                "tti": safe_float(tti),
+                "isStationary": is_stat,
                 "covarianceP": [[0.0] * 7 for _ in range(7)],
                 "ellipseRadii": [0.0, 0.0],
                 "ellipseAngle": 0.0,
                 "objectExtentRadii": object_extent_radii,
-                "objectExtentAngle": 0.0
+                "objectExtentAngle": safe_float(orientation)
             }
 
             if tid not in tracks_trajectory_map:
@@ -573,6 +790,8 @@ def process_session(session_dir, force=False):
                     "isConfirmed": (fsm_state >= 3),
                     "historyLog": []
                 }
+            elif fsm_state >= 3:
+                tracks_trajectory_map[tid]["isConfirmed"] = True
 
             tracks_trajectory_map[tid]["historyLog"].append(history_entry)
 
