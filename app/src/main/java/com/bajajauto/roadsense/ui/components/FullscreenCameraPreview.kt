@@ -5,12 +5,16 @@ import android.graphics.SurfaceTexture
 import android.view.TextureView
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AllInclusive
+import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -231,11 +235,51 @@ fun FullscreenCameraPreview(
                     }
                 }
 
-                // Right: HUD, Range Arcs, Nudge, and Record Buttons
+                // Right: Focus, HUD, Range Arcs, Nudge, and Record Buttons
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Infinity Focus Lock Toggle Chip
+                    FilterChip(
+                        selected = isInfinityLocked,
+                        onClick = { viewModel.toggleInfinityFocus() },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.AllInclusive,
+                                contentDescription = if (isInfinityLocked) "Infinity Focus Locked" else "Lock Focus to Infinity",
+                                modifier = Modifier.size(13.dp)
+                            )
+                        },
+                        label = { Text(if (isInfinityLocked) "∞ Locked" else "∞ Lock", fontSize = 10.sp) },
+                        modifier = Modifier.height(28.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF1976D2).copy(alpha = 0.5f),
+                            selectedLabelColor = Color(0xFF90CAF9),
+                            selectedLeadingIconColor = Color(0xFF90CAF9)
+                        )
+                    )
+
+                    // Re-Focus / Reset AF Lock Chip
+                    FilterChip(
+                        selected = isAfAeLocked,
+                        onClick = { viewModel.triggerCameraAf() },
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.CenterFocusStrong,
+                                contentDescription = if (isAfAeLocked) "Reset Focus Lock" else "Auto-Focus Sweep",
+                                modifier = Modifier.size(13.dp)
+                            )
+                        },
+                        label = { Text(if (isAfAeLocked) "AF Lock" else "AF", fontSize = 10.sp) },
+                        modifier = Modifier.height(28.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFFE65100).copy(alpha = 0.5f),
+                            selectedLabelColor = Color(0xFFFFB74D),
+                            selectedLeadingIconColor = Color(0xFFFFB74D)
+                        )
+                    )
+
                     FilterChip(
                         selected = isRadarOverlayEnabled,
                         onClick = { viewModel.toggleRadarOverlay() },
@@ -335,6 +379,73 @@ fun FullscreenCameraPreview(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 8.dp)
             )
+        }
+
+        // 7. Floating Focus Controls (Right Edge Thumb Zone)
+        Surface(
+            color = Color.Black.copy(alpha = 0.70f),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White.copy(alpha = 0.20f)),
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 12.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Button 1: Infinity Focus Lock
+                FilledTonalIconButton(
+                    onClick = { viewModel.toggleInfinityFocus() },
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = if (isInfinityLocked) Color(0xFF1976D2) else Color.White.copy(alpha = 0.12f),
+                        contentColor = if (isInfinityLocked) Color.White else Color(0xFFCFD8DC)
+                    ),
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AllInclusive,
+                        contentDescription = if (isInfinityLocked) "Infinity Focus Locked" else "Lock Focus to Infinity",
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Text(
+                    text = if (isInfinityLocked) "∞ LOCKED" else "∞ LOCK",
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isInfinityLocked) Color(0xFF90CAF9) else Color(0xFFB0BEC5)
+                )
+
+                Spacer(modifier = Modifier.height(2.dp))
+                HorizontalDivider(
+                    modifier = Modifier.width(28.dp),
+                    color = Color.White.copy(alpha = 0.2f)
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+
+                // Button 2: Re-Focus (Centered AF Sweep) / Reset Lock
+                FilledTonalIconButton(
+                    onClick = { viewModel.triggerCameraAf() },
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = if (isAfAeLocked) Color(0xFFE65100) else Color.White.copy(alpha = 0.12f),
+                        contentColor = if (isAfAeLocked) Color.White else Color(0xFFCFD8DC)
+                    ),
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CenterFocusStrong,
+                        contentDescription = if (isAfAeLocked) "Reset Focus Lock" else "Auto-Focus Sweep",
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Text(
+                    text = if (isAfAeLocked) "RESET AF" else "RE-FOCUS",
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isAfAeLocked) Color(0xFFFFB74D) else Color(0xFFB0BEC5)
+                )
+            }
         }
     }
 }
