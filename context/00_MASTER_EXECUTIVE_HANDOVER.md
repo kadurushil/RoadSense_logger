@@ -5,7 +5,7 @@
 > **Audience:** Autonomous AI Coding Agents & Incoming Core Engineers  
 > **Workspace Path:** `C:\Users\rakadu1.AHEAD\AndroidStudioProjects\RoadSense`  
 > **Active Branch:** `feature/3125000-baud`  
-> **Last Handover Date:** September 11, 2026  
+> **Last Handover Date:** September 22, 2026  
 
 ---
 
@@ -15,7 +15,7 @@
 
 The application operates as an autonomous multi-sensor logger synchronizing four distinct streams:
 1. **Automotive Radar:** TI AWR1843BOOST 77 GHz mmWave radar streaming raw point clouds, clusters, and hardware EKF target tracks over high-speed USB serial at **3,125,000 baud** (3.125 Mbps).
-2. **Camera Video:** Synchronized video capture (1080p/720p H.264 MP4) via CameraX with nanosecond frame capture timestamps (`camera_frames.csv`).
+2. **Camera Video:** Synchronized video capture (1080p/720p H.264 MP4) via Camera2/CameraX with nanosecond frame capture timestamps (`camera_frames.csv`).
 3. **GNSS / GPS:** Real-time vehicular trajectory, heading, ground speed, and NMEA fixes via Android Location Services (`gnss_track.csv`).
 4. **Automotive CAN Bus:** CSS Electronics **CANedge2** dual-channel CAN/CAN-FD logger logging cyclic 1-minute (60s) split MF4 (MDF4) files, synchronized via local Wi-Fi AP using an autonomous 2-folder staging pool and post-recording finalizer.
 
@@ -23,7 +23,7 @@ The application operates as an autonomous multi-sensor logger synchronizing four
 
 ## 2. Recent Major Milestones Achieved
 
-As of September 11, 2026, the following major architectural milestones have been completed and verified with passing JVM unit tests and clean APK builds:
+As of September 22, 2026, the following major architectural milestones have been completed and verified with passing JVM unit tests and clean APK builds:
 
 | Feature / Subsystem | Implementation Status | Key Components Involved |
 |---|---|---|
@@ -40,29 +40,36 @@ As of September 11, 2026, the following major architectural milestones have been
 | **Robust Viewfinder Continuity**| **Production Ready** (Touch/swipe glitch eliminated) | `CameraDashboardCard.kt`, `SbsDashboardCard.kt`, `CameraEngine.kt` |
 | **Hyperfocal Infinity & Tap-to-Lock**| **Production Ready** (Auto infinity on REC, tap AF/AE lock)| `CameraEngine.kt`, `CameraDashboardCard.kt` |
 | **Autonomous Road AE Engine**| **Production Ready** (Dual-zone photometric sky bloom elimination)| `CameraEngine.kt`, `RoadAeMode`, `RoadAeState`, `RadarViewModel.kt` |
+| **Radar-Camera Spatial Calibration**| **Production Ready** (6-DOF extrinsics + Camera2 intrinsics)| `SpatialProjectionEngine.kt`, `CameraIntrinsicsProvider.kt`, `CalibrationStorageManager.kt` |
+| **Interactive Reverse Touch Solver**| **Production Ready** (Drag-to-snap bumper calibration & trackpad delta)| `SpatialProjectionEngine.kt`, `FullscreenCalibrationStudio.kt`, `QuickNudgeBar.kt` |
+| **Hybrid Radar Lollipop Overlay**| **Production Ready** (Ground footprints + vertical stems + badges)| `SpatialProjectionEngine.kt`, `ViewfinderRadarOverlay.kt` |
+| **Perspective Radar Range Rings**| **Production Ready** (10m/30m/60m/120m ground arcs + boresight)| `SpatialProjectionEngine.kt`, `RadarRangeOverlay`, `ViewfinderRadarOverlay.kt` |
+| **Dedicated Fullscreen Viewfinder**| **Production Ready** (Edge-to-edge preview, swipe lock)| `FullscreenCameraPreview.kt`, `MainActivity.kt`, `CameraEngine.kt` |
 
 ---
 
 ## 3. Specialized Context Navigation Map
 
-To enable another AI agent or engineer to immediately locate deep architectural insights, the `context/` directory has been modularized into 7 specialized intelligence files:
+To enable another AI agent or engineer to immediately locate deep architectural insights, the `context/` directory has been modularized into 8 specialized intelligence files:
 
 ```text
 context/
  ├── 00_MASTER_EXECUTIVE_HANDOVER.md             <-- [YOU ARE HERE] Master executive overview & map
  ├── 01_ARCHITECTURE_AND_STORAGE.md             <-- Overall system design, MVVM state, storage layout
  ├── 02_RADAR_AND_HIGH_SPEED_SERIAL.md          <-- 3.125 MBaud serial driver, TLV parser & EKF tracker
- ├── 03_CAMERA_GNSS_AND_CROSS_SENSOR_SYNC.md    <-- CameraX, GNSS track & nanosecond timeline sync
+ ├── 03_CAMERA_GNSS_AND_CROSS_SENSOR_SYNC.md    <-- Camera2, GNSS track, Road AE & viewfinder lifecycle
  ├── 04_CANEDGE2_AUTONOMOUS_INGESTION_ENGINE.md <-- CANedge2 REST API, staging pool & smart auto-pruner
  ├── 05_FLIGHT_RECORDER_AND_DIAGNOSTICS.md      <-- AppLogger, continuous app_logs/ & flight recorder
  ├── 06_PC_TOOLING_AND_VISUALIZER_PIPELINE.md   <-- Python ADB extraction & web visualizer schema
- └── 07_ENVIRONMENT_PITFALLS_AND_RUNBOOK.md     <-- Java Home quirks, workspace guardrails & commands
+ ├── 07_ENVIRONMENT_PITFALLS_AND_RUNBOOK.md     <-- Java Home quirks, workspace guardrails & commands
+ └── 08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md <-- 6-DOF calibration, reverse solver & lollipop overlays
 ```
 
 ### Quick Lookup Guide:
 * **Working on Radar packet drops or serial framing?** Read [`02_RADAR_AND_HIGH_SPEED_SERIAL.md`](context/02_RADAR_AND_HIGH_SPEED_SERIAL.md).
 * **Working on CANedge2 sync, Wi-Fi downloads, or pruning?** Read [`04_CANEDGE2_AUTONOMOUS_INGESTION_ENGINE.md`](context/04_CANEDGE2_AUTONOMOUS_INGESTION_ENGINE.md).
-* **Working on Camera AF, tap-to-focus, or video frames?** Read [`03_CAMERA_GNSS_AND_CROSS_SENSOR_SYNC.md`](context/03_CAMERA_GNSS_AND_CROSS_SENSOR_SYNC.md) and [`Future_stuff.md`](Future_stuff.md).
+* **Working on Camera AF, tap-to-focus, Road AE, or video frames?** Read [`03_CAMERA_GNSS_AND_CROSS_SENSOR_SYNC.md`](context/03_CAMERA_GNSS_AND_CROSS_SENSOR_SYNC.md).
+* **Working on Radar-Camera Calibration, Reverse Touch Solver, or Viewfinder Overlays?** Read [`08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md`](context/08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md).
 * **Debugging boot issues, silent crashes, or sync issues?** Read [`05_FLIGHT_RECORDER_AND_DIAGNOSTICS.md`](context/05_FLIGHT_RECORDER_AND_DIAGNOSTICS.md).
 * **Setting up the build environment, executing gradle, or using ADB?** Read [`07_ENVIRONMENT_PITFALLS_AND_RUNBOOK.md`](context/07_ENVIRONMENT_PITFALLS_AND_RUNBOOK.md).
 

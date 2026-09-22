@@ -85,6 +85,19 @@ RoadSense implements **Approach 3: Autonomous Dual-Zone Photometric Analysis**:
   * **`TAP_LOCKED`:** Manual user tap locks exposure completely, overriding autonomous Road AE until reset.
 * **Rotation-Aware Active-Array Mapping:** Sensor crop rectangles are mapped via `SENSOR_ORIENTATION` and display rotation to ensure the bottom 65% of the driver's perspective is always metered regardless of portrait/landscape or sensor mounting orientation.
 
+### 2.6 Dedicated Fullscreen Viewfinder & Surface Lifecycle Stabilization
+1. **Edge-to-Edge Fullscreen Preview (`FullscreenCameraPreview.kt`):**
+   * High-contrast, edge-to-edge camera preview providing maximum spatial immersion during road trials.
+   * Renders floating recording controls, Road AE telemetry pill, and resolution indicators directly on top of the camera canvas.
+   * Dismissed via back press or top-right minimize button, returning seamlessly to the multi-tab cockpit.
+2. **Pager Swipe Lock for Interaction Stability:**
+   * In `MainActivity.kt`, the cockpit's `HorizontalPager` is configured with `userScrollEnabled = false`.
+   * Prevents accidental tab navigation while the user is dragging calibration reticles, adjusting camera sliders, or tapping to focus. Tab switching is strictly driven by the top navigation bar.
+3. **Surface Re-attachment & Anti-Pause Guard (`isSurfaceAttached`):**
+   * *Problem:* Exiting menus, toggling fullscreen, or navigating between cards previously caused transient surface swaps where the engine momentarily dropped to `CameraEngineState.Closed`, falsely displaying a "PAUSED" banner over an active stream.
+   * *Solution:* `CameraEngine.isSurfaceAttached(surfaceTexture)` actively verifies if the incoming texture is already driving the active HAL session. If attached, it updates viewport dimensions without destroying the HAL request loop.
+   * On resolution change, `previewSurfaceTexture.setDefaultBufferSize(res.width, res.height)` and surface recreation are sequenced with a 150 ms backoff cooldown to prevent HAL buffer starvation crashes.
+
 ---
 
 ## 3. GNSS Subsystem & Track Logging

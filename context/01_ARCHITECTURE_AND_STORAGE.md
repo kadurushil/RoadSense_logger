@@ -16,13 +16,16 @@ graph TD
     
     VM --> SM[SessionManager<br>Master Lifecycle & Timeline]
     VM --> RSS[RadarSerialService<br>3.125 MBaud USB UART]
-    VM --> CM[CameraCaptureManager<br>CameraX Video Encoder]
+    VM --> CM[CameraCaptureManager<br>Camera2 Video Encoder]
     VM --> GM[GnssManager<br>FusedLocation & NMEA]
     VM --> CIM[CanedgeIngestionManager<br>Staging Pool & Smart Pruner]
+    VM --> SPE[SpatialProjectionEngine<br>6-DOF Extrinsics & Pinhole Projections]
+    VM --> CSM[CalibrationStorageManager<br>Profiles & Persistence]
     VM --> AL[AppLogger<br>Flight Recorder Dual-Stream]
 
     SM --> DiskSessions[Storage: sessions/session_*/]
     CIM --> DiskPool[Storage: sessions/canedge_pool/]
+    CSM --> DiskCalib[Storage: calibration/radar_camera_calib.json]
     AL --> DiskAppLogs[Storage: app_logs/app_run_*/]
     AL --> DiskSessionDebug[Storage: session_*/session_debug.log]
 ```
@@ -33,10 +36,11 @@ graph TD
 
 | Subsystem / Layer | Key Kotlin Classes | Primary Responsibility |
 |---|---|---|
-| **UI Cockpit** | `ui/MainActivity.kt`<br>`ui/RadarViewModel.kt`<br>`ui/screens/*.kt` | Multi-tab Compose UI with 6 cockpit tabs: Radar, GNSS, Camera, CANedge, SBS (Side-by-Side dual feed), and Storage (Session Deck). Exposes single source of truth via `StateFlow`. |
+| **UI Cockpit** | `ui/MainActivity.kt`<br>`ui/RadarViewModel.kt`<br>`ui/screens/*.kt`<br>`ui/components/*.kt` | Multi-tab Compose UI with 6 cockpit tabs: Radar, GNSS, Camera, CANedge, SBS (Side-by-Side dual feed), and Storage (Session Deck). Features dedicated Fullscreen Camera Viewfinder, Calibration Studio, and Quick Nudge Bar. Exposes single source of truth via `StateFlow`. |
 | **Session Control** | `recording/SessionManager.kt`<br>`recording/SessionInfo.kt`<br>`recording/SessionTimelineWriter.kt` | Manages active recording sessions, folder initialization, metadata generation, and nanosecond monotonic timestamp events. |
 | **Radar Ingestion** | `radar/service/RadarSerialService.kt`<br>`radar/parser/RadarPacketParser.kt`<br>`radar/model/RadarFrame.kt` | Custom USB FTDI/CDC serial driver operating at 3.125 Mbps. Rings buffers and decodes TLV binary frames into point clouds and clusters. |
-| **Camera Capture** | `camera/CameraEngine.kt`<br>`camera/CameraSessionRecorder.kt`<br>`ui/screens/CameraDashboardCard.kt` | Camera2 video recording, smart infinity focus lock, tap-to-focus/AE lock, nanosecond frame logging (`camera_frames.csv`), and autonomous dual-zone Road AE. |
+| **Camera Capture** | `camera/CameraEngine.kt`<br>`camera/CameraSessionRecorder.kt`<br>`ui/screens/CameraDashboardCard.kt` | Camera2 video recording, smart infinity focus lock, tap-to-focus/AE lock, nanosecond frame logging (`camera_frames.csv`), autonomous dual-zone Road AE, and robust SurfaceTexture lifecycle handoffs. |
+| **Sensor Fusion & Spatial Calibration** | `fusion/engine/SpatialProjectionEngine.kt`<br>`fusion/engine/CameraIntrinsicsProvider.kt`<br>`fusion/model/CalibrationParameters.kt`<br>`fusion/storage/CalibrationStorageManager.kt`<br>`ui/components/ViewfinderRadarOverlay.kt` | 6-DOF extrinsic rigid transform ($[\mathbf{R} \mid \mathbf{T}]$), Camera2 intrinsic matrix ($K$), real-time closed-form touch reverse solver, ground plane contact footprint projection, hybrid RViz-style radar lollipops, concentric range arcs, and Painter's algorithm depth-sorting. |
 | **GNSS Tracking** | `gnss/GnssManager.kt`<br>`ui/screens/GnssDashboardCard.kt` | FusedLocationProviderClient + NMEA sentence parsing. Generates synchronized `gnss_track.csv`. |
 | **CANedge2 Sync** | `canedge/ingestion/CanedgeIngestionManager.kt`<br>`canedge/repository/CanedgeRepository.kt`<br>`canedge/network/CanedgeHttpClient.kt` | ESP32 REST client, persistent staging pool (`canedge_pool/`), deferred drive sync, smart auto-pruning engine, and OneDrive-style unified file explorer. |
 | **Diagnostics** | `logging/AppLogger.kt` | Continuous app-wide flight recorder (`app_system.log`) and active session flight recorder (`session_debug.log`). |
@@ -45,11 +49,14 @@ graph TD
 
 ## 3. Storage Directory Hierarchy (Physical On-Device Layout)
 
-All persistent logs and active sessions are stored inside the app's external files directory:
+All persistent logs, calibration profiles, and active sessions are stored inside the app's external files directory:
 `/sdcard/Android/data/com.bajajauto.roadsense/files/`
 
 ```text
 /sdcard/Android/data/com.bajajauto.roadsense/files/
+ │
+ ├── calibration/                                  <-- SENSOR FUSION & EXTRINSIC CALIBRATION PROFILES
+ │    └── radar_camera_calib.json                  <-- Active 6-DOF extrinsics, pitch/yaw/roll, setback & heights
  │
  ├── app_logs/                                     <-- CONTINUOUS APP-WIDE FLIGHT RECORDER LOGS
  │    ├── app_run_20260911_090015/

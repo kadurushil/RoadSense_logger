@@ -77,7 +77,7 @@ $ADB = "C:\Users\rakadu1.AHEAD\AppData\Local\Android\Sdk\platform-tools\adb.exe"
 & $ADB install -r app\build\outputs\apk\debug\app-debug.apk
 
 # Monitor live multi-sensor logcat
-& $ADB logcat -s RoadSense:D CanedgeIngestion:D RadarSerialService:D AppLogger:D
+& $ADB logcat -s RoadSense:D CanedgeIngestion:D RadarSerialService:D AppLogger:D CameraEngine:D SpatialProjection:D
 ```
 
 ### 4.3 Log Extraction & Data Processing
