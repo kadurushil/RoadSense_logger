@@ -294,7 +294,9 @@ class CameraEngine(private val context: Context) {
         if (cameraDevice != null) {
             closeCamera()
             if (isPreviewActive) {
-                openCamera()
+                backgroundHandler?.postDelayed({
+                    openCamera()
+                }, 150)
             }
         }
     }
@@ -318,6 +320,9 @@ class CameraEngine(private val context: Context) {
         if (_selectedResolution.value != resolution) {
             _selectedResolution.value = resolution
             AppLogger.i(TAG, "Resolution changed to: ${resolution.label} (${resolution.width}x${resolution.height})")
+            previewSurfaceTexture?.setDefaultBufferSize(resolution.width, resolution.height)
+            previewSurface?.release()
+            previewSurface = previewSurfaceTexture?.let { Surface(it) }
             if (cameraDevice != null && !isRecordingVideo) {
                 restartSession()
             }
@@ -338,11 +343,18 @@ class CameraEngine(private val context: Context) {
      * Attaches the live viewfinder surface texture from Compose AndroidView.
      */
     fun attachPreviewSurface(surfaceTexture: SurfaceTexture, width: Int = 0, height: Int = 0) {
+        if (previewSurfaceTexture === surfaceTexture && isPreviewActive && cameraDevice != null && _engineState.value !is CameraEngineState.Closed && _engineState.value !is CameraEngineState.Error) {
+            AppLogger.d(TAG, "attachPreviewSurface: surface already active; updating dimensions ${width}x${height}")
+            currentViewWidth = width
+            currentViewHeight = height
+            return
+        }
         previewSurfaceTexture = surfaceTexture
         currentViewWidth = width
         currentViewHeight = height
         val res = _selectedResolution.value
         surfaceTexture.setDefaultBufferSize(res.width, res.height)
+        previewSurface?.release()
         previewSurface = Surface(surfaceTexture)
         isPreviewActive = true
 
@@ -353,6 +365,13 @@ class CameraEngine(private val context: Context) {
         } else {
             openCamera()
         }
+    }
+
+    /**
+     * Checks if the given SurfaceTexture is currently attached to this engine.
+     */
+    fun isSurfaceAttached(st: SurfaceTexture?): Boolean {
+        return st != null && previewSurfaceTexture === st && isPreviewActive && cameraDevice != null
     }
 
     /**
