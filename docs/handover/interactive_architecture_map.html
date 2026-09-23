@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RoadSense Architecture & Subsystem Explorer</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --panel: #111726;
+      --panel-border: #1e293b;
+      --text: #f1f5f9;
+      --text-muted: #94a3b8;
+      --radar: #00e5ff;
+      --camera: #10b981;
+      --imu: #d946ef;
+      --gnss: #3b82f6;
+      --can: #f59e0b;
+      --storage: #ef4444;
+      --ui: #8b5cf6;
+      --accent: #38bdf8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header {
+      background: rgba(17, 23, 38, 0.98);
+      border-bottom: 1px solid var(--panel-border);
+      padding: 10px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 10;
+    }
+
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .title-area h1 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .subtitle {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Top Navigation Bar */
+    .nav-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      background: #090e1a;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid #1e293b;
+    }
+
+    .nav-link {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.74rem;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+
+    .nav-link:hover {
+      color: var(--text);
+      background: #1e293b;
+    }
+
+    .nav-link.active {
+      color: var(--accent);
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .nav-divider {
+      color: #334155;
+      font-size: 0.75rem;
+    }
+
+    .filter-bar {
+      display: flex;
+      gap: 6px;
+    }
+
+    .filter-btn {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: var(--text-muted);
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 0.72rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .filter-btn:hover {
+      background: #334155;
+      color: var(--text);
+    }
+
+    .filter-btn.active {
+      background: rgba(56, 189, 248, 0.2);
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .workspace {
+      display: flex;
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #canvas-container {
+      flex: 1;
+      position: relative;
+      overflow: auto;
+      background: radial-gradient(circle at center, #111a2e 0%, #090d16 100%);
+    }
+
+    svg#flow-canvas {
+      width: 1300px;
+      height: 850px;
+      display: block;
+    }
+
+    /* Node Styles */
+    .node-group {
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .node-group:hover {
+      filter: brightness(1.25);
+    }
+
+    .node-rect {
+      rx: 8;
+      ry: 8;
+      stroke-width: 1.5;
+      filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.3));
+      transition: stroke-width 0.2s;
+    }
+
+    .node-group.selected .node-rect {
+      stroke-width: 3;
+      filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.6));
+    }
+
+    .node-title {
+      font-size: 11px;
+      font-weight: 700;
+      fill: #f8fafc;
+      pointer-events: none;
+    }
+
+    .node-sub {
+      font-size: 9px;
+      fill: #94a3b8;
+      pointer-events: none;
+    }
+
+    .tier-label {
+      font-size: 11px;
+      font-weight: 800;
+      fill: #475569;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+
+    .wire {
+      fill: none;
+      stroke: #334155;
+      stroke-width: 1.5;
+      stroke-dasharray: 4 4;
+      animation: pulse 30s linear infinite;
+    }
+
+    .wire.active {
+      stroke: var(--accent);
+      stroke-width: 2.5;
+      stroke-dasharray: none;
+    }
+
+    /* Side Panel */
+    #detail-panel {
+      width: 400px;
+      background: var(--panel);
+      border-left: 1px solid var(--panel-border);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow-y: auto;
+      z-index: 5;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 1px solid var(--panel-border);
+      padding-bottom: 10px;
+    }
+
+    .panel-header h2 {
+      font-size: 1.05rem;
+      font-weight: 700;
+    }
+
+    .panel-category {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .prop-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      background: rgba(15, 23, 42, 0.6);
+      padding: 9px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .prop-label {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .prop-val {
+      font-size: 0.82rem;
+      color: var(--text);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      word-break: break-all;
+    }
+
+    .doc-link-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #0284c7;
+      color: #ffffff;
+      text-decoration: none;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 8px 12px;
+      border-radius: 6px;
+      transition: background 0.2s;
+      margin-top: 4px;
+      border: 1px solid #38bdf8;
+    }
+
+    .doc-link-btn:hover {
+      background: #0369a1;
+    }
+
+    .desc-box {
+      font-size: 0.82rem;
+      line-height: 1.5;
+      color: #cbd5e1;
+      background: rgba(15, 23, 42, 0.4);
+      padding: 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-top">
+      <div class="title-area">
+        <h1>RoadSense Architecture Explorer <span class="badge">Production v1.0</span></h1>
+        <p class="subtitle">Interactive multi-modal automotive telemetry and multithreading pipeline</p>
+      </div>
+      <div class="filter-bar">
+        <button class="filter-btn active" onclick="setFilter('ALL')">All Subsystems</button>
+        <button class="filter-btn" onclick="setFilter('RADAR')">Radar</button>
+        <button class="filter-btn" onclick="setFilter('CAMERA')">Camera</button>
+        <button class="filter-btn" onclick="setFilter('IMU')">IMU</button>
+        <button class="filter-btn" onclick="setFilter('GNSS')">GNSS</button>
+        <button class="filter-btn" onclick="setFilter('CAN')">CANedge</button>
+        <button class="filter-btn" onclick="setFilter('STORAGE')">Storage / Recorders</button>
+      </div>
+    </div>
+
+    <!-- Navigation Bar -->
+    <nav class="nav-bar">
+      <a href="README.md" class="nav-link">📖 Overview</a>
+      <a href="01_SYSTEM_ARCHITECTURE.md" class="nav-link">🏛️ Architecture Spec</a>
+      <a href="02_MULTITHREADING_AND_CONCURRENCY.md" class="nav-link">⚡ Multithreading</a>
+      <a href="03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md" class="nav-link">📚 Codebase Dictionary</a>
+      <a href="04_SENSOR_PIPELINES_AND_SYNC_ENGINE.md" class="nav-link">🔬 Pipelines & Sync</a>
+      <span class="nav-divider">|</span>
+      <a href="interactive_architecture_map.html" class="nav-link active">🗺️ Architecture Map</a>
+      <a href="interactive_multithreading_explorer.html" class="nav-link">⏱️ Thread Simulator</a>
+    </nav>
+  </header>
+
+  <div class="workspace">
+    <div id="canvas-container">
+      <svg id="flow-canvas" viewBox="0 0 1300 850">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#475569"/>
+          </marker>
+          <marker id="arrow-active" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M 0 1.5 L 10 5 L 0 8.5 z" fill="#38bdf8"/>
+          </marker>
+        </defs>
+
+        <!-- Tier Background Strips -->
+        <text x="40" y="45" class="tier-label">Tier 1: Physical Hardware & Vehicular Sensors</text>
+        <line x1="40" y1="55" x2="1260" y2="55" stroke="#1e293b" stroke-width="1"/>
+
+        <text x="40" y="210" class="tier-label">Tier 2: Hardware Drivers & Real-Time Threads</text>
+        <line x1="40" y1="220" x2="1260" y2="220" stroke="#1e293b" stroke-width="1"/>
+
+        <text x="40" y="420" class="tier-label">Tier 3: DSP Decoding, Road AE & 6-DOF Spatial Fusion</text>
+        <line x1="40" y1="430" x2="1260" y2="430" stroke="#1e293b" stroke-width="1"/>
+
+        <text x="40" y="620" class="tier-label">Tier 4: Disk Persistence & Session Recorders (Click to Inspect)</text>
+        <line x1="40" y1="630" x2="1260" y2="630" stroke="#1e293b" stroke-width="1"/>
+
+        <!-- Wires / Connections -->
+        <!-- Radar -->
+        <path id="wire-radar-1" d="M 140 140 L 140 250" class="wire" marker-end="url(#arrow)"/>
+        <path id="wire-radar-2" d="M 140 310 L 140 450" class="wire" marker-end="url(#arrow)"/>
+        <path id="wire-radar-3" d="M 140 510 L 140 650" class="wire" marker-end="url(#arrow)"/>
+        <path id="wire-radar-4" d="M 190 480 L 380 480" class="wire" marker-end="url(#arrow)"/>
+
+        <!-- Camera -->
+        <path id="wire-cam-1" d="M 440 140 L 440 250" class="wire" marker-end="url(#arrow)"/>
+        <path id="wire-cam-2" d="M 440 310 L 440 450" class="wire" marker-end="url(#arrow)"/>
+        <path id="wire-cam-3" d="M 440 510 L 440 650" class="wire" marker-end="url(#arrow)"/>
+
+        <!-- IMU -->
+        <path id="wire-imu-1" d="M 700 140 L 700 250" class="wire" marker-end="url(#arrow)"/>
+        <path id="wire-imu-2" d="M 700 310 L 700 650" class="wire" marker-end="url(#arrow)"/>
+
+        <!-- GNSS -->
+        <path id="wire-gnss-1" d="M 940 140 L 940 250" class="wire" marker-end="url(#arrow)"/>
+        <path id="wire-gnss-2" d="M 940 310 L 940 650" class="wire" marker-end="url(#arrow)"/>
+
+        <!-- CANedge -->
+        <path id="wire-can-1" d="M 1160 140 L 1160 250" class="wire" marker-end="url(#arrow)"/>
+        <path id="wire-can-2" d="M 1160 310 L 1160 650" class="wire" marker-end="url(#arrow)"/>
+
+        <!-- Cross Timeline Wire -->
+        <path id="wire-sync" d="M 140 680 L 1160 680" class="wire" stroke="#475569" stroke-width="1"/>
+
+        <!-- NODES: TIER 1 (HARDWARE) -->
+        <!-- Radar HW -->
+        <g class="node-group" onclick="selectNode('radar-hw')" id="node-radar-hw">
+          <rect x="70" y="80" width="140" height="60" class="node-rect" fill="#0c2d37" stroke="#00e5ff"/>
+          <text x="85" y="105" class="node-title">TI AWR1843BOOST</text>
+          <text x="85" y="122" class="node-sub">77 GHz mmWave Radar</text>
+        </g>
+
+        <!-- Camera HW -->
+        <g class="node-group" onclick="selectNode('camera-hw')" id="node-camera-hw">
+          <rect x="370" y="80" width="140" height="60" class="node-rect" fill="#0d2e24" stroke="#10b981"/>
+          <text x="385" y="105" class="node-title">Phone Camera CMOS</text>
+          <text x="385" y="122" class="node-sub">1080p/60fps MIPI CSI-2</text>
+        </g>
+
+        <!-- IMU HW -->
+        <g class="node-group" onclick="selectNode('imu-hw')" id="node-imu-hw">
+          <rect x="630" y="80" width="140" height="60" class="node-rect" fill="#2d1033" stroke="#d946ef"/>
+          <text x="645" y="105" class="node-title">Phone Motion ASIC</text>
+          <text x="645" y="122" class="node-sub">6/9-DOF I2C/SPI Sensor</text>
+        </g>
+
+        <!-- GNSS HW -->
+        <g class="node-group" onclick="selectNode('gnss-hw')" id="node-gnss-hw">
+          <rect x="870" y="80" width="140" height="60" class="node-rect" fill="#0e1f3d" stroke="#3b82f6"/>
+          <text x="885" y="105" class="node-title">Phone GNSS Engine</text>
+          <text x="885" y="122" class="node-sub">GPS/GLONASS/Galileo</text>
+        </g>
+
+        <!-- CAN HW -->
+        <g class="node-group" onclick="selectNode('can-hw')" id="node-can-hw">
+          <rect x="1090" y="80" width="140" height="60" class="node-rect" fill="#382109" stroke="#f59e0b"/>
+          <text x="1105" y="105" class="node-title">CSS CANedge2</text>
+          <text x="1105" y="122" class="node-sub">Dual-CAN FD / Wi-Fi</text>
+        </g>
+
+        <!-- NODES: TIER 2 (DRIVERS & THREADS) -->
+        <!-- Radar Driver -->
+        <g class="node-group" onclick="selectNode('radar-driver')" id="node-radar-driver">
+          <rect x="50" y="250" width="180" height="60" class="node-rect" fill="#111726" stroke="#00e5ff"/>
+          <text x="65" y="275" class="node-title">RadarConnectionManager</text>
+          <text x="65" y="292" class="node-sub">3.125 Mbps UART | 32KB Ring</text>
+        </g>
+
+        <!-- Camera Driver -->
+        <g class="node-group" onclick="selectNode('camera-driver')" id="node-camera-driver">
+          <rect x="350" y="250" width="180" height="60" class="node-rect" fill="#111726" stroke="#10b981"/>
+          <text x="365" y="275" class="node-title">CameraEngine</text>
+          <text x="365" y="292" class="node-sub">HandlerThread | Shutter Sync</text>
+        </g>
+
+        <!-- IMU Driver -->
+        <g class="node-group" onclick="selectNode('imu-driver')" id="node-imu-driver">
+          <rect x="610" y="250" width="180" height="60" class="node-rect" fill="#111726" stroke="#d946ef"/>
+          <text x="625" y="275" class="node-title">ImuManager</text>
+          <text x="625" y="292" class="node-sub">URGENT_DISPLAY (-8) | 100Hz</text>
+        </g>
+
+        <!-- GNSS Driver -->
+        <g class="node-group" onclick="selectNode('gnss-driver')" id="node-gnss-driver">
+          <rect x="850" y="250" width="180" height="60" class="node-rect" fill="#111726" stroke="#3b82f6"/>
+          <text x="865" y="275" class="node-title">GnssLocationManager</text>
+          <text x="865" y="292" class="node-sub">Monotonic Nanos Fix Sync</text>
+        </g>
+
+        <!-- CAN Driver -->
+        <g class="node-group" onclick="selectNode('can-driver')" id="node-can-driver">
+          <rect x="1070" y="250" width="180" height="60" class="node-rect" fill="#111726" stroke="#f59e0b"/>
+          <text x="1085" y="275" class="node-title">CanedgeIngestionManager</text>
+          <text x="1085" y="292" class="node-sub">Dispatchers.IO | Staging Pool</text>
+        </g>
+
+        <!-- NODES: TIER 3 (PROCESSING & FUSION) -->
+        <!-- Radar Assembler & Decoder -->
+        <g class="node-group" onclick="selectNode('radar-proc')" id="node-radar-proc">
+          <rect x="50" y="450" width="180" height="60" class="node-rect" fill="#111726" stroke="#00e5ff"/>
+          <text x="65" y="475" class="node-title">RadarPacketAssembler</text>
+          <text x="65" y="492" class="node-sub">Magic Word & TLV 1-7 Parser</text>
+        </g>
+
+        <!-- Spatial Fusion -->
+        <g class="node-group" onclick="selectNode('fusion-engine')" id="node-fusion-engine">
+          <rect x="350" y="450" width="180" height="60" class="node-rect" fill="#1e1833" stroke="#a855f7"/>
+          <text x="365" y="475" class="node-title">SpatialProjectionEngine</text>
+          <text x="365" y="492" class="node-sub">6-DOF [R|T] & Reverse Solver</text>
+        </g>
+
+        <!-- NODES: TIER 4 (STORAGE & RECORDERS) -->
+        <!-- Radar Session Storage -->
+        <g class="node-group" onclick="selectNode('radar-rec')" id="node-radar-rec">
+          <rect x="50" y="650" width="180" height="60" class="node-rect" fill="#2d1215" stroke="#ef4444"/>
+          <text x="65" y="675" class="node-title">RadarSessionRecorder</text>
+          <text x="65" y="692" class="node-sub">64KB Stream | radar_frames.bin</text>
+        </g>
+
+        <!-- Camera Storage -->
+        <g class="node-group" onclick="selectNode('camera-rec')" id="node-camera-rec">
+          <rect x="350" y="650" width="180" height="60" class="node-rect" fill="#2d1215" stroke="#ef4444"/>
+          <text x="365" y="675" class="node-title">CameraSessionRecorder</text>
+          <text x="365" y="692" class="node-sub">MP4 Video & camera_frames.csv</text>
+        </g>
+
+        <!-- IMU Storage -->
+        <g class="node-group" onclick="selectNode('imu-rec')" id="node-imu-rec">
+          <rect x="610" y="650" width="180" height="60" class="node-rect" fill="#2d1215" stroke="#ef4444"/>
+          <text x="625" y="675" class="node-title">ImuSessionRecorder</text>
+          <text x="625" y="692" class="node-sub">100Hz imu_samples.csv</text>
+        </g>
+
+        <!-- GNSS Storage -->
+        <g class="node-group" onclick="selectNode('gnss-rec')" id="node-gnss-rec">
+          <rect x="850" y="650" width="180" height="60" class="node-rect" fill="#2d1215" stroke="#ef4444"/>
+          <text x="865" y="675" class="node-title">GnssSessionRecorder</text>
+          <text x="865" y="692" class="node-sub">NMEA & gnss_track.csv</text>
+        </g>
+
+        <!-- CAN Storage -->
+        <g class="node-group" onclick="selectNode('can-rec')" id="node-can-rec">
+          <rect x="1070" y="650" width="180" height="60" class="node-rect" fill="#2d1215" stroke="#ef4444"/>
+          <text x="1085" y="675" class="node-title">SessionManager (CAN)</text>
+          <text x="1085" y="692" class="node-sub">1-Min Split Chunks (can/*.MF4)</text>
+        </g>
+
+      </svg>
+    </div>
+
+    <!-- Right Side Inspection Panel -->
+    <div id="detail-panel">
+      <div class="panel-header">
+        <div>
+          <div class="panel-category" id="pane-category">Subsystem Details</div>
+          <h2 id="pane-title">Select a Component</h2>
+        </div>
+        <span class="badge" id="pane-badge">IDLE</span>
+      </div>
+
+      <div class="prop-row">
+        <span class="prop-label">Primary Source File</span>
+        <span class="prop-val" id="pane-file">Select node from graph</span>
+      </div>
+
+      <div class="prop-row">
+        <span class="prop-label">Threading & Execution Model</span>
+        <span class="prop-val" id="pane-thread">-</span>
+      </div>
+
+      <div class="prop-row">
+        <span class="prop-label">Data Throughput / Bandwidth</span>
+        <span class="prop-val" id="pane-rate">-</span>
+      </div>
+
+      <div class="prop-row">
+        <span class="prop-label">Key Operational Invariant</span>
+        <span class="prop-val" id="pane-invariant">-</span>
+      </div>
+
+      <div class="desc-box" id="pane-desc">
+        Click any node in the architectural flow graph to inspect its threading model, buffer dynamics, file linkages, and hardware constraints.
+      </div>
+
+      <div id="doc-link-container">
+        <a href="#" id="pane-doc-link" target="_blank" class="doc-link-btn">📖 Open Documentation Section &rarr;</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const nodeDatabase = {
+      'radar-hw': {
+        category: 'Physical Hardware',
+        title: 'TI AWR1843BOOST mmWave Radar',
+        badge: '77 GHz FMCW',
+        file: 'Hardware Peripheral (CP2105 USB OTG)',
+        docLink: '01_SYSTEM_ARCHITECTURE.md#1-system-overview--physical-bus-topology',
+        thread: 'Onboard C674x DSP + ARM Cortex-R4F',
+        rate: '20 Hz Frame Rate (~312.5 KB/sec)',
+        invariant: 'Silicon Labs CP2105 Dual-Port Bridge',
+        desc: 'Automotive 77-81 GHz mmWave sensor with 3 Tx and 4 Rx antennas. Executes 1D Range FFT, 2D Doppler FFT, and CFAR point detection on DSP. Emits binary TLV payloads over UART at 3.125 Mbps.'
+      },
+      'radar-driver': {
+        category: 'Serial Ingestion Engine',
+        title: 'RadarConnectionManager',
+        badge: '3.125 Mbps UART',
+        file: 'app/src/main/java/com/bajajauto/roadsense/acquisition/RadarConnectionManager.kt',
+        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-21-combajajautoroadsenseacquisition',
+        thread: 'SerialInputOutputManager Worker Thread (Priority: NORM+1)',
+        rate: '3,125,000 baud (Data) | 115,200 baud (CLI)',
+        invariant: 'Unbuffered direct listener dispatch to eliminate byte drops',
+        desc: 'Drives Silicon Labs CP2105 dual-port USB bridge. Uses 32 KB internal native read buffer. Dispatches incoming bytes synchronously to registered RawDataListeners and feeds throttled StateFlow for UI preview.'
+      },
+      'radar-proc': {
+        category: 'DSP Decoding Pipeline',
+        title: 'RadarPacketAssembler & TLV Decoder',
+        badge: 'Frame Sync',
+        file: 'app/src/main/java/com/bajajauto/roadsense/decoding/RadarPacketAssembler.kt',
+        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-22-combajajautoroadsensedecoding',
+        thread: 'Invoked synchronously on Serial Worker Thread',
+        rate: '20 Hz Frame Assembly',
+        invariant: 'Syncs on 8-byte magic word (0x0102030405060708)',
+        desc: 'Reassembles fragmented UART chunks across packet boundaries. Validates 40-byte header and parses TLVs 1 through 7 into Cartesian coordinates (X, Y, Z), Doppler velocity, and SNR metrics.'
+      },
+      'radar-rec': {
+        category: 'High-Throughput Storage',
+        title: 'RadarSessionRecorder',
+        badge: 'Binary Dump',
+        file: 'app/src/main/java/com/bajajauto/roadsense/recording/RadarSessionRecorder.kt',
+        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
+        thread: 'SingleThreadExecutor (RadarSessionRecorder-Worker)',
+        rate: '~312.5 KB/s Continuous Write',
+        invariant: '64 KB BufferedOutputStream to absorb flash stalls',
+        desc: 'Writes raw byte stream to radar_raw_stream.bin and framed packets with 24-byte ROAD sync headers (monotonic nanoseconds, wall milliseconds, length) to radar_frames.bin.'
+      },
+      'camera-hw': {
+        category: 'Physical Hardware',
+        title: 'Smartphone Camera Module',
+        badge: 'Sony/Samsung CMOS',
+        file: 'Internal MIPI CSI-2 Bus',
+        docLink: '01_SYSTEM_ARCHITECTURE.md#1-system-overview--physical-bus-topology',
+        thread: 'Hardware Image Signal Processor (ISP)',
+        rate: '1080p @ 60 FPS (~12 Mbps H.264)',
+        invariant: 'Hardware-accelerated MediaCodec Surface',
+        desc: 'High-resolution wide-angle vehicular camera module. Supports 480p, 720p, and 1080p encoding with hardware H.264 video compression.'
+      },
+      'camera-driver': {
+        category: 'Camera2 Subsystem',
+        title: 'CameraEngine',
+        badge: 'Camera2 HAL',
+        file: 'app/src/main/java/com/bajajauto/roadsense/camera/CameraEngine.kt',
+        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-23-combajajautoroadsensecamera',
+        thread: 'CameraEngine-Worker HandlerThread (Looper)',
+        rate: 'Up to 60 FPS Capture Callback',
+        invariant: 'onCaptureStarted exact shutter exposure logging',
+        desc: 'Coordinates CameraCaptureSession, preview surface attachment, and MediaRecorder. Runs autonomous Road AE on Dispatchers.Default using 32x24 downsampled bitmaps and locks focus to infinity.'
+      },
+      'camera-rec': {
+        category: 'High-Throughput Storage',
+        title: 'CameraSessionRecorder',
+        badge: 'MP4 & CSV',
+        file: 'app/src/main/java/com/bajajauto/roadsense/recording/CameraSessionRecorder.kt',
+        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
+        thread: 'CameraEngine-Worker HandlerThread',
+        rate: '1080p Video + 60 Hz Shutter Metadata',
+        invariant: 'Synchronous CSV append with nanosecond exposure stamps',
+        desc: 'Coordinates with CameraEngine to record camera_video.mp4 (H.264 via MediaRecorder) and writes camera_frames.csv containing frame sequence numbers, shutter timestamps, and exposure durations.'
+      },
+      'fusion-engine': {
+        category: 'Spatial Perception',
+        title: 'SpatialProjectionEngine',
+        badge: '6-DOF [R|T]',
+        file: 'app/src/main/java/com/bajajauto/roadsense/fusion/engine/SpatialProjectionEngine.kt',
+        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-27-combajajautoroadsensefusion',
+        thread: 'Invoked on UI rendering passes (Compose Canvas)',
+        rate: 'Real-time 60 FPS projection',
+        invariant: 'Painters Algorithm descending depth sorting',
+        desc: 'Executes rigid 3D coordinate transform and pinhole camera perspective projection. Projects 3D radar point clouds onto 2D camera viewport with ground range arcs and single-tap reverse touch solver.'
+      },
+      'imu-hw': {
+        category: 'Physical Hardware',
+        title: 'Smartphone Motion Sensors ASIC',
+        badge: '6/9-DOF MEMS',
+        file: 'Internal I2C / SPI Sensor Bus',
+        docLink: '04_SENSOR_PIPELINES_AND_SYNC_ENGINE.md#4-100-hz-imu-pipeline--quaternion-math',
+        thread: 'Hardware Sensor Hub / Linux Interrupts',
+        rate: '100 Hz continuous interrupts',
+        invariant: 'Hardware FIFO buffer with lockless interrupt handler',
+        desc: 'Onboard MEMS Accelerometer, Gyroscope, Magnetometer, and Rotation Vector sensors. Provides continuous vehicle dynamics and angular velocity measurements.'
+      },
+      'imu-driver': {
+        category: 'Hardware Motion Sensors',
+        title: 'ImuManager',
+        badge: '100 Hz Fused',
+        file: 'app/src/main/java/com/bajajauto/roadsense/imu/ImuManager.kt',
+        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-24-combajajautoroadsenseimu',
+        thread: 'RoadSense-ImuThread (Priority: URGENT_DISPLAY -8)',
+        rate: '100 Hz continuous interrupts (<1.5ms jitter)',
+        invariant: '128-entry pre-allocated circular jitter buffer',
+        desc: 'Acquires Accelerometer, Gyroscope, Magnetometer, and Rotation Vector. Remaps coordinates to vehicle landscape orientation, computes 4-element quaternions, and dispatches to ImuSessionRecorder.'
+      },
+      'imu-rec': {
+        category: 'High-Throughput Storage',
+        title: 'ImuSessionRecorder',
+        badge: '100 Hz CSV',
+        file: 'app/src/main/java/com/bajajauto/roadsense/recording/ImuSessionRecorder.kt',
+        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
+        thread: 'RoadSense-ImuThread (Priority: URGENT_DISPLAY -8)',
+        rate: '100 Hz Continuous Writes (~100 rows/sec)',
+        invariant: 'Lockless unbuffered CSV writer with pre-formatted strings',
+        desc: 'Captures 100 Hz synchronized IMU frames (monotonic nanoseconds, raw accelerometer, linear acceleration, gyroscope rates, orientation Euler angles, and 4-element quaternions) into imu_samples.csv.'
+      },
+      'gnss-hw': {
+        category: 'Physical Hardware',
+        title: 'Smartphone GNSS Receiver',
+        badge: 'GPS / GLONASS',
+        file: 'Internal Baseband Chipset',
+        docLink: '04_SENSOR_PIPELINES_AND_SYNC_ENGINE.md#1-master-monotonic-nanosecond-synchronization-engine',
+        thread: 'Android GNSS HAL / Baseband Engine',
+        rate: '1 Hz to 5 Hz Navigation Fixes',
+        invariant: 'Hardware nanosecond time sync correlation',
+        desc: 'Multi-constellation global navigation satellite receiver. Provides geodetic latitude, longitude, ellipsoidal altitude, speed over ground, and track bearing.'
+      },
+      'gnss-driver': {
+        category: 'Navigation & Satellite',
+        title: 'GnssLocationManager',
+        badge: 'Multi-Constellation',
+        file: 'app/src/main/java/com/bajajauto/roadsense/gnss/GnssLocationManager.kt',
+        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-25-combajajautoroadsensegnss',
+        thread: 'Main Looper / Location Callback Dispatcher',
+        rate: '1 Hz to 5 Hz Navigation Fixes',
+        invariant: 'Host monotonic nanosecond time correlation',
+        desc: 'Interfaces with Android LocationManager. Captures Latitude, Longitude, Altitude, Speed, Bearing, and HDOP, writing continuous trajectory logs to gnss_track.csv.'
+      },
+      'gnss-rec': {
+        category: 'High-Throughput Storage',
+        title: 'GnssSessionRecorder',
+        badge: 'Track CSV',
+        file: 'app/src/main/java/com/bajajauto/roadsense/recording/GnssSessionRecorder.kt',
+        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
+        thread: 'Location Callback Dispatcher',
+        rate: '1 Hz to 5 Hz Position Updates',
+        invariant: 'Appends geodetic coordinates with host monotonic correlation',
+        desc: 'Records continuous vehicle GNSS trajectories to gnss_track.csv, logging latitude, longitude, ellipsoidal altitude, speed in m/s and km/h, bearing degrees, and horizontal accuracy.'
+      },
+      'can-hw': {
+        category: 'Physical Hardware',
+        title: 'CSS Electronics CANedge2',
+        badge: 'Dual CAN FD / Wi-Fi',
+        file: 'External OBD-II / J1939 Logger (802.11 b/g/n)',
+        docLink: '01_SYSTEM_ARCHITECTURE.md#1-system-overview--physical-bus-topology',
+        thread: 'ESP32 Dual-Core RTOS (FreeRTOS)',
+        rate: 'Dual CAN Bus (up to 1 Mbps / 5 Mbps FD)',
+        invariant: '1-minute split MF4 binary chunks logged to SD card',
+        desc: 'Industrial standalone dual-channel CAN/CAN-FD logger with built-in Wi-Fi access point and HTTP REST file server.'
+      },
+      'can-driver': {
+        category: 'Automotive CAN Bus',
+        title: 'CanedgeIngestionManager',
+        badge: 'HTTP REST Client',
+        file: 'app/src/main/java/com/bajajauto/roadsense/canedge/ingestion/CanedgeIngestionManager.kt',
+        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-26-combajajautoroadsensecanedge',
+        thread: 'CoroutineScope on Dispatchers.IO',
+        rate: '1-minute split MF4 chunks (~1.5 MB/min)',
+        invariant: 'Sync paused during drives to prioritize Radar/Camera',
+        desc: 'Interacts with CSS Electronics CANedge2 logger over Wi-Fi. Downloads 1-minute split MF4 files into canedge_pool/ and stages relevant drive logs into session/can/ upon finalization.'
+      },
+      'can-rec': {
+        category: 'High-Throughput Storage',
+        title: 'SessionManager (CAN Staging & Timeline)',
+        badge: 'MF4 & JSON',
+        file: 'app/src/main/java/com/bajajauto/roadsense/recording/SessionManager.kt',
+        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
+        thread: 'CoroutineScope on Dispatchers.IO',
+        rate: '1-minute split MF4 chunks (~1.5 MB/file)',
+        invariant: 'Monotonic session_timeline.csv cross-sensor index',
+        desc: 'Initializes timestamped session folders (session_YYYYMMDD_HHMMSS/), copies matching drive MF4 chunks into session/can/, logs cross-sensor synchronization events to session_timeline.csv, and compiles session_metadata.json.'
+      }
+    };
+
+    function selectNode(id) {
+      const data = nodeDatabase[id];
+      if (!data) return;
+
+      // Update selection styling
+      document.querySelectorAll('.node-group').forEach(n => n.classList.remove('selected'));
+      const activeEl = document.getElementById(`node-${id}`);
+      if (activeEl) activeEl.classList.add('selected');
+
+      document.getElementById('pane-title').innerText = data.title;
+      document.getElementById('pane-category').innerText = data.category;
+      document.getElementById('pane-badge').innerText = data.badge;
+      document.getElementById('pane-file').innerText = data.file;
+      document.getElementById('pane-thread').innerText = data.thread;
+      document.getElementById('pane-rate').innerText = data.rate;
+      document.getElementById('pane-invariant').innerText = data.invariant;
+      document.getElementById('pane-desc').innerText = data.desc;
+
+      const docLink = document.getElementById('pane-doc-link');
+      if (data.docLink) {
+        docLink.href = data.docLink;
+        docLink.style.display = 'inline-flex';
+      } else {
+        docLink.style.display = 'none';
+      }
+
+      // Highlight wires
+      document.querySelectorAll('.wire').forEach(w => w.classList.remove('active'));
+      if (id.includes('radar')) {
+        document.querySelectorAll('[id^="wire-radar"]').forEach(w => w.classList.add('active'));
+      } else if (id.includes('cam')) {
+        document.querySelectorAll('[id^="wire-cam"]').forEach(w => w.classList.add('active'));
+      } else if (id.includes('imu')) {
+        document.querySelectorAll('[id^="wire-imu"]').forEach(w => w.classList.add('active'));
+      } else if (id.includes('gnss')) {
+        document.querySelectorAll('[id^="wire-gnss"]').forEach(w => w.classList.add('active'));
+      } else if (id.includes('can')) {
+        document.querySelectorAll('[id^="wire-can"]').forEach(w => w.classList.add('active'));
+      }
+    }
+
+    function setFilter(subsystem) {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      if (event && event.target) {
+        event.target.classList.add('active');
+      }
+
+      const nodes = document.querySelectorAll('.node-group');
+      if (subsystem === 'ALL') {
+        nodes.forEach(n => n.style.opacity = '1');
+      } else if (subsystem === 'STORAGE') {
+        nodes.forEach(n => {
+          const id = n.id.toLowerCase();
+          if (id.includes('rec') || id.includes('storage')) {
+            n.style.opacity = '1';
+          } else {
+            n.style.opacity = '0.2';
+          }
+        });
+      } else {
+        nodes.forEach(n => {
+          const id = n.id.toLowerCase();
+          if (id.includes(subsystem.toLowerCase())) {
+            n.style.opacity = '1';
+          } else {
+            n.style.opacity = '0.2';
+          }
+        });
+      }
+    }
+
+    // Default selection on load
+    window.addEventListener('DOMContentLoaded', () => {
+      selectNode('radar-rec');
+    });
+  </script>
+</body>
+</html>

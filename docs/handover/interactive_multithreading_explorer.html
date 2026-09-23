@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RoadSense Multithreading & Concurrency Simulator</title>
+  <style>
+    :root {
+      --bg: #070a12;
+      --panel: #0f1626;
+      --panel-border: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --accent: #38bdf8;
+      --radar: #00e5ff;
+      --camera: #10b981;
+      --imu: #d946ef;
+      --can: #f59e0b;
+      --ui: #8b5cf6;
+      --disk: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header {
+      background: var(--panel);
+      border-bottom: 1px solid var(--panel-border);
+      padding: 10px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      z-index: 10;
+    }
+
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .nav-bar {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      background: #090e1a;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid #1e293b;
+    }
+
+    .nav-link {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 0.74rem;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 4px;
+      transition: all 0.15s;
+    }
+
+    .nav-link:hover {
+      color: var(--text);
+      background: #1e293b;
+    }
+
+    .nav-link.active {
+      color: var(--accent);
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .nav-divider {
+      color: #334155;
+      font-size: 0.75rem;
+    }
+
+    .title-area h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge {
+      background: rgba(56, 189, 248, 0.15);
+      color: var(--accent);
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+    }
+
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: var(--text);
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .btn:hover {
+      background: #334155;
+    }
+
+    .btn-primary {
+      background: #0284c7;
+      border-color: #38bdf8;
+    }
+
+    .btn-primary:hover {
+      background: #0369a1;
+    }
+
+    .btn-danger {
+      background: #991b1b;
+      border-color: #ef4444;
+    }
+
+    .btn-danger:hover {
+      background: #7f1d1d;
+    }
+
+    .main-layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .timeline-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      overflow-y: auto;
+      gap: 14px;
+      background: radial-gradient(circle at 50% 0%, #0d1527 0%, #070a12 100%);
+    }
+
+    .track-row {
+      background: rgba(15, 23, 42, 0.75);
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .track-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .track-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .track-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: -0.2px;
+    }
+
+    .track-prio {
+      font-size: 0.7rem;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-weight: 600;
+    }
+
+    .track-rate {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-family: monospace;
+    }
+
+    .timeline-bar-bg {
+      height: 24px;
+      background: #0b101d;
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .pulse-block {
+      position: absolute;
+      top: 2px;
+      bottom: 2px;
+      border-radius: 2px;
+      animation: slideLeft 4s linear infinite;
+    }
+
+    @keyframes slideLeft {
+      from { left: 100%; width: 12px; opacity: 1; }
+      to { left: -20px; width: 12px; opacity: 0.2; }
+    }
+
+    /* Side Dashboard */
+    .dashboard-panel {
+      width: 380px;
+      background: var(--panel);
+      border-left: 1px solid var(--panel-border);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+    }
+
+    .meter-card {
+      background: #0a0f1d;
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .meter-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .progress-bar-bg {
+      height: 8px;
+      background: #1e293b;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      transition: width 0.3s ease;
+    }
+
+    .meter-val {
+      font-size: 1.1rem;
+      font-weight: 700;
+      font-family: monospace;
+    }
+
+    .table-card {
+      background: #0a0f1d;
+      border: 1px solid var(--panel-border);
+      border-radius: 8px;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .table-card h3 {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      font-weight: 700;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.75rem;
+    }
+
+    th, td {
+      padding: 6px 4px;
+      text-align: left;
+      border-bottom: 1px solid #1e293b;
+    }
+
+    th {
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    td {
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="header-top">
+      <div class="title-area">
+        <h1>RoadSense Concurrency & Thread Simulator <span class="badge">Real-Time</span></h1>
+      </div>
+      <div class="controls">
+        <button class="btn btn-primary" id="btn-toggle-rec" onclick="toggleRecording()">● Start Session Recording</button>
+        <button class="btn" onclick="triggerBurst()">⚡ Inject 3.125M Radar Burst</button>
+        <button class="btn" id="btn-pause" onclick="togglePause()">Pause Timeline</button>
+      </div>
+    </div>
+
+    <!-- Navigation Bar -->
+    <nav class="nav-bar">
+      <a href="README.md" class="nav-link">📖 Overview</a>
+      <a href="01_SYSTEM_ARCHITECTURE.md" class="nav-link">🏛️ Architecture Spec</a>
+      <a href="02_MULTITHREADING_AND_CONCURRENCY.md" class="nav-link">⚡ Multithreading</a>
+      <a href="03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md" class="nav-link">📚 Codebase Dictionary</a>
+      <a href="04_SENSOR_PIPELINES_AND_SYNC_ENGINE.md" class="nav-link">🔬 Pipelines & Sync</a>
+      <span class="nav-divider">|</span>
+      <a href="interactive_architecture_map.html" class="nav-link">🗺️ Architecture Map</a>
+      <a href="interactive_multithreading_explorer.html" class="nav-link active">⏱️ Thread Simulator</a>
+    </nav>
+  </header>
+
+  <div class="main-layout">
+    <!-- Center Timeline Tracks -->
+    <div class="timeline-container">
+      
+      <!-- Track 1: UI Thread -->
+      <div class="track-row">
+        <div class="track-header">
+          <div class="track-meta">
+            <span class="track-title" style="color: var(--ui)">Thread 1: Android Main / UI Thread</span>
+            <span class="track-prio" style="background: rgba(139, 92, 246, 0.2); color: #c4b5fd">PRIORITY_DEFAULT (0)</span>
+          </div>
+          <span class="track-rate">60 / 120 Hz VSYNC & Compose Recompositions</span>
+        </div>
+        <div class="timeline-bar-bg" id="track-ui"></div>
+      </div>
+
+      <!-- Track 2: Serial IO Worker -->
+      <div class="track-row">
+        <div class="track-header">
+          <div class="track-meta">
+            <span class="track-title" style="color: var(--radar)">Thread 2: SerialInputOutputManager (USB Serial IO)</span>
+            <span class="track-prio" style="background: rgba(0, 229, 255, 0.2); color: #67e8f9">NORM_PRIORITY + 1</span>
+          </div>
+          <span class="track-rate">3,125,000 baud (~312.5 KB/s continuous)</span>
+        </div>
+        <div class="timeline-bar-bg" id="track-serial"></div>
+      </div>
+
+      <!-- Track 3: Radar Disk Writer -->
+      <div class="track-row">
+        <div class="track-header">
+          <div class="track-meta">
+            <span class="track-title" style="color: var(--disk)">Thread 3: RadarSessionRecorder-Worker (Disk Write)</span>
+            <span class="track-prio" style="background: rgba(239, 68, 68, 0.2); color: #fca5a5">NORM_PRIORITY + 1</span>
+          </div>
+          <span class="track-rate">64 KB BufferedOutputStream Disk Dump</span>
+        </div>
+        <div class="timeline-bar-bg" id="track-disk"></div>
+      </div>
+
+      <!-- Track 4: Camera HAL HandlerThread -->
+      <div class="track-row">
+        <div class="track-header">
+          <div class="track-meta">
+            <span class="track-title" style="color: var(--camera)">Thread 4: CameraEngine-Worker (Camera2 HAL Looper)</span>
+            <span class="track-prio" style="background: rgba(16, 185, 129, 0.2); color: #6ee7b7">PRIORITY_DEFAULT (0)</span>
+          </div>
+          <span class="track-rate">30 / 60 FPS onCaptureStarted Shutter Sync</span>
+        </div>
+        <div class="timeline-bar-bg" id="track-cam"></div>
+      </div>
+
+      <!-- Track 5: RoadSense IMU Looper -->
+      <div class="track-row">
+        <div class="track-header">
+          <div class="track-meta">
+            <span class="track-title" style="color: var(--imu)">Thread 5: RoadSense-ImuThread (Motion Sensor Looper)</span>
+            <span class="track-prio" style="background: rgba(217, 70, 239, 0.2); color: #f0abfc">URGENT_DISPLAY (-8)</span>
+          </div>
+          <span class="track-rate">100 Hz continuous interrupts (<1.5ms jitter)</span>
+        </div>
+        <div class="timeline-bar-bg" id="track-imu"></div>
+      </div>
+
+      <!-- Track 6: Autonomous Road AE Analyzer -->
+      <div class="track-row">
+        <div class="track-header">
+          <div class="track-meta">
+            <span class="track-title" style="color: #facc15">Thread 6: engineScope Road AE (Dispatchers.Default)</span>
+            <span class="track-prio" style="background: rgba(250, 204, 21, 0.2); color: #fde047">Worker Pool (Default)</span>
+          </div>
+          <span class="track-rate">400 ms interval (32x24 Micro Bitmap Metering)</span>
+        </div>
+        <div class="timeline-bar-bg" id="track-ae"></div>
+      </div>
+
+      <!-- Track 7: CANedge Ingestion Engine -->
+      <div class="track-row">
+        <div class="track-header">
+          <div class="track-meta">
+            <span class="track-title" style="color: var(--can)">Thread 7: CanedgeIngestionScope (Dispatchers.IO)</span>
+            <span class="track-prio" style="background: rgba(245, 158, 11, 0.2); color: #fcd34d">IO Dispatcher</span>
+          </div>
+          <span class="track-rate" id="can-state-label">IDLE POLLING (Deferred during active drive recording)</span>
+        </div>
+        <div class="timeline-bar-bg" id="track-can"></div>
+      </div>
+
+    </div>
+
+    <!-- Right Side Telemetry Meters -->
+    <div class="dashboard-panel">
+      
+      <!-- Serial Native Buffer -->
+      <div class="meter-card">
+        <div class="meter-header">
+          <span>USB Serial Native Buffer</span>
+          <span>32 KB Cap</span>
+        </div>
+        <div class="meter-val" id="serial-meter-text">8.4 KB (26%)</div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="serial-meter-bar" style="width: 26%; background: var(--radar);"></div>
+        </div>
+      </div>
+
+      <!-- Disk Buffer -->
+      <div class="meter-card">
+        <div class="meter-header">
+          <span>Disk Flush Buffer</span>
+          <span>64 KB Cap</span>
+        </div>
+        <div class="meter-val" id="disk-meter-text">18.2 KB (28%)</div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="disk-meter-bar" style="width: 28%; background: var(--disk);"></div>
+        </div>
+      </div>
+
+      <!-- IMU Ring Buffer Jitter -->
+      <div class="meter-card">
+        <div class="meter-header">
+          <span>IMU Circular Ring Jitter</span>
+          <span>128 Samples</span>
+        </div>
+        <div class="meter-val" id="imu-meter-text">σ = 0.84 ms</div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="imu-meter-bar" style="width: 8%; background: var(--imu);"></div>
+        </div>
+      </div>
+
+      <!-- Linux Scheduling Table -->
+      <div class="table-card">
+        <h3>Linux Process Priority Mapping</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Thread</th>
+              <th>Linux Nice</th>
+              <th>CGroup</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Main UI</td>
+              <td>0</td>
+              <td>top-app</td>
+            </tr>
+            <tr>
+              <td>Serial IO</td>
+              <td>-1 (NORM+1)</td>
+              <td>foreground</td>
+            </tr>
+            <tr>
+              <td>Disk IO</td>
+              <td>-1 (NORM+1)</td>
+              <td>foreground</td>
+            </tr>
+            <tr>
+              <td>Camera HAL</td>
+              <td>0</td>
+              <td>foreground</td>
+            </tr>
+            <tr>
+              <td>IMU Thread</td>
+              <td>-8 (URGENT)</td>
+              <td>top-app</td>
+            </tr>
+            <tr>
+              <td>CANedge IO</td>
+              <td>0</td>
+              <td>background</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    let isRecording = false;
+    let isPaused = false;
+
+    function toggleRecording() {
+      isRecording = !isRecording;
+      const btn = document.getElementById('btn-toggle-rec');
+      const canLabel = document.getElementById('can-state-label');
+      
+      if (isRecording) {
+        btn.innerText = "■ Stop Session Recording";
+        btn.className = "btn btn-danger";
+        canLabel.innerText = "PREEMPTED / DEFERRED (Guarantees 100% CPU for Radar & Camera)";
+        canLabel.style.color = "#ef4444";
+      } else {
+        btn.innerText = "● Start Session Recording";
+        btn.className = "btn btn-primary";
+        canLabel.innerText = "IDLE POLLING (Stages MF4 files to canedge_pool/)";
+        canLabel.style.color = "var(--text-muted)";
+      }
+    }
+
+    function togglePause() {
+      isPaused = !isPaused;
+      document.getElementById('btn-pause').innerText = isPaused ? "Resume Timeline" : "Pause Timeline";
+    }
+
+    function triggerBurst() {
+      const bar = document.getElementById('serial-meter-bar');
+      const text = document.getElementById('serial-meter-text');
+      bar.style.width = "88%";
+      bar.style.background = "#f59e0b";
+      text.innerText = "28.1 KB (88%) - BURST FLUSH";
+      setTimeout(() => {
+        bar.style.width = "26%";
+        bar.style.background = "var(--radar)";
+        text.innerText = "8.4 KB (26%)";
+      }, 1200);
+    }
+
+    // Generator function for simulated timeline pulses
+    function emitPulse(trackId, color, widthPx, durationSec) {
+      if (isPaused) return;
+      const track = document.getElementById(trackId);
+      if (!track) return;
+
+      const p = document.createElement('div');
+      p.className = 'pulse-block';
+      p.style.background = color;
+      p.style.width = `${widthPx}px`;
+      p.style.animationDuration = `${durationSec}s`;
+      track.appendChild(p);
+
+      setTimeout(() => {
+        if (p.parentNode === track) {
+          track.removeChild(p);
+        }
+      }, durationSec * 1000);
+    }
+
+    // High frequency generator loops
+    setInterval(() => {
+      // UI VSYNC pulse (60Hz simulated every 100ms)
+      emitPulse('track-ui', 'var(--ui)', 4, 3.5);
+    }, 120);
+
+    setInterval(() => {
+      // Serial 20Hz radar packets
+      emitPulse('track-serial', 'var(--radar)', 8, 3.0);
+      if (isRecording) {
+        emitPulse('track-disk', 'var(--disk)', 12, 3.0);
+      }
+    }, 150);
+
+    setInterval(() => {
+      // Camera 30/60fps shutter pulses
+      emitPulse('track-cam', 'var(--camera)', 6, 3.2);
+    }, 100);
+
+    setInterval(() => {
+      // IMU 100Hz interrupts
+      emitPulse('track-imu', 'var(--imu)', 3, 2.5);
+    }, 60);
+
+    setInterval(() => {
+      // Road AE 400ms analysis
+      emitPulse('track-ae', '#facc15', 18, 4.0);
+    }, 800);
+
+    setInterval(() => {
+      // CANedge sync (only when not recording)
+      if (!isRecording) {
+        emitPulse('track-can', 'var(--can)', 24, 4.5);
+      }
+    }, 1200);
+  </script>
+</body>
+</html>
