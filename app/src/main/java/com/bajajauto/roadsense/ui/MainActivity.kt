@@ -35,12 +35,14 @@ import com.bajajauto.roadsense.ui.components.TopSessionHeader
 import com.bajajauto.roadsense.ui.screens.CameraDashboardCard
 import com.bajajauto.roadsense.ui.screens.CanedgeDashboardCard
 import com.bajajauto.roadsense.ui.screens.GnssDashboardCard
+import com.bajajauto.roadsense.ui.screens.ImuDashboardCard
 import com.bajajauto.roadsense.ui.screens.RadarDashboardCard
 import com.bajajauto.roadsense.ui.screens.SbsDashboardCard
 import com.bajajauto.roadsense.ui.screens.SessionDeckCard
 import com.bajajauto.roadsense.ui.components.FullscreenCalibrationStudio
 import com.bajajauto.roadsense.ui.components.FullscreenCameraPreview
 import com.bajajauto.roadsense.ui.theme.RoadSenseTheme
+import androidx.compose.material.icons.filled.Explore
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -74,6 +76,7 @@ class MainActivity : ComponentActivity() {
 enum class CockpitTab(val title: String, val icon: ImageVector) {
     RADAR("Radar", Icons.Default.Sensors),
     GNSS("GNSS", Icons.Default.MyLocation),
+    IMU("IMU", Icons.Default.Explore),
     CAMERA("Camera", Icons.Default.Videocam),
     CANEDGE("CANedge", Icons.Default.DirectionsCar),
     SBS("SBS", Icons.Default.Splitscreen),
@@ -105,6 +108,7 @@ fun RoadSenseCockpitScreen(
     val radarHz by viewModel.radarHz.collectAsState()
     val cameraFps by viewModel.cameraFps.collectAsState()
     val gnssHz by viewModel.gnssHz.collectAsState()
+    val imuHz by viewModel.imuHz.collectAsState()
     val batteryPct by viewModel.batteryPct.collectAsState()
     val batteryTempC by viewModel.batteryTempC.collectAsState()
     val cpuUsagePct by viewModel.cpuUsagePct.collectAsState()
@@ -135,6 +139,7 @@ fun RoadSenseCockpitScreen(
                 radarHz = radarHz,
                 cameraFps = cameraFps,
                 gnssHz = gnssHz,
+                imuHz = imuHz,
                 latestFix = latestGnssFix,
                 batteryPct = batteryPct,
                 batteryTempC = batteryTempC,
@@ -312,6 +317,11 @@ fun RoadSenseCockpitScreen(
                         gnssState = gnssState,
                         latestFix = latestGnssFix,
                         totalFixes = totalGnssFixes
+                    )
+                }
+                CockpitTab.IMU -> {
+                    ImuDashboardCard(
+                        viewModel = viewModel
                     )
                 }
                 CockpitTab.CAMERA -> {

@@ -13,17 +13,18 @@
 
 **RoadSense** is a high-performance Android automotive data acquisition, multimodal recording, and autonomous telemetry cockpit developed for vehicle dynamics research, radar point-cloud perception, and advanced driver assistance systems (ADAS).
 
-The application operates as an autonomous multi-sensor logger synchronizing four distinct streams:
+The application operates as an autonomous multi-sensor logger synchronizing five distinct streams:
 1. **Automotive Radar:** TI AWR1843BOOST 77 GHz mmWave radar streaming raw point clouds, clusters, and hardware EKF target tracks over high-speed USB serial at **3,125,000 baud** (3.125 Mbps).
 2. **Camera Video:** Synchronized video capture (1080p/720p H.264 MP4) via Camera2/CameraX with nanosecond frame capture timestamps (`camera_frames.csv`).
 3. **GNSS / GPS:** Real-time vehicular trajectory, heading, ground speed, and NMEA fixes via Android Location Services (`gnss_track.csv`).
 4. **Automotive CAN Bus:** CSS Electronics **CANedge2** dual-channel CAN/CAN-FD logger logging cyclic 1-minute (60s) split MF4 (MDF4) files, synchronized via local Wi-Fi AP using an autonomous 2-folder staging pool and post-recording finalizer.
+5. **Inertial Measurement Unit (IMU):** High-rate STMicroelectronics LSM6DSL 6-DOF IMU (Accelerometer & Gyroscope) at 100 Hz, Samsung Linear Acceleration (without $g$), and Game Rotation Vector (magnetic-immune 6-DOF orientation) acquired via a dedicated background `HandlerThread`.
 
 ---
 
 ## 2. Recent Major Milestones Achieved
 
-As of September 22, 2026, the following major architectural milestones have been completed and verified with passing JVM unit tests and clean APK builds:
+As of September 23, 2026, the following major architectural milestones have been completed and verified with passing JVM unit tests and clean APK builds:
 
 | Feature / Subsystem | Implementation Status | Key Components Involved |
 |---|---|---|
@@ -45,6 +46,7 @@ As of September 22, 2026, the following major architectural milestones have been
 | **Hybrid Radar Lollipop Overlay**| **Production Ready** (Ground footprints + vertical stems + badges)| `SpatialProjectionEngine.kt`, `ViewfinderRadarOverlay.kt` |
 | **Perspective Radar Range Rings**| **Production Ready** (10m/30m/60m/120m ground arcs + boresight)| `SpatialProjectionEngine.kt`, `RadarRangeOverlay`, `ViewfinderRadarOverlay.kt` |
 | **Dedicated Fullscreen Viewfinder**| **Production Ready** (Edge-to-edge preview, swipe lock)| `FullscreenCameraPreview.kt`, `MainActivity.kt`, `CameraEngine.kt` |
+| **IMU Subsystem & Rate Profiler** | **Production Ready** (100 Hz HAL cap, Jitter Analyzer) | `ImuManager.kt`, `ImuDashboardCard.kt`, `LiveMetricsBar.kt`, `CockpitTab.IMU` |
 
 ---
 

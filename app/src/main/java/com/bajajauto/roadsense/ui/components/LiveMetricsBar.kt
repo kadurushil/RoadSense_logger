@@ -26,6 +26,7 @@ fun LiveMetricsBar(
     radarHz: Float,
     cameraFps: Float,
     gnssHz: Float,
+    imuHz: Float = 0f,
     latestFix: GnssFix?,
     batteryPct: Int,
     batteryTempC: Float,
@@ -68,6 +69,11 @@ fun LiveMetricsBar(
                         label = "GPS",
                         value = "${"%.1f".format(gnssHz)} Hz",
                         color = if (gnssHz > 0.5f) Color(0xFF00E676) else Color(0xFF78909C)
+                    )
+                    MetricPill(
+                        label = "IMU",
+                        value = "${"%.1f".format(imuHz)} Hz",
+                        color = if (imuHz > 80f) Color(0xFF00E676) else if (imuHz > 0f) Color(0xFFFFB300) else Color(0xFF78909C)
                     )
                 }
 
@@ -131,6 +137,11 @@ fun LiveMetricsBar(
                         label = "GPS",
                         value = "${"%.1f".format(gnssHz)} Hz",
                         color = if (gnssHz > 0.5f) Color(0xFF00E676) else Color(0xFF78909C)
+                    )
+                    MetricPill(
+                        label = "IMU",
+                        value = "${"%.1f".format(imuHz)} Hz",
+                        color = if (imuHz > 80f) Color(0xFF00E676) else if (imuHz > 0f) Color(0xFFFFB300) else Color(0xFF78909C)
                     )
                 }
 

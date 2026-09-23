@@ -32,6 +32,12 @@ import com.bajajauto.roadsense.canedge.network.CanedgeHttpClient
 import com.bajajauto.roadsense.canedge.repository.CanedgeRepository
 import com.bajajauto.roadsense.recording.SessionManager
 import com.bajajauto.roadsense.recording.SessionRecordingState
+import com.bajajauto.roadsense.recording.SessionTimelineWriter
+import com.bajajauto.roadsense.imu.ImuManager
+import com.bajajauto.roadsense.imu.ImuRatePreset
+import com.bajajauto.roadsense.imu.ImuSamplingBenchmark
+import com.bajajauto.roadsense.imu.ImuSensorCapability
+import com.bajajauto.roadsense.imu.ImuTelemetryState
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -59,6 +65,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val gnssSessionRecorder = GnssSessionRecorder(sessionManager)
     val cameraEngine = CameraEngine(application)
     private val cameraSessionRecorder = CameraSessionRecorder(sessionManager)
+    val imuManager = ImuManager(application)
 
     // CANedge2 Network & Ingestion Engine
     private val canedgeHttpClient = CanedgeHttpClient()
@@ -110,6 +117,12 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     val totalGnssFixes: StateFlow<Long> = gnssLocationManager.totalFixes
     val isGnssRecording: StateFlow<Boolean> = gnssSessionRecorder.isRecording
     val gnssSessionFixes: StateFlow<Long> = gnssSessionRecorder.fixesRecorded
+
+    // IMU Subsystem State Flows
+    val imuCapabilities: StateFlow<List<ImuSensorCapability>> = imuManager.capabilities
+    val imuBenchmarkStats: StateFlow<ImuSamplingBenchmark> = imuManager.benchmarkStats
+    val imuTelemetry: StateFlow<ImuTelemetryState> = imuManager.telemetryState
+    val imuHz: StateFlow<Float> = imuManager.imuHz
 
     val cameraEngineState = cameraEngine.engineState
     val selectedResolution = cameraEngine.selectedResolution
@@ -710,8 +723,30 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "Reset calibration to defaults")
     }
 
+    // --- IMU Subsystem Actions ---
+    fun startImuBenchmark(sensorType: Int, preset: ImuRatePreset): Boolean {
+        return imuManager.startBenchmark(sensorType, preset)
+    }
+
+    fun stopImuBenchmark() {
+        imuManager.stopBenchmark()
+    }
+
+    fun startImuMonitoring(delayUs: Int = 10000): Boolean {
+        return imuManager.startLiveMonitoring(delayUs)
+    }
+
+    fun stopImuMonitoring() {
+        imuManager.stopLiveMonitoring()
+    }
+
+    fun auditImuSensors() {
+        imuManager.auditSensors()
+    }
+
     override fun onCleared() {
         super.onCleared()
+        imuManager.release()
         canedgeDiscovery.disconnect()
         cameraEngine.release()
         cameraSessionRecorder.release()
