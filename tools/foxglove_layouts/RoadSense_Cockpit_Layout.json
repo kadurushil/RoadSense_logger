@@ -1,0 +1,136 @@
+{
+  "configById": {
+    "3d_cockpit": {
+      "cameraState": {
+        "distance": 25.0,
+        "perspective": true,
+        "phi": 60.0,
+        "target": [10.0, 0.0, 0.0],
+        "targetOffset": [0.0, 0.0, 0.0],
+        "targetOrientation": [0.0, 0.0, 0.0, 1.0],
+        "thetaOffset": 0.0,
+        "fovy": 45.0,
+        "near": 0.5,
+        "far": 500.0
+      },
+      "followMode": "follow-pose",
+      "followTf": "base_link",
+      "scene": {
+        "enableStats": false,
+        "transforms": {
+          "showBounds": false,
+          "enableVisual": true
+        }
+      },
+      "transforms": {
+        "frame:base_link": {
+          "visible": true
+        },
+        "frame:radar_link": {
+          "visible": true
+        },
+        "frame:camera_optical": {
+          "visible": true
+        }
+      },
+      "topics": {
+        "/radar/points": {
+          "visible": true,
+          "colorField": "velocity",
+          "colorMap": "turbo",
+          "pointSize": 4,
+          "pointShape": "circle"
+        },
+        "/radar/tracks": {
+          "visible": true
+        }
+      },
+      "layers": {
+        "grid": {
+          "visible": true,
+          "frameId": "base_link",
+          "size": 100,
+          "divisions": 20,
+          "color": "#333333"
+        }
+      },
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point"
+      }
+    },
+    "camera_view": {
+      "cameraTopic": "/camera/video",
+      "calibrationTopic": "/camera/calib",
+      "transformMarkers": true,
+      "synchronize": true,
+      "rotation": 0,
+      "flipHorizontal": false,
+      "flipVertical": false
+    },
+    "satellite_map": {
+      "topic": "/gnss/fix",
+      "zoomLevel": 16,
+      "mapType": "satellite",
+      "followTopic": true
+    },
+    "telemetry_plot": {
+      "paths": [
+        {
+          "value": "/vehicle/telemetry.speed_kmph",
+          "enabled": true,
+          "color": "#00ffcc",
+          "label": "Vehicle Speed (km/h)"
+        },
+        {
+          "value": "/radar/diagnostics.ego_vx",
+          "enabled": true,
+          "color": "#ffaa00",
+          "label": "Radar Ego Vx (m/s)"
+        },
+        {
+          "value": "/radar/diagnostics.filtered_vx_iir",
+          "enabled": true,
+          "color": "#ff3366",
+          "label": "Filtered Vx (m/s)"
+        }
+      ],
+      "minYValue": 0,
+      "maxYValue": 120,
+      "showLegend": true
+    },
+    "diagnostics_log": {
+      "topic": "/diagnostics/logs",
+      "searchQuery": "",
+      "filterLevel": "DEBUG"
+    }
+  },
+  "globalVariables": {},
+  "userNodes": {},
+  "linkedGlobalVariables": [],
+  "playbackConfig": {
+    "speed": 1.0
+  },
+  "layout": {
+    "direction": "row",
+    "first": {
+      "direction": "column",
+      "first": "3d_cockpit",
+      "second": "satellite_map",
+      "splitPercentage": 65
+    },
+    "second": {
+      "direction": "column",
+      "first": "camera_view",
+      "second": {
+        "direction": "row",
+        "first": "telemetry_plot",
+        "second": "diagnostics_log",
+        "splitPercentage": 50
+      },
+      "splitPercentage": 60
+    },
+    "splitPercentage": 55
+  }
+}

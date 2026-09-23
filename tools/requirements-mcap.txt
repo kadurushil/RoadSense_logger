@@ -1,0 +1,7 @@
+mcap>=1.4.0
+mcap-protobuf-support>=0.5.4
+foxglove-schemas-protobuf>=0.4.0
+protobuf>=4.25.0
+zstandard>=0.22.0
+numpy>=1.26.0
+av>=14.0.0

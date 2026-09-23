@@ -97,6 +97,8 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
    * NEVER run destructive commands (like `git reset --hard` or unprompted resets) that could cause fear of data loss. Always use targeted `git add <file>` and standard commits.
 5. **Build and App Installation Delegation:**  
    * The user will perform all APK builds and installations directly. Agents must NOT attempt to execute `adb install` or `pm install` on target hardware. Agents focus on code edits, specifications, architectures, and JVM unit testing.
+6. **Implementation Plans & Architecture Artifacts Mirroring:**  
+   * Whenever an implementation plan, architectural feasibility report, or walkthrough artifact is created or updated in the internal brain artifact directory, agents MUST mirror a copy directly into `intel/Implementations/<plan_name>.md` (or `intel/` for general architecture reports). This guarantees the USER has direct workspace access to all design documents without needing to check hidden `.gemini` folders.
 
 ---
 

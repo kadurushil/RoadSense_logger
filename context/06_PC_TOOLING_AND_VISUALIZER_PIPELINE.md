@@ -98,21 +98,19 @@ Contains synchronized radar perception data per frame:
 ```
 
 ### 3.2 `frame_mapping.json`
-Maps every radar frame index to its closest corresponding camera video frame index:
+`frame_mapping.json` is a line-buffered JSON Lines (`.jsonl`) index that maps every radar measurement to the exact video frame that was being exposed at that moment. Each line contains a self-contained JSON object, terminated by a session summary metadata object on the final line:
 ```json
-{
-  "mapping": [
-    {
-      "radarFrameId": 1,
-      "radarTimestampNs": 128459235000000,
-      "videoFrameId": 1,
-      "videoTimestampNs": 128459240000000,
-      "syncDeltaMs": 5.0
-    }
-  ]
-}
+{"radar_frame_id_rel": 1, "radar_frame_id_abs": 7868, "radar_timestamp": 1790058705.1387, "video_frame_index": 1, "video_frame_ts": 1790058705.1471, "video_time_delta": 0.0084}
+{"radar_frame_id_rel": 2, "radar_frame_id_abs": 7869, "radar_timestamp": 1790058705.1846, "video_frame_index": 2, "video_frame_ts": 1790058705.1804, "video_time_delta": -0.0043}
+{"metadata": {"average_fps": 29.506, "duration_sec": 369.959, "total_frames": 10916}}
 ```
-If `syncDeltaMs` is positive, the camera frame occurred slightly after the radar frame. The visualizer uses this delta to smoothly interpolate track overlays onto the video player.
+* **`radar_frame_id_rel`**: Relative radar frame number ($1 \dots N$).
+* **`radar_frame_id_abs`**: 32-bit hardware frame counter parsed from TI mmWave packet header.
+* **`radar_timestamp`**: High-precision Unix epoch timestamp (seconds) of radar packet.
+* **`video_frame_index`**: 0-based index of corresponding camera video frame.
+* **`video_frame_ts`**: High-precision Unix epoch timestamp (seconds) of camera exposure.
+* **`video_time_delta`**: Temporal alignment delta $\Delta t = \text{video\_ts} - \text{radar\_ts}$ (seconds).
+* **`metadata`**: Real detected FPS, total drive duration, and exposed frame count for visualizer auto-offset and time-scrubbing.
 
 ---
 
@@ -138,3 +136,17 @@ python scripts/session_health_check.py logs/session_20260911_141256
 # Audit cross-sensor time synchronization
 python scripts/audit_cross_sensor_sync.py logs/session_20260911_141256
 ```
+
+---
+
+## 5. Foxglove MCAP Container Toolchain (`tools/convert_session_to_mcap.py`)
+
+RoadSense supports single-container archiving using the **Foxglove MCAP (`.mcap`)** format. A dedicated Conda environment **`roadsense-mcap`** (Python 3.12) provides binary compatibility with Zstandard and Protobuf.
+
+### Core Capabilities:
+* **Protobuf Schemas:** Encodes `/radar/points` (`foxglove.PointCloud`), `/radar/tracks` (`foxglove.SceneUpdate`), `/camera/video` (`foxglove.CompressedVideo` with Annex B H.264), `/camera/calib` (`foxglove.CameraCalibration`), `/gnss/fix` (`foxglove.LocationFix`), `/tf` (`foxglove.FrameTransforms`), and `/diagnostics/logs` (`foxglove.Log`).
+* **JSON Telemetry:** `/vehicle/telemetry` and `/radar/diagnostics` for time-series plotting.
+* **Embedded Attachments:** Native embedding of `session_metadata.json` and `radar_camera_calib.json`.
+* **Cockpit Layout:** Pre-configured dashboard layout preset at `tools/foxglove_layouts/RoadSense_Cockpit_Layout.json`.
+* **Operational Guide:** Detailed instructions in `docs/MCAP_CONVERSION_AND_FOXGLOVE_GUIDE.md`.
+

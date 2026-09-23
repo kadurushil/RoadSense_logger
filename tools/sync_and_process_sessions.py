@@ -56,7 +56,7 @@ def find_adb():
             return c
     return None
 
-def safe_float(val, default=0.0):
+def safe_float(val, default=0.0, round_digits=4):
     """Safely converts a number to float without producing NaN or Inf in JSON."""
     if val is None:
         return default
@@ -64,7 +64,9 @@ def safe_float(val, default=0.0):
         f = float(val)
         if math.isnan(f) or math.isinf(f):
             return default
-        return round(f, 4)
+        if round_digits is not None:
+            return round(f, round_digits)
+        return f
     except (ValueError, TypeError):
         return default
 
@@ -220,7 +222,7 @@ def find_nearest_camera_frame(cam_frames, radar_mono_ns, max_video_frames=None):
     if max_video_frames is not None and max_video_frames > 0:
         v_frame_idx = min(v_frame_idx, max_video_frames - 1)
         
-    return v_frame_idx, safe_float(delta_sec), safe_float(matched["mono_ns"] / 1e9), matched["frame_number"]
+    return v_frame_idx, delta_sec, matched["mono_ns"], matched["frame_number"]
 
 def parse_radar_frames_bin(radar_bin_path):
     """
@@ -577,16 +579,19 @@ def parse_radar_frames_bin(radar_bin_path):
 
     return frames
 
-def process_session(session_dir, force=False):
+def process_session(session_dir, force=False, export_mcap=False, flip_video=False):
     """
     Converts raw session logs in `session_dir` into:
     1. track_history.json
     2. frame_mapping.json
+    3. [Optional] Foxglove .mcap container
 
-    If both files already exist and are newer than radar_frames.bin, skips processing unless force=True.
+    If files already exist and are newer than radar_frames.bin, skips processing unless force=True.
     """
     track_history_path = os.path.join(session_dir, "track_history.json")
     mapping_path = os.path.join(session_dir, "frame_mapping.json")
+    session_name = os.path.basename(session_dir.rstrip("\\/"))
+    mcap_path = os.path.join(session_dir, f"{session_name}.mcap")
     radar_bin = os.path.join(session_dir, "radar", "radar_frames.bin")
 
     if not os.path.isfile(radar_bin):
@@ -594,10 +599,16 @@ def process_session(session_dir, force=False):
         return False
 
     # Smart skip check: verify if already generated and up-to-date
-    if not force and os.path.isfile(track_history_path) and os.path.isfile(mapping_path):
+    mcap_ready = (not export_mcap) or os.path.isfile(mcap_path)
+    if not force and os.path.isfile(track_history_path) and os.path.isfile(mapping_path) and mcap_ready:
         radar_mtime = os.path.getmtime(radar_bin)
         th_mtime = os.path.getmtime(track_history_path)
         map_mtime = os.path.getmtime(mapping_path)
+        mcap_mtime = os.path.getmtime(mcap_path) if (export_mcap and os.path.isfile(mcap_path)) else th_mtime
+
+        if th_mtime > radar_mtime and map_mtime > radar_mtime and mcap_mtime > radar_mtime:
+            print(f"\n[+] Skipping {os.path.basename(session_dir)}: all outputs are up to date.")
+            return True
         if th_mtime >= radar_mtime and map_mtime >= radar_mtime:
             print(f"\n[=] Skipping {os.path.basename(session_dir)}: Already processed and up-to-date (use --force to reprocess).")
             return True
@@ -621,6 +632,26 @@ def process_session(session_dir, force=False):
     else:
         print(f"    [+] Loaded {len(cam_frames):,} camera frames and {len(gnss_fixes):,} GNSS fixes.")
 
+    meta_path = os.path.join(session_dir, "session_metadata.json")
+    start_wall_ms = None
+    start_mono_ns_meta = None
+    if os.path.isfile(meta_path):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+                start_wall_ms = meta.get("startTimeWallMs")
+                start_mono_ns_meta = meta.get("startTimeMonotonicNs")
+        except Exception:
+            pass
+
+    ref_mono_ns = start_mono_ns_meta if start_mono_ns_meta else radar_frames[0]["mono_ns"]
+    ref_wall_s = (start_wall_ms / 1000.0) if start_wall_ms else 0.0
+
+    def mono_to_epoch_s(m_ns):
+        if ref_wall_s > 0:
+            return ref_wall_s + (m_ns - ref_mono_ns) / 1e9
+        return m_ns / 1e9
+
     mapping_records = []
     viz_radar_frames = []
     tracks_trajectory_map = {}
@@ -632,7 +663,7 @@ def process_session(session_dir, force=False):
         mono_ns = rf["mono_ns"]
         timestamp_ms = (mono_ns - start_mono_ns) / 1e6
 
-        v_frame_idx, v_time_delta, v_frame_ts, cam_hw_fn = find_nearest_camera_frame(
+        v_frame_idx, v_time_delta, v_cam_mono_ns, cam_hw_fn = find_nearest_camera_frame(
             cam_frames, mono_ns, max_video_frames=mp4_frame_count
         )
 
@@ -640,11 +671,10 @@ def process_session(session_dir, force=False):
             mapping_records.append({
                 "radar_frame_id_rel": rel_idx,
                 "radar_frame_id_abs": hw_fn,
-                "radar_timestamp": safe_float(mono_ns / 1e9),
+                "radar_timestamp": safe_float(mono_to_epoch_s(mono_ns), round_digits=None),
                 "video_frame_index": v_frame_idx,
-                "video_frame_ts": v_frame_ts,
-                "video_time_delta": v_time_delta,
-                "camera_frame_hw": cam_hw_fn
+                "video_frame_ts": safe_float(mono_to_epoch_s(v_cam_mono_ns), round_digits=None),
+                "video_time_delta": safe_float(v_time_delta, round_digits=None)
             })
 
         # Fallback ego speed from GNSS
@@ -795,28 +825,27 @@ def process_session(session_dir, force=False):
 
             tracks_trajectory_map[tid]["historyLog"].append(history_entry)
 
-    # Write `frame_mapping.json` as a standard JSON array [...]
-    metadata_record = None
-    if cam_frames and len(cam_frames) > 1:
-        fps = (len(cam_frames) - 1) / ((cam_frames[-1]["mono_ns"] - cam_frames[0]["mono_ns"]) / 1e9)
-        dur = (cam_frames[-1]["mono_ns"] - cam_frames[0]["mono_ns"]) / 1e9
-        metadata_record = {
-            "metadata": {
-                "average_fps": round(fps, 3),
-                "duration_sec": round(dur, 2),
-                "total_frames": len(cam_frames),
-                "mp4_frames": mp4_frame_count if mp4_frame_count is not None else len(cam_frames)
-            }
-        }
-
-    full_mapping_payload = list(mapping_records)
-    if metadata_record:
-        full_mapping_payload.append(metadata_record)
-
+    # Write `frame_mapping.json` as JSON Lines (.jsonl format) matching visualizer expectations
     mapping_path = os.path.join(session_dir, "frame_mapping.json")
     with open(mapping_path, "w", encoding="utf-8") as mf:
-        json.dump(full_mapping_payload, mf, indent=2)
-    print(f"    [+] Generated: {mapping_path} ({len(mapping_records):,} sync records as JSON array)")
+        for rec in mapping_records:
+            mf.write(json.dumps(rec) + "\n")
+
+        if mapping_records and len(mapping_records) > 1:
+            rec0 = mapping_records[0]
+            recN = mapping_records[-1]
+            dur = recN["radar_timestamp"] - rec0["radar_timestamp"]
+            total_vid_frames = recN["video_frame_index"] - rec0["video_frame_index"]
+            avg_fps = (total_vid_frames / dur) if dur > 0 else 30.0
+            meta_record = {
+                "metadata": {
+                    "average_fps": float(avg_fps),
+                    "duration_sec": float(dur),
+                    "total_frames": int(total_vid_frames)
+                }
+            }
+            mf.write(json.dumps(meta_record) + "\n")
+    print(f"    [+] Generated: {mapping_path} ({len(mapping_records):,} sync records as JSON Lines)")
 
     # Write `track_history.json`
     final_payload = {
@@ -833,6 +862,17 @@ def process_session(session_dir, force=False):
     else:
         print(f"    [!] Note: camera_video.mp4 is missing in {session_dir}/camera")
 
+    # Optional MCAP export
+    if export_mcap:
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            if script_dir not in sys.path:
+                sys.path.insert(0, script_dir)
+            from convert_session_to_mcap import convert_session_to_mcap
+            convert_session_to_mcap(session_dir, flip_video=flip_video)
+        except Exception as e:
+            print(f"    [!] Error generating MCAP: {e}")
+
     return True
 
 def main():
@@ -843,6 +883,8 @@ def main():
     parser.add_argument("--session", default=None, help="Process a single specific session ID (e.g. session_20260910_093816)")
     parser.add_argument("--force", action="store_true", help="Force re-processing even if session is already up-to-date")
     parser.add_argument("--force-all", action="store_true", help="Force re-processing and re-generating visualizer files for ALL sessions")
+    parser.add_argument("--mcap", action="store_true", help="Automatically generate Foxglove .mcap file alongside visualizer JSON")
+    parser.add_argument("--flip-video", action="store_true", help="Physically rotate video 180° during MCAP conversion")
     args = parser.parse_args()
 
     if args.force_all:
@@ -887,7 +929,7 @@ def main():
     success_count = 0
     for s_dir in session_dirs:
         try:
-            if process_session(s_dir, force=args.force):
+            if process_session(s_dir, force=args.force, export_mcap=args.mcap, flip_video=args.flip_video):
                 success_count += 1
         except Exception as e:
             print(f"    [!] Error processing {os.path.basename(s_dir)}: {e}")
