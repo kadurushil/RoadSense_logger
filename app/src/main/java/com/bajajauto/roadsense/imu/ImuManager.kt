@@ -10,6 +10,8 @@ import android.os.HandlerThread
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
+import android.view.Surface
+import android.view.WindowManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -84,12 +86,27 @@ class ImuManager(private val context: Context) {
     private val currentGyroRates = FloatArray(3)
     private val currentEulerAngles = FloatArray(3)
     private val rotationMatrix = FloatArray(9)
+    private val remappedMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
     private var lastUiEmitMonoNs: Long = 0L
 
     // Frequency counter for LiveMetricsBar
     private var hzCounterStartMonoNs: Long = 0L
     private var hzCounterEvents: Long = 0L
+
+    private fun getDisplayRotation(): Int {
+        return try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                context.display?.rotation ?: Surface.ROTATION_90
+            } else {
+                val wm = context.getSystemService(Context.WINDOW_SERVICE) as? WindowManager
+                @Suppress("DEPRECATION")
+                wm?.defaultDisplay?.rotation ?: Surface.ROTATION_90
+            }
+        } catch (e: Exception) {
+            Surface.ROTATION_90
+        }
+    }
 
     init {
         auditSensors()
@@ -259,10 +276,25 @@ class ImuManager(private val context: Context) {
                 Sensor.TYPE_GAME_ROTATION_VECTOR -> {
                     try {
                         SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-                        SensorManager.getOrientation(rotationMatrix, orientationAngles)
-                        currentEulerAngles[0] = Math.toDegrees(orientationAngles[1].toDouble()).toFloat() // Pitch
-                        currentEulerAngles[1] = Math.toDegrees(orientationAngles[2].toDouble()).toFloat() // Roll
-                        currentEulerAngles[2] = Math.toDegrees(orientationAngles[0].toDouble()).toFloat() // Yaw
+                        // Remap from phone body coordinates to vehicle windshield frame (Landscape ROTATION_90 standard):
+                        // Vehicle Forward (Camera Boresight) = -Z_phone (AXIS_MINUS_Z)
+                        // Vehicle Right = -Y_phone (AXIS_MINUS_Y, since +Y points left across dashboard in ROTATION_90)
+                        // Vehicle Up = +X_phone (computed as (-Y) x (-Z) = +X)
+                        val displayRot = getDisplayRotation()
+                        val axisX = when (displayRot) {
+                            Surface.ROTATION_90 -> SensorManager.AXIS_MINUS_Y
+                            Surface.ROTATION_270 -> SensorManager.AXIS_Y
+                            Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X
+                            else -> SensorManager.AXIS_X
+                        }
+                        val axisY = SensorManager.AXIS_MINUS_Z
+                        val success = SensorManager.remapCoordinateSystem(rotationMatrix, axisX, axisY, remappedMatrix)
+                        val targetMatrix = if (success) remappedMatrix else rotationMatrix
+
+                        SensorManager.getOrientation(targetMatrix, orientationAngles)
+                        currentEulerAngles[0] = Math.toDegrees(orientationAngles[1].toDouble()).toFloat() // Pitch (Elevation of camera boresight)
+                        currentEulerAngles[1] = Math.toDegrees(orientationAngles[2].toDouble()).toFloat() // Roll (Bank of dashboard)
+                        currentEulerAngles[2] = Math.toDegrees(orientationAngles[0].toDouble()).toFloat() // Yaw (Heading)
                     } catch (e: Exception) {
                         // ignore malformed vector
                     }

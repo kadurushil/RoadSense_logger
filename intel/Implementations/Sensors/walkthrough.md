@@ -32,10 +32,10 @@ In this phase, we completed the full architectural integration of the onboard mo
 
 ### Core IMU Engine (`com.bajajauto.roadsense.imu`)
 * **[`ImuSensorCapability.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuSensorCapability.kt):** Model for discovered sensor hardware specs, categories (`MOTION`, `ORIENTATION`, `UNCALIBRATED`, `AUXILIARY`), and HAL rate conversion.
-* **[`ImuSample.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuSample.kt):** Nanosecond monotonic data model with 3-axis accessors, quaternion normalization, Euler angle conversions, and CSV formatting.
+* **[`ImuSample.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuSample.kt):** Nanosecond monotonic data model with 3-axis accessors, quaternion normalization, vehicle windshield coordinate remapping (`toEulerAnglesDeg` with `remapCoordinateSystem`), and CSV formatting.
 * **[`ImuSamplingBenchmark.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuSamplingBenchmark.kt):** Statistical model for empirical rate evaluation with `ImuRatePreset` definitions.
 * **[`ImuTelemetryState.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuTelemetryState.kt):** Conflated 25 Hz telemetry model for Compose UI.
-* **[`ImuManager.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuManager.kt):** Central sensor controller managing background `HandlerThread`, dynamic rate profiling, and multi-sensor live stream.
+* **[`ImuManager.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuManager.kt):** Central sensor controller managing background `HandlerThread`, dynamic rate profiling, windshield landscape coordinate remapping (camera forward along $-Z_{\text{phone}}$), and multi-sensor live stream.
 
 ### ViewModel & UI Integration
 * **[`RadarViewModel.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/ui/RadarViewModel.kt):** Instantiated `ImuManager`, exposed StateFlows (`imuCapabilities`, `imuBenchmarkStats`, `imuTelemetry`, `imuHz`), and delegated actions.

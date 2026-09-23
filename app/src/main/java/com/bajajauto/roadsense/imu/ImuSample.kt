@@ -2,6 +2,7 @@ package com.bajajauto.roadsense.imu
 
 import android.hardware.Sensor
 import android.hardware.SensorManager
+import android.view.Surface
 import kotlin.math.sqrt
 
 /**
@@ -38,15 +39,26 @@ data class ImuSample(
         }
 
     /**
-     * Converts rotation vector quaternion to vehicle attitude Euler angles (Pitch, Roll, Yaw) in degrees.
+     * Converts rotation vector quaternion to vehicle attitude Euler angles (Pitch, Roll, Yaw) in degrees,
+     * remapped to the vehicle windshield frame where the rear camera optical axis (-Z_phone) points forward.
      */
-    fun toEulerAnglesDeg(): FloatArray {
+    fun toEulerAnglesDeg(displayRotation: Int = Surface.ROTATION_90): FloatArray {
         val rotationMatrix = FloatArray(9)
+        val remappedMatrix = FloatArray(9)
         val orientationAngles = FloatArray(3)
         // Check if quaternion has valid length
         return try {
             SensorManager.getRotationMatrixFromVector(rotationMatrix, values)
-            SensorManager.getOrientation(rotationMatrix, orientationAngles)
+            val axisX = when (displayRotation) {
+                Surface.ROTATION_90 -> SensorManager.AXIS_MINUS_Y
+                Surface.ROTATION_270 -> SensorManager.AXIS_Y
+                Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X
+                else -> SensorManager.AXIS_X
+            }
+            val axisY = SensorManager.AXIS_MINUS_Z
+            val success = SensorManager.remapCoordinateSystem(rotationMatrix, axisX, axisY, remappedMatrix)
+            val targetMatrix = if (success) remappedMatrix else rotationMatrix
+            SensorManager.getOrientation(targetMatrix, orientationAngles)
             floatArrayOf(
                 Math.toDegrees(orientationAngles[1].toDouble()).toFloat(), // Pitch
                 Math.toDegrees(orientationAngles[2].toDouble()).toFloat(), // Roll

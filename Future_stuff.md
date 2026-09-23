@@ -262,7 +262,7 @@ Automotive engineers have several powerful tools to inspect, graph, and analyze 
 * **Feature Roadmap:**
   1. **One-Tap Level Ground Calibration:**
      * When parked on flat ground, query `Sensor.TYPE_GRAVITY` and 100 Hz `Sensor.TYPE_ACCELEROMETER`.
-     * Closed-form inclination angle: $\theta_{\text{mount}} = \arctan2(g_x, \sqrt{g_y^2 + g_z^2})$.
+     * Closed-form inclination angle: $\theta_{\text{mount}} = \arctan2(-g_z, \sqrt{g_x^2 + g_y^2})$ (rear camera optical boresight is $-Z_{\text{phone}}$).
      * 100-sample averaging achieves **$\pm 0.03^\circ$ accuracy** ($< 1\text{ px}$ error) with a single tap, eliminating manual slider adjustment.
   2. **Dynamic In-Drive Pitch Compensation (Suspension Dynamics):**
      * High-rate 100 Hz `GameRotationVector` and Gyroscope pitch rate ($\omega_y$) compute real-time suspension dynamics:

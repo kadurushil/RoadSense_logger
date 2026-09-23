@@ -38,7 +38,7 @@ Currently, pitch calibration requires manual keystoning via slider nudges or dra
 graph TD
     subgraph Mode 1: Static One-Tap Auto-Level
         M1[Park Vehicle on Level Ground] --> G1[Query Gravity Vector<br>TYPE_GRAVITY / TYPE_ACCELEROMETER]
-        G1 --> P1["Compute Static Tilt Angle θ_mount<br>θ_mount = arctan2(gy, sqrt(gx² + gz²))"]
+        G1 --> P1["Compute Static Tilt Angle θ_mount<br>θ_mount = arctan2(-gz, sqrt(gx² + gy²))"]
         P1 --> S1[Set Baseline Pitch in radar_camera_calib.json]
     end
 
@@ -55,33 +55,94 @@ graph TD
 ## 3. Mathematical Formulation
 
 ### 3.1 Smartphone Coordinate System vs Vehicle Road Frame
-* **Android Sensor Coordinate Frame:**
-  * $+X$: Points to the right edge of the screen.
-  * $+Y$: Points to the top edge of the screen.
-  * $+Z$: Points out of the screen toward the user's face.
-* **Landscape Vehicle Mount (RoadSense Standard):**
-  * When mounted in landscape in a windshield phone holder with the camera facing forward along the road:
-    * The phone's $+X$ axis typically points forward (or $-X$ depending on landscape-left vs landscape-right).
-    * The phone's $+Y$ axis points horizontally across the dashboard.
-    * The phone's $+Z$ axis points toward the vehicle cabin.
+
+Understanding the relative orientation between the smartphone, vehicle chassis, and forward-facing camera is essential for correct mathematical projections.
+
+```
+       [Vehicle Front / Road Direction]
+                     ▲
+                     │   Camera Optical Boresight (-Z_phone)
+             ┌───────┴───────┐
+             │  Rear Camera  │  (Back of phone facing road)
+   Dashboard │ ┌───────────┐ │
+   Left      │ │   Phone   │ │ Dashboard Right
+  (+Y_phone) │ │  Screen   │ │ (-Y_phone)
+             │ └───────────┘ │
+             └───────┬───────┘
+                     │   Screen Normal (+Z_phone)
+                     ▼
+         [Vehicle Cabin / Driver]
+```
+
+#### 1. Android Sensor Hardware Body Frame (Fixed to Phone Chassis):
+Defined relative to the phone screen in its default natural orientation (portrait):
+* **$+X_{\text{phone}}$:** Points to the right edge of the screen.
+* **$+Y_{\text{phone}}$:** Points to the top edge of the screen (toward earpiece / front selfie camera).
+* **$+Z_{\text{phone}}$:** Perpendicular to the screen plane, pointing **out of the front glass toward the driver's face**.
+* **$-Z_{\text{phone}}$:** Perpendicular to the back casing, pointing **out of the rear camera lens along its optical boresight**.
+
+#### 2. Windshield Landscape Mount (RoadSense Standard Operation):
+When the smartphone is mounted in a windshield suction holder to record forward road video:
+* **Optical Boresight (Forward Driving Axis):** Because the rear camera faces forward through the windshield down the road, the camera's forward optical axis is strictly **$-Z_{\text{phone}}$** (NOT $+X$ or $+Y$!).
+* **Cabin Normal Axis:** $+Z_{\text{phone}}$ points directly rearward into the passenger cabin toward the driver.
+* **Display Orientations in Landscape:**
+  * **Standard Landscape (`Surface.ROTATION_90` — Top of phone on driver's left):**
+    * $+Y_{\text{phone}}$ points **Left** across the dashboard (toward vehicle $+Y_{\text{veh}}$ / driver side).
+    * $+X_{\text{phone}}$ points **Up** toward the vehicle roof / sky (vehicle $+Z_{\text{veh}}$).
+  * **Reverse Landscape (`Surface.ROTATION_270` — Top of phone on passenger's right):**
+    * $+Y_{\text{phone}}$ points **Right** across the dashboard (toward vehicle passenger side).
+    * $+X_{\text{phone}}$ points **Down** toward the vehicle floor.
+
+#### 3. Coordinate Frame Alignment Matrix:
+
+| Physical Axis | Vehicle Road Frame (ISO 8855) | TI Radar Frame (`AWR1843`) | RoadSense Camera Frame (`P_c`) | Phone Body (`ROTATION_90`) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Forward (Longitudinal)** | $+X_{\text{veh}}$ (Ahead) | $+Y_r$ (Ahead) | $+Z_c$ (Optical Depth) | **$-Z_{\text{phone}}$** |
+| **Lateral (Transverse)** | $+Y_{\text{veh}}$ (Left) | $+X_r$ (Right) | $+X_c$ (Right across image) | **$-Y_{\text{phone}}$** ($+Y_{\text{phone}}$ is Left) |
+| **Vertical (Normal)** | $+Z_{\text{veh}}$ (Upward) | $+Z_r$ (Upward) | $+Y_c$ (Downward in image) | **$-X_{\text{phone}}$** ($+X_{\text{phone}}$ is Up) |
+
+---
 
 ### 3.2 Closed-Form Static Pitch Extraction (Level Ground Calibration)
-When the vehicle is stationary on a level surface (e.g., garage or flat road), the true gravity vector is strictly vertical: $\mathbf{g}_{\text{world}} = [0, 0, -9.80665]^T\,\text{m/s}^2$.
 
-The phone's onboard `Sensor.TYPE_GRAVITY` reports $\mathbf{g}_{\text{phone}} = [g_x, g_y, g_z]^T$ in phone body coordinates:
-1. **Extract Pitch Inclination Angle ($\theta_{\text{mount}}$):**
-   $$\theta_{\text{mount}} = \arctan2\left(g_x, \sqrt{g_y^2 + g_z^2}\right) \quad \text{(Landscape)}$$
-   $$\text{or} \quad \theta_{\text{mount}} = \arctan2\left(g_y, \sqrt{g_x^2 + g_z^2}\right) \quad \text{(Portrait)}$$
-2. **Noise Reduction via 100 Hz Temporal Averaging:**
-   Averaging 100 samples over a 1-second static window yields microsecond-level noise rejection:
-   $$\bar{\mathbf{g}} = \frac{1}{N} \sum_{i=1}^{N=100} \mathbf{g}_i, \quad \sigma_g < 0.005\,\text{m/s}^2$$
-   This yields an angular accuracy of:
-   $$\Delta \theta_{\text{error}} \approx \arcsin\left(\frac{0.005}{9.81}\right) \approx \mathbf{\pm 0.029^\circ}$$
-   *An accuracy of $\pm 0.03^\circ$ translates to less than **1 pixel of vertical error** on screen!*
+When the vehicle is stationary on a flat, level surface (e.g., workshop, garage, or horizontal road), true gravity points straight downward along the earth's gravitational vector: $\mathbf{g}_{\text{world}} = [0, 0, -9.80665]^T\,\text{m/s}^2$.
 
-3. **Mechanical Bumper Offset ($\theta_{\text{bumper}}$):**
-   If the radar itself is mounted with a small physical bracket tilt $\theta_{\text{bumper}}$ (typically measured once during mechanical installation, e.g. $+0.5^\circ$), the relative extrinsic pitch angle is simply:
-   $$\theta_{\text{calib}} = \theta_{\text{mount}} - \theta_{\text{bumper}}$$
+The phone's onboard `Sensor.TYPE_GRAVITY` (or low-pass filtered `Sensor.TYPE_ACCELEROMETER`) reports $\mathbf{g}_{\text{phone}} = [g_x, g_y, g_z]^T$ in phone body coordinates.
+
+#### Universal Pitch Formula (Invariant to Screen Rotation):
+The rear camera optical boresight vector in phone coordinates is $\hat{\mathbf{b}} = [0, 0, -1]^T$.
+The component of gravity projecting along the camera optical axis is:
+$$\mathbf{g} \cdot \hat{\mathbf{b}} = -g_z$$
+
+The component of gravity residing within the plane of the smartphone display is:
+$$g_{\text{screen}} = \sqrt{g_x^2 + g_y^2}$$
+
+Therefore, the inclination angle of the camera optical axis relative to the horizontal ground plane is:
+$$\theta_{\text{mount}} = \arctan2\left(-g_z, \sqrt{g_x^2 + g_y^2}\right) = \arcsin\left(\frac{-g_z}{\|\mathbf{g}\|}\right)$$
+
+#### Angular Sign Conventions:
+* **$\theta_{\text{mount}} = 0^\circ$ ($g_z = 0$):** Camera optical axis is perfectly horizontal and parallel to the road surface. Gravity lies entirely in the screen plane ($g_{\text{screen}} \approx 9.81\,\text{m/s}^2$).
+* **$\theta_{\text{mount}} > 0^\circ$ ($g_z < 0 \implies -g_z > 0$):** Camera is pitched **downward** toward the road surface (standard windshield mount configuration). Gravity has a positive component along the forward boresight ($-Z$).
+* **$\theta_{\text{mount}} < 0^\circ$ ($g_z > 0 \implies -g_z < 0$):** Camera is pitched **upward** toward the sky.
+
+> **Why this formulation is universally robust:**  
+> Because the camera optical axis is always collinear with $-Z_{\text{phone}}$, $\sqrt{g_x^2 + g_y^2}$ captures the complete in-plane gravity magnitude regardless of whether the phone is mounted in `ROTATION_90`, `ROTATION_270`, or at an arbitrary roll angle $\phi$.
+
+#### Secondary Extrinsic Parameter: Roll Extraction ($\phi_{\text{mount}}$):
+In standard landscape mount (`ROTATION_90` where $+X_{\text{phone}}$ is nominally vertical):
+$$\phi_{\text{mount}} = \arctan2(g_y, g_x)$$
+Any non-zero $g_y$ indicates physical mount tilt/roll around the optical boresight.
+
+#### Noise Reduction via 100 Hz Temporal Averaging:
+Averaging 100 samples over a 1-second static window yields microsecond-level noise rejection:
+$$\bar{\mathbf{g}} = \frac{1}{N} \sum_{i=1}^{N=100} \mathbf{g}_i, \quad \sigma_g < 0.005\,\text{m/s}^2$$
+This yields an angular accuracy of:
+$$\Delta \theta_{\text{error}} \approx \arcsin\left(\frac{0.005}{9.81}\right) \approx \mathbf{\pm 0.029^\circ}$$
+*An accuracy of $\pm 0.03^\circ$ translates to less than **1 pixel of vertical error** on a 1080p viewfinder!*
+
+#### Mechanical Bumper Offset ($\theta_{\text{bumper}}$):
+If the bumper radar itself has a known physical mounting inclination $\theta_{\text{bumper}}$ (typically measured once during mechanical bracket installation, e.g. $+0.5^\circ$), the net extrinsic pitch angle between radar and camera is:
+$$\theta_{\text{calib}} = \theta_{\text{mount}} - \theta_{\text{bumper}}$$
 
 ---
 
@@ -140,13 +201,29 @@ Add an **"Auto-Level Pitch from IMU"** button to the existing Calibration Studio
 
 ### Phase 2: Engine Wiring in `SpatialProjectionEngine.kt`
 ```kotlin
-fun autoLevelPitchFromGravity(gravitySample: ImuSample): Float {
-    // Landscape coordinate extraction:
-    val gx = gravitySample.x
-    val gy = gravitySample.y
-    val gz = gravitySample.z
-    val pitchAngleDeg = Math.toDegrees(kotlin.math.atan2(gx.toDouble(), kotlin.math.sqrt((gy * gy + gz * gz).toDouble()))).toFloat()
-    return pitchAngleDeg
+data class AutoLevelResult(
+    val pitchDeg: Float,
+    val rollDeg: Float
+)
+
+fun autoLevelFromGravity(gravitySample: ImuSample): AutoLevelResult {
+    // Universal closed-form pitch calculation (valid for any landscape or portrait mount):
+    // The rear camera optical axis is -Z_phone.
+    // In-plane gravity magnitude is sqrt(gx^2 + gy^2).
+    val gx = gravitySample.x.toDouble()
+    val gy = gravitySample.y.toDouble()
+    val gz = gravitySample.z.toDouble()
+
+    val gInPlane = kotlin.math.sqrt(gx * gx + gy * gy)
+    // Positive pitch = tilted downward toward the road:
+    val pitchRad = kotlin.math.atan2(-gz, gInPlane)
+    // Landscape ROTATION_90 roll (mount tilt around optical axis):
+    val rollRad = kotlin.math.atan2(gy, gx)
+
+    return AutoLevelResult(
+        pitchDeg = Math.toDegrees(pitchRad).toFloat(),
+        rollDeg = Math.toDegrees(rollRad).toFloat()
+    )
 }
 ```
 

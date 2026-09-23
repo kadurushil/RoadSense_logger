@@ -171,4 +171,21 @@ graph TD
   - Header: `elapsed_realtime_ns,sensor_type,ax,ay,az,gx,gy,gz,lin_ax,lin_ay,lin_az,qw,qx,qy,qz,accuracy`
   - Provides a single synchronized high-rate row every 10 ms.
 
+### 5.3 Multi-Sensor Coordinate Alignment in Landscape Windshield Mount
+
+When the smartphone is mounted horizontally on the vehicle windshield to record forward road video (RoadSense standard):
+* **Optical Boresight (Forward Driving Axis):** The rear camera points forward through the windshield down the road, aligned with **$-Z_{\text{phone}}$** (normal to the rear chassis).
+* **Display Normal (Cabin Axis):** $+Z_{\text{phone}}$ points directly rearward into the passenger cabin toward the driver.
+* **Transverse / Lateral Dashboard Axis:**
+  * In standard landscape (`Surface.ROTATION_90` — top of phone on driver's left): $+Y_{\text{phone}}$ points **Left** across the dashboard, $+X_{\text{phone}}$ points **Up** toward the vehicle roof.
+  * In reverse landscape (`Surface.ROTATION_270` — top of phone on passenger's right): $+Y_{\text{phone}}$ points **Right** across the dashboard, $+X_{\text{phone}}$ points **Down** toward the vehicle floor.
+
+#### Cross-Sensor Coordinate Mapping:
+| Physical Vector | Vehicle Frame (ISO 8855) | Radar Frame (`AWR1843`) | Camera Frame (`P_c`) | Phone Body (`ROTATION_90`) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Forward (Longitudinal)** | $+X_{\text{veh}}$ (Ahead) | $+Y_r$ (Ahead) | $+Z_c$ (Optical Depth) | **$-Z_{\text{phone}}$** |
+| **Lateral (Transverse)** | $+Y_{\text{veh}}$ (Left) | $+X_r$ (Right) | $+X_c$ (Right in image) | **$-Y_{\text{phone}}$** ($+Y_{\text{phone}}$ is Left) |
+| **Vertical (Normal)** | $+Z_{\text{veh}}$ (Upward) | $+Z_r$ (Upward) | $+Y_c$ (Downward in image) | **$-X_{\text{phone}}$** ($+X_{\text{phone}}$ is Up) |
+
 ---
+
