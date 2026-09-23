@@ -15,6 +15,7 @@ This directory centralizes all hardware audits, architectural plans, empirical b
 |---|---|---|
 | [`DEVICE_SENSOR_AND_CAMERA_CAPABILITIES.md`](DEVICE_SENSOR_AND_CAMERA_CAPABILITIES.md) | **Hardware Audit & Register Analysis** | Live ADB extraction (`dumpsys sensorservice`, `dumpsys media.camera`) covering all 18 phone sensors, STMicroelectronics LSM6DSL 6-DOF IMU, 100 Hz HAL cap, and all 4 camera HAL devices (including Ultra-Wide). |
 | [`imu_sensor_implementation_plan.md`](imu_sensor_implementation_plan.md) | **Subsystem Implementation Plan** | Phase 1 technical design, permissions, dedicated background `HandlerThread`, empirical rate profiler, and multi-sensor UI architecture. |
+| [`RADAR_PITCH_CALIBRATION_VIA_IMU.md`](RADAR_PITCH_CALIBRATION_VIA_IMU.md) | **Pitch Calibration & Dynamic Stabilization** | Closed-form gravity angle extraction ($\pm 0.03^\circ$ accuracy), 1-tap level calibration, dynamic vehicle pitch stabilization during braking, and mount slippage health monitoring. |
 | [`walkthrough.md`](walkthrough.md) | **Walkthrough & Verification Runbook** | Detailed summary of implemented code, test results (38/38 unit tests passing), APK packaging, and step-by-step physical device test guide. |
 | [`raw_dumps/`](raw_dumps/) | **Raw Diagnostic Artifacts** | Unprocessed ADB dumps (`raw_sensorservice_dump.txt`, `raw_camera_dump.txt`) and automated extraction parser (`parse_device_capabilities.py`). |
 

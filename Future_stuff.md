@@ -253,3 +253,22 @@ Automotive engineers have several powerful tools to inspect, graph, and analyze 
 * **IoU & Mahalanobis Distance Gating:** Associating 2D vision detections with 3D radar tracks.
 * **Result:** High-confidence multimodal objects where the camera supplies the semantic label and the radar supplies exact metric depth and velocity.
 
+---
+
+### 5.5 Automated Radar-Camera Pitch Calibration & Dynamic Stabilization via IMU
+* **Reference Document:** Full theoretical derivation, formulas, and blueprint in [`intel/Implementations/Sensors/RADAR_PITCH_CALIBRATION_VIA_IMU.md`](intel/Implementations/Sensors/RADAR_PITCH_CALIBRATION_VIA_IMU.md).
+* **Motivation:**
+  * Pitch tilt angle ($\theta$) is the most critical and sensitive extrinsic parameter. A $1.0^\circ$ pitch error creates a **$\approx 28\text{ px}$ vertical shift** on 1080p and a **$0.87\text{ m}$ height error** at $50\text{ m}$ forward range.
+* **Feature Roadmap:**
+  1. **One-Tap Level Ground Calibration:**
+     * When parked on flat ground, query `Sensor.TYPE_GRAVITY` and 100 Hz `Sensor.TYPE_ACCELEROMETER`.
+     * Closed-form inclination angle: $\theta_{\text{mount}} = \arctan2(g_x, \sqrt{g_y^2 + g_z^2})$.
+     * 100-sample averaging achieves **$\pm 0.03^\circ$ accuracy** ($< 1\text{ px}$ error) with a single tap, eliminating manual slider adjustment.
+  2. **Dynamic In-Drive Pitch Compensation (Suspension Dynamics):**
+     * High-rate 100 Hz `GameRotationVector` and Gyroscope pitch rate ($\omega_y$) compute real-time suspension dynamics:
+       $$\Delta \theta(t) = \theta_{\text{attitude}}(t) - \theta_{\text{baseline}}$$
+     * Dynamically adjusts the camera projection matrix during hard braking (front nose-dip $-1.5^\circ$ to $-3.0^\circ$) and acceleration squat ($+1.0^\circ$ to $+2.0^\circ$).
+     * Prevents radar footprints and lollipops from jumping upward into the sky during vehicle braking.
+  3. **Mount Slippage & Health Monitoring:**
+     * Detects when the windshield mount shifts or slips over road bumps while stopped at red lights, offering a one-tap `[Auto Re-align]` HUD banner.
+
