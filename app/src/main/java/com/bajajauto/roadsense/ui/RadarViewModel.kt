@@ -18,6 +18,7 @@ import com.bajajauto.roadsense.gnss.GnssLocationManager
 import com.bajajauto.roadsense.gnss.GnssState
 import com.bajajauto.roadsense.recording.CameraSessionRecorder
 import com.bajajauto.roadsense.recording.GnssSessionRecorder
+import com.bajajauto.roadsense.recording.ImuSessionRecorder
 import com.bajajauto.roadsense.recording.RadarSessionRecorder
 import com.bajajauto.roadsense.recording.RawUartRecorder
 import com.bajajauto.roadsense.recording.RecordingState
@@ -66,6 +67,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     val cameraEngine = CameraEngine(application)
     private val cameraSessionRecorder = CameraSessionRecorder(sessionManager)
     val imuManager = ImuManager(application)
+    val imuSessionRecorder = ImuSessionRecorder(sessionManager)
 
     // CANedge2 Network & Ingestion Engine
     private val canedgeHttpClient = CanedgeHttpClient()
@@ -123,6 +125,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     val imuBenchmarkStats: StateFlow<ImuSamplingBenchmark> = imuManager.benchmarkStats
     val imuTelemetry: StateFlow<ImuTelemetryState> = imuManager.telemetryState
     val imuHz: StateFlow<Float> = imuManager.imuHz
+    val isImuRecording: StateFlow<Boolean> = imuSessionRecorder.isRecording
+    val imuSessionFrames: StateFlow<Long> = imuSessionRecorder.framesRecorded
 
     val cameraEngineState = cameraEngine.engineState
     val selectedResolution = cameraEngine.selectedResolution
@@ -323,6 +327,11 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             cameraSessionRecorder.recordFrame(frame)
         }
 
+        // IMU frame listener: automatically records synchronized 100 Hz frames if session recording is active
+        imuManager.setOnFrameListener { frame ->
+            imuSessionRecorder.recordFrame(frame)
+        }
+
         // Auto-warm up GNSS on launch if permission is available
         if (hasLocationPermission()) {
             startGnssUpdates()
@@ -459,6 +468,10 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                 cameraEngine.startVideoRecording(videoFile)
             }
             canedgeIngestionManager.onSessionStarted(session)
+            imuSessionRecorder.startRecording(session)
+            if (!imuManager.telemetryState.value.isMonitoring) {
+                imuManager.startLiveMonitoring(delayUs = 10000)
+            }
         }
         return session
     }
@@ -469,6 +482,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         cameraEngine.stopVideoRecording()
         cameraSessionRecorder.stopRecording()
         gnssSessionRecorder.stopRecording()
+        val imuFrames = imuSessionRecorder.stopRecording()
+        sessionRecorder.currentSession?.totalImuFrames = imuFrames
         return sessionRecorder.stopSession()
     }
 
@@ -746,6 +761,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        imuSessionRecorder.stopRecording()
         imuManager.release()
         canedgeDiscovery.disconnect()
         cameraEngine.release()

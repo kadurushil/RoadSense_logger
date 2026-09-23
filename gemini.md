@@ -23,7 +23,7 @@
   * [`08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md`](context/08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md) — 6-DOF extrinsics, reverse touch solver, hybrid lollipops & range rings.
 * **`intel/`**: In-depth hardware integration guides, post-mortems, and theoretical formulations:
   * `intel/Sensor fusion basics.md` — Complete spatial calibration and perspective projection theory.
-  * `intel/debugging_and_troubleshooting_knowledge_base.md` — Post-mortem analysis of Bugs #1 through #10.
+  * `intel/debugging_and_troubleshooting_knowledge_base.md` — Post-mortem analysis of Bugs #1 through #12.
   * `intel/CANedge2_Android_Integration_Guide.md` — Full hardware spec for CSS Electronics CANedge2.
   * `intel/presentations/` — Presentation deck generator and executive slides.
   * `intel/Implementations/` — Step-by-step implementation plans and walkthroughs.

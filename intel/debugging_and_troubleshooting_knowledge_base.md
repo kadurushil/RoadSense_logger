@@ -1,7 +1,7 @@
 # RoadSense Troubleshooting & Bug Post-Mortem Knowledge Base
 
 > **Purpose:** Comprehensive record of critical bugs, hardware quirks, architectural bottlenecks, root causes, and verified fixes encountered during the development of RoadSense.
-> **Location:** `.artifacts/Intel/debugging_and_troubleshooting_knowledge_base.md`
+> **Location:** `intel/debugging_and_troubleshooting_knowledge_base.md`
 > **Maintainers:** RoadSense Engineering Team & Autonomous AI Coding Agents
 
 ---
@@ -18,7 +18,8 @@
 9. [Bug #9: (0, 0) High-Velocity Phantom Tracks & Stride Misalignment in TLV Type 3](#bug-9-0-0-high-velocity-phantom-tracks--stride-misalignment-in-tlv-type-3)
 10. [Bug #10: CANedge Single-Socket MCU Lockup & Historical File Download Flooding](#bug-10-canedge-single-socket-mcu-lockup--historical-file-download-flooding)
 11. [Bug #11: Visualizer Track Deserialization Failure & 28-Byte Stride Corruption in PC Processing Pipeline](#bug-11-visualizer-track-deserialization-failure--28-byte-stride-corruption-in-pc-processing-pipeline)
-12. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
+12. [Bug #12: Camera2 Ultra-Wide (UW) Inaccessibility & Non-Public HAL Device 50 on Samsung Exynos (Android 10)](#bug-12-camera2-ultra-wide-uw-inaccessibility--non-public-hal-device-50-on-samsung-exynos-android-10)
+13. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
 
 ---
 
@@ -363,6 +364,95 @@
 
 ---
 
+## Bug #12: Camera2 Ultra-Wide (UW) Inaccessibility & Non-Public HAL Device 50 on Samsung Exynos (Android 10)
+
+### Symptoms
+* In `CameraEngine.kt`, camera discovery probed candidate device IDs `["0", "1", "2", "3", "4", "50", "51", "52"]`.
+* While the primary back camera (`"0"`, $3.58\text{ mm}$, ~78° HFOV) and front camera (`"1"`, $3.40\text{ mm}$) initialized successfully, probing camera `"50"` (the physical ultra-wide lens, $2.20\text{ mm}$, ~123° HFOV) threw:
+  ```text
+  Camera2 Candidate 50 REJECTED: IllegalArgumentException - Unknown camera ID 50
+  ```
+* Candidate `"52"` (secondary depth lens) failed with the identical exception.
+* Third-party camera testing tools and RoadSense were completely unable to stream from the ultra-wide lens, despite the Samsung stock camera app seamlessly switching to $0.5\times$ ultra-wide view.
+
+### Hardware Discovery via Low-Level ADB & Dumpsys
+Direct HAL diagnostic queries via ADB on the target device (`Samsung SM-M305F` Galaxy M30, Exynos 7904, Android 10 / SDK 29) revealed:
+1. **Four Physical Sensors Registered in HAL (`sec-camera-provider-3-0`):**
+   * **Device 0 (Main Wide):** $4128 \times 3096$ (13 MP), focal length $3.58\text{ mm}$, $f/1.9$, 78° HFOV.
+   * **Device 1 (Front Selfie):** $4608 \times 3456$ (16 MP), focal length $3.40\text{ mm}$, $f/2.0$.
+   * **Device 50 (Physical Ultra-Wide):** $2576 \times 1932$ (5 MP), focal length **$2.20\text{ mm}$**, $f/2.2$, **~123° HFOV**.
+   * **Device 52 (Secondary Depth):** $2592 \times 1944$ (5 MP), focal length $2.20\text{ mm}$, $f/2.2$.
+2. Both Camera 50 and 52 possess registered HAL devices in `dumpsys media.camera`:
+   ```text
+   == Camera HAL device device@1.0/legacy/50 (v1.0) static information ==
+   == Camera HAL device device@3.3/legacy/50 (v3.3) static information ==
+   android.sensor.info.preCorrectionActiveArraySize: [0 0 2576 1932]
+   android.lens.info.availableFocalLengths: [2.20]
+   ```
+   This confirmed that the ultra-wide sensor hardware is fully functional and recognized by the low-level camera subsystem.
+
+### Root Cause Analysis
+
+#### 1. AOSP Native CameraService Gatekeeping
+In native Android `cameraserver` (`frameworks/av/services/camera/libcameraservice/CameraService.cpp`), any client call to `getCameraCharacteristics(cameraId)` or `connectHelper(cameraId)` executes this validation check:
+```cpp
+String8 id8 = String8(cameraId);
+bool isLogical = mCameraProviderManager->isLogicalCamera(id8.string(), nullptr);
+
+if (!isLogical && !mCameraProviderManager->isPublic(id8.string())) {
+    return STATUS_ERROR_FMT(CameraService::ERROR_ILLEGAL_ARGUMENT,
+            "Unknown camera ID %s", id8.string()); // Throws IllegalArgumentException to Java
+}
+```
+
+#### 2. Logical Camera Deficiency (`isLogical == false`)
+In Android 9 (API 28) and Android 10 (API 29), Google introduced the `REQUEST_AVAILABLE_CAPABILITIES_LOGICAL_MULTI_CAMERA` capability, where multiple physical sensors are abstracted behind a single logical camera ID that zooms continuously.
+On the Exynos 7904 BSP:
+* `android.info.supportedHardwareLevel` is `LIMITED`.
+* `android.request.availableCapabilities` advertises only `[BACKWARD_COMPATIBLE]`.
+* Multi-camera logical capability is entirely absent; `isLogicalCamera("50")` evaluates to `false`.
+
+#### 3. Private Vendor Auxiliary Masking (`isPublic == false`)
+`CameraProviderManager::isPublic(id)` returns `true` only if the ID was present in the list returned by `ICameraProvider::getCameraIdList()`.
+Inspection of `dumpsys media.camera` header showed:
+```text
+== Service global info: ==
+Number of camera devices: 2
+Number of normal camera devices: 2
+    Device 0 maps to "0"
+    Device 1 maps to "1"
+```
+Samsung's proprietary camera provider daemon (`vendor.samsung.hardware.camera.provider@3.0::ISehCameraProvider`) hardcodes cameras `50` and `52` as **non-public vendor auxiliary devices**. They are hidden from `getCameraIdList()` and are deliberately inaccessible to non-system UIDs.
+
+#### 4. How the Samsung Stock Camera App Bypasses This
+Live process inspection of `com.sec.android.app.camera` (PID 10803) revealed:
+* The stock camera app runs as a privileged system application (`/system/priv-app/SamsungCamera/SamsungCamera.apk`, platform-signed).
+* The app connects exclusively to **Camera ID 0** via the **legacy Camera API 1 shim**:
+  ```text
+  == Camera device 0 status -2 dynamic info: ==
+  Camera1 API shim is using parameters:
+      CameraParameters::dump: mMap.size = 113
+      focal-length: 3.58
+  ```
+* Ultra-wide lens switching is executed internally via proprietary vendor parameter keys in `/system/framework/semcamera.jar` and `semcamera2.jar` (`samsung.android.control.zoomInOutPhoto`, `samsung.android.control.dualCameraDisable`) communicating directly over Samsung's private HIDL interface `ISehCameraProvider`, bypassing standard Android Camera2 public stream rules.
+
+#### 5. Absence of Qualcomm `aux.packagelist` Backdoors
+On Qualcomm Snapdragon chipsets, developers frequently expose hidden auxiliary cameras using system property whitelists (`setprop vendor.camera.aux.packagelist <package>`).
+On this Samsung Exynos platform, all camera properties were queried via `getprop`. No Qualcomm vendor properties exist. Auxiliary blacklisting is hardcoded inside the compiled binary library `/vendor/lib64/hw/vendor.samsung.hardware.camera.provider@3.0-impl.so`.
+
+### Engineering Verdict & Strategic Workarounds
+
+1. **Software Conclusion:**
+   Accessing Camera `50` via standard Android `Camera2` or `CameraX` on Samsung Exynos devices running Android 10 / One UI 2.0 is **impossible** without root access and binary patching of `sec-camera-provider-3-0` or resigning the app with Samsung platform keys. Android 11's `CONTROL_ZOOM_RATIO_RANGE` ($< 1.0$) is not supported on this BSP.
+2. **Immediate Optical Workaround (Physical Clip-On Lens):**
+   Mounting an optical wide-angle attachment (e.g. $0.6\times$ anamorphic/aspherical lens, ~110°–120° HFOV) directly over the primary Camera 0 ($3.58\text{ mm}$) delivers:
+   - Doubled lateral Field of View matching the radar's $\pm 60^\circ$ azimuth coverage.
+   - Zero compromises to the RoadSense software pipeline: full Camera2 1080p@30fps streaming, autonomous Road AE, infinity focus lock, and nanosecond monotonic clock sync are 100% preserved.
+3. **Target Device Upgrade Roadmap:**
+   For hardware deployments requiring native multi-sensor switching without optical attachments, target devices running **Android 11+ (API 30+)** with **`HARDWARE_LEVEL_3`** or **`FULL`** camera support (e.g., Google Pixel 6/7/8 or Samsung Galaxy S21/S22/S23 series), where ultra-wide lenses are officially exposed to third-party applications via public logical multi-camera streams or sub-$1.0\times$ zoom ratio controls.
+
+---
+
 ## Summary of Core Engineering Rules
 
 1. **Never pass high-frequency raw byte streams through `StateFlow`:** Always use direct callbacks or channels to background workers.
@@ -374,3 +464,4 @@
 7. **Always verify TLV element strides adaptively:** Firmware structs evolve across releases; check `payloadSize % numElements` before assuming struct byte size.
 8. **Never download historical mass archives over constrained embedded HTTP bridges:** Target only active session directories, and enforce MCU socket cooldowns on network errors.
 9. **Never rely on modulo checks without divisor prioritization in binary converters:** Modulo tests on integer multiples (e.g. $28 \pmod{14} == 0$) cause stride aliasing. Always test larger strides first or divide directly by `numElements`.
+10. **Camera2 auxiliary lenses on legacy vendor BSPs (Android 10 Exynos) are non-public:** Always guard camera discovery against `IllegalArgumentException`, inspect `dumpsys media.camera` for `isPublic` status, and avoid assuming physical multi-camera availability on `HARDWARE_LEVEL_LIMITED` chipsets without logical multi-camera support.

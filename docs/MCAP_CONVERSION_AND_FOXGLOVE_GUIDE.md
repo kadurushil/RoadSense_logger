@@ -99,7 +99,8 @@ RoadSense includes an optimized dashboard layout preset:
 | `/camera/video` | `foxglove.CompressedVideo` | `protobuf` | H.264 Annex B bitstream packets synchronized to shutter nanoseconds. |
 | `/camera/calib` | `foxglove.CameraCalibration` | `protobuf` | 720p pinhole intrinsics ($K$), distortion ($D$), and projection ($P$). |
 | `/gnss/fix` | `foxglove.LocationFix` | `protobuf` | Latitude, longitude, altitude, GPS speed, and heading. |
-| `/tf` | `foxglove.FrameTransforms` | `protobuf` | 6-DOF extrinsics (`base_link` $\rightarrow$ `radar_link` and `camera_optical`). |
+| `/imu/data` | `sensor_msgs.Imu` | `protobuf` | 100 Hz triaxial acceleration ($a_x, a_y, a_z$), angular velocity ($\omega_x, \omega_y, \omega_z$), and 6-DOF quaternion ($q_x, q_y, q_z, q_w$). |
+| `/tf` | `foxglove.FrameTransforms` | `protobuf` | 6-DOF extrinsics (`base_link` $\rightarrow$ `radar_link`, `camera_optical`, and `imu_link`). |
 | `/diagnostics/logs` | `foxglove.Log` | `protobuf` | Color-coded session logs from `session_debug.log`. |
 | `/vehicle/telemetry` | `roadsense.VehicleTelemetry` | `jsonschema` | Speed, yaw rate, pitch rate, and longitudinal/lateral accelerations. |
 | `/radar/diagnostics` | `roadsense.RadarDiagnostics` | `jsonschema` | Inliers count, RANSAC status, ego velocity, and road boundaries. |
@@ -110,3 +111,53 @@ RoadSense includes an optimized dashboard layout preset:
 The MCAP file also embeds critical configuration and metadata files as native attachments:
 * **`session_metadata.json`**: Device hardware info, sensor baud rates, session duration, and frame counts.
 * **`radar_camera_calib.json`**: Physical vehicle mounting parameters (pitch tilt, yaw heading, radar height, setback).
+
+---
+
+## 6. Physical Phone Mount & Coordinate Frame Alignment
+
+### 6.1 Physical Vehicle Mounting Geometry
+The smartphone is mounted to the vehicle windshield in landscape orientation with the phone body axes defined as:
+* **$+Y_{\text{phone}}$**: **Lateral Right** (pointing toward the passenger side).
+* **$+X_{\text{phone}}$**: **Vertical Down** (pointing downward toward the road/chassis).
+* **$+Z_{\text{phone}}$**: **Longitudinal Backward** (normal to the screen, facing into the cabin/driver).
+* **$-Z_{\text{phone}}$**: **Longitudinal Forward** (out the back of the phone, camera lens facing the road).
+
+```text
+               Vehicle Forward (Road Ahead)
+                         ▲
+                         │  -Z (Rear Camera points here)
+                         │
+                 ┌───────────────┐  ▲
+                 │               │  │ -X (Left edge of phone = UP / Sky)
+    Vehicle Left │   [ SCREEN ]  │  │
+    (-Y phone    │               │  ▼
+     = Bottom)   │               │  ▲
+                 └───────────────┘  │ +X (Right edge of phone = DOWN / Ground)
+                         │          ▼
+                         │  +Z (Screen faces cabin / driver)
+                         ▼
+               Vehicle Rear (Cabin)
+                         
+             ◄───────────────────────►
+      -Y (Bottom / USB)     +Y (Top of Phone = Lateral Right / Passenger)
+```
+
+### 6.2 Axis Mapping Matrix (Vehicle base_link <-> Phone Body)
+Following the right-hand rule ($\mathbf{X} \times \mathbf{Y} = \mathbf{Z}$), the mapping between the standard ISO vehicle frame (`base_link`: $X$=Forward, $Y$=Left, $Z$=Up) and the physical phone body frame is:
+
+$$\begin{pmatrix} X_{\text{phone}} \\ Y_{\text{phone}} \\ Z_{\text{phone}} \end{pmatrix} = \begin{bmatrix} 0 & 0 & -1 \\ 0 & -1 & 0 \\ -1 & 0 & 0 \end{bmatrix} \begin{pmatrix} X_{\text{vehicle}} \\ Y_{\text{vehicle}} \\ Z_{\text{vehicle}} \end{pmatrix}$$
+
+$$\begin{pmatrix} X_{\text{vehicle}} \\ Y_{\text{vehicle}} \\ Z_{\text{vehicle}} \end{pmatrix} = \begin{bmatrix} 0 & 0 & -1 \\ 0 & -1 & 0 \\ -1 & 0 & 0 \end{bmatrix} \begin{pmatrix} X_{\text{phone}} \\ Y_{\text{phone}} \\ Z_{\text{phone}} \end{pmatrix}$$
+
+### 6.3 Implications for Perception & Tooling
+1. **Camera Video 180° Inversion:**  
+   Because the phone is mounted with the top of the device ($+Y$) pointing to the right (`ROTATION_270`), Android's Camera2 raw sensor scanlines are inverted 180° relative to standard horizon display. This is normalized in post-processing using `--flip-video` or via Foxglove layout rotation.
+2. **IMU Accelerometer Readings:**  
+   Earth's gravity vector points downward, aligning with $+X_{\text{phone}}$ ($a_x \approx +9.81\,\text{m/s}^2$). Forward vehicle acceleration produces an inertial reaction along $+Z_{\text{phone}}$ ($+a_z$).
+3. **Camera Optical Frame (`camera_optical`):**  
+   Standard ROS optical frame ($X$=Right, $Y$=Down, $Z$=Forward) translates directly to:
+   * $X_{\text{optical}} = +Y_{\text{phone}} = -Y_{\text{vehicle}}$
+   * $Y_{\text{optical}} = +X_{\text{phone}} = -Z_{\text{vehicle}}$
+   * $Z_{\text{optical}} = -Z_{\text{phone}} = +X_{\text{vehicle}}$
+

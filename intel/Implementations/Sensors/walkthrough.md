@@ -21,6 +21,7 @@ In this phase, we completed the full architectural integration of the onboard mo
    - **Live Telemetry Sub-Tab:** Real-time visualizers for Raw Accel vs Linear Accel (without $g$), Gyroscope rates ($\omega_x, \omega_y, \omega_z$), and 6-DOF vehicle attitude (Pitch, Roll, Yaw) throttled at ~25 Hz for smooth UI.
 6. **Live Header Ticker:** Added an `IMU: 100.0 Hz` pill to `LiveMetricsBar` in both landscape and portrait layouts.
 7. **Cockpit Navigation:** Updated tab sequence: `RADAR` $\rightarrow$ `GNSS` $\rightarrow$ **`IMU`** $\rightarrow$ `CAMERA` $\rightarrow$ `CANEDGE` $\rightarrow$ `SBS` $\rightarrow$ `SESSION`.
+8. **Synchronized MCAP-Ready Session Logging:** Implemented `ImuFrame` and `ImuSessionRecorder` writing 100 Hz consolidated frames (`imu/imu_frames.csv`) directly compatible with ROS / Foxglove Studio `sensor_msgs/msg/Imu`.
 
 ---
 
@@ -31,14 +32,21 @@ In this phase, we completed the full architectural integration of the onboard mo
   Added `HIGH_SAMPLING_RATE_SENSORS` and optional feature tags for accelerometer and gyroscope.
 
 ### Core IMU Engine (`com.bajajauto.roadsense.imu`)
+* **[`ImuFrame.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuFrame.kt):** Consolidated 100 Hz synchronized IMU frame data model with linear acceleration ($a_x, a_y, a_z$), angular velocity ($\omega_x, \omega_y, \omega_z$ in rad/s), 6-DOF attitude quaternion ($q_x, q_y, q_z, q_w$), and dynamic linear acceleration without $g$.
 * **[`ImuSensorCapability.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuSensorCapability.kt):** Model for discovered sensor hardware specs, categories (`MOTION`, `ORIENTATION`, `UNCALIBRATED`, `AUXILIARY`), and HAL rate conversion.
 * **[`ImuSample.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuSample.kt):** Nanosecond monotonic data model with 3-axis accessors, quaternion normalization, vehicle windshield coordinate remapping (`toEulerAnglesDeg` with `remapCoordinateSystem`), and CSV formatting.
 * **[`ImuSamplingBenchmark.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuSamplingBenchmark.kt):** Statistical model for empirical rate evaluation with `ImuRatePreset` definitions.
 * **[`ImuTelemetryState.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuTelemetryState.kt):** Conflated 25 Hz telemetry model for Compose UI.
-* **[`ImuManager.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuManager.kt):** Central sensor controller managing background `HandlerThread`, dynamic rate profiling, windshield landscape coordinate remapping (camera forward along $-Z_{\text{phone}}$), and multi-sensor live stream.
+* **[`ImuManager.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuManager.kt):** Central sensor controller managing background `HandlerThread`, dynamic rate profiling, windshield landscape coordinate remapping (camera forward along $-Z_{\text{phone}}$), synchronized 100 Hz `ImuFrame` dispatching, and multi-sensor live stream.
+
+### Session Recording Subsystem (`com.bajajauto.roadsense.recording`)
+* **[`ImuSessionRecorder.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/recording/ImuSessionRecorder.kt):** High-rate 100 Hz session recorder writing to `session_*/imu/imu_frames.csv` on a dedicated background thread with 32 KB buffering and timeline sync anchors.
+* **[`SessionInfo.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/recording/SessionInfo.kt):** Added `imuDir` and `totalImuFrames`, registered `imu/imu_frames.csv` into `activeStreams`, and serialized IMU metadata into `session_metadata.json`.
+* **[`SessionManager.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/recording/SessionManager.kt):** Creates `sessionDir/imu/` during session initialization.
+* **[`SessionRecordingState.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/recording/SessionRecordingState.kt):** Tracks `imuFramesRecorded` and `totalImuFrames` across session lifecycle.
 
 ### ViewModel & UI Integration
-* **[`RadarViewModel.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/ui/RadarViewModel.kt):** Instantiated `ImuManager`, exposed StateFlows (`imuCapabilities`, `imuBenchmarkStats`, `imuTelemetry`, `imuHz`), and delegated actions.
+* **[`RadarViewModel.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/ui/RadarViewModel.kt):** Instantiated `ImuSessionRecorder`, wired `imuManager.setOnFrameListener`, started/stopped IMU recording in `startSessionRecording()` / `stopSessionRecording()`, and exposed `isImuRecording` / `imuSessionFrames`.
 * **[`ImuDashboardCard.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/ui/screens/ImuDashboardCard.kt):** Full Compose dashboard with Audit, Profiler, and Live Telemetry sub-tabs.
 * **[`LiveMetricsBar.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/ui/components/LiveMetricsBar.kt):** Added `IMU: 100.0 Hz` indicator pill.
 * **[`MainActivity.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/ui/MainActivity.kt):** Added `CockpitTab.IMU` at index 2 and wired into `HorizontalPager`.
@@ -50,12 +58,15 @@ In this phase, we completed the full architectural integration of the onboard mo
 ### 3.1 Automated JVM Unit Tests
 Ran `./gradlew testDebugUnitTest`:
 ```text
-BUILD SUCCESSFUL in 10s
-24 actionable tasks: 2 executed, 22 up-to-date
-All 38 unit tests completed with 0 failures:
+BUILD SUCCESSFUL in 13s
+24 actionable tasks: 5 executed, 19 up-to-date
+All 41 unit tests across 14 test suites completed with 0 failures:
+  - ImuFrameTest: testImuFrameCsvHeader, testImuFrameCsvSerialization [PASSED]
+  - ImuSessionRecorderTest: testImuSessionRecordingLifecycleAndCsvOutput [PASSED]
   - ImuSensorCapabilityTest: testImuSensorCapabilityPropertiesAndFormatting, testOnChangeSensorFormatting [PASSED]
   - ImuSampleTest: testImuSampleVectorCalculations, testLinearAccelerationWithoutGravity, testQuaternionReconstruction [PASSED]
   - ImuSamplingBenchmarkTest: testImuRatePresets, testImuSamplingBenchmarkCalculations [PASSED]
+  - SessionInfoTest: testSessionInfoJsonSerialization [PASSED]
   - All existing Radar, Camera, GNSS, CANedge & Fusion tests [PASSED]
 ```
 

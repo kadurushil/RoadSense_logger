@@ -19,6 +19,7 @@ data class SessionInfo(
     val gnssDir: File = File(sessionDir, "gnss"),
     val cameraDir: File = File(sessionDir, "camera"),
     val canDir: File = File(sessionDir, "can"),
+    val imuDir: File = File(sessionDir, "imu"),
     val startTimeWallMs: Long,
     val startTimeMonotonicNs: Long,
     var stopTimeWallMs: Long? = null,
@@ -26,7 +27,8 @@ data class SessionInfo(
     var totalRadarFrames: Long = 0L,
     var totalRadarBytes: Long = 0L,
     var totalGnssFixes: Long = 0L,
-    var totalCameraFrames: Long = 0L
+    var totalCameraFrames: Long = 0L,
+    var totalImuFrames: Long = 0L
 ) {
     fun toJson(): String {
         val json = JSONObject()
@@ -69,6 +71,11 @@ data class SessionInfo(
         cameraObj.put("totalFrames", totalCameraFrames)
         json.put("camera", cameraObj)
 
+        val imuObj = JSONObject()
+        imuObj.put("sensor", "STMicroelectronics LSM6DSL + Android Fusion")
+        imuObj.put("totalFrames", totalImuFrames)
+        json.put("imu", imuObj)
+
         val streamsArray = JSONArray()
         // If radar frames or bytes were recorded (or files exist), register radar streams
         if (totalRadarFrames > 0 || totalRadarBytes > 0 || File(radarDir, "radar_frames.bin").exists()) {
@@ -81,6 +88,9 @@ data class SessionInfo(
         if (totalCameraFrames > 0 || File(cameraDir, "camera_frames.csv").exists()) {
             streamsArray.put("camera/camera_video.mp4")
             streamsArray.put("camera/camera_frames.csv")
+        }
+        if (totalImuFrames > 0 || File(imuDir, "imu_frames.csv").exists()) {
+            streamsArray.put("imu/imu_frames.csv")
         }
         val canFiles = canDir.listFiles { _, name -> name.endsWith(".mf4", ignoreCase = true) }
         if (!canFiles.isNullOrEmpty()) {

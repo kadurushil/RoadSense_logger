@@ -83,12 +83,18 @@ class ImuManager(private val context: Context) {
     // Telemetry tracking variables (accessed on ImuThread)
     private val currentRawAccel = FloatArray(4)
     private val currentLinearAccel = FloatArray(4)
-    private val currentGyroRates = FloatArray(3)
+    private val currentGyroRates = FloatArray(3) // deg/s for UI
+    private val currentGyroRad = FloatArray(3) // rad/s for MCAP
     private val currentEulerAngles = FloatArray(3)
+    private val currentQuat = floatArrayOf(0f, 0f, 0f, 1f) // qx, qy, qz, qw (identity default)
     private val rotationMatrix = FloatArray(9)
     private val remappedMatrix = FloatArray(9)
     private val orientationAngles = FloatArray(3)
     private var lastUiEmitMonoNs: Long = 0L
+
+    // High-rate synchronized frame listener for active session recording
+    @Volatile
+    private var onFrameListener: ((ImuFrame) -> Unit)? = null
 
     // Frequency counter for LiveMetricsBar
     private var hzCounterStartMonoNs: Long = 0L
@@ -105,6 +111,40 @@ class ImuManager(private val context: Context) {
             }
         } catch (e: Exception) {
             Surface.ROTATION_90
+        }
+    }
+
+    /**
+     * Converts a 3x3 rotation matrix (row-major) to a normalized quaternion [qx, qy, qz, qw].
+     */
+    private fun rotationMatrixToQuaternion(r: FloatArray, outQuat: FloatArray) {
+        val trace = r[0] + r[4] + r[8]
+        if (trace > 0f) {
+            val s = 0.5f / sqrt(trace + 1.0f)
+            outQuat[3] = 0.25f / s // qw
+            outQuat[0] = (r[7] - r[5]) * s // qx
+            outQuat[1] = (r[2] - r[6]) * s // qy
+            outQuat[2] = (r[3] - r[1]) * s // qz
+        } else {
+            if (r[0] > r[4] && r[0] > r[8]) {
+                val s = 2.0f * sqrt(1.0f + r[0] - r[4] - r[8])
+                outQuat[3] = (r[7] - r[5]) / s
+                outQuat[0] = 0.25f * s
+                outQuat[1] = (r[1] + r[3]) / s
+                outQuat[2] = (r[2] + r[6]) / s
+            } else if (r[4] > r[8]) {
+                val s = 2.0f * sqrt(1.0f + r[4] - r[0] - r[8])
+                outQuat[3] = (r[2] - r[6]) / s
+                outQuat[0] = (r[1] + r[3]) / s
+                outQuat[1] = 0.25f * s
+                outQuat[2] = (r[5] + r[7]) / s
+            } else {
+                val s = 2.0f * sqrt(1.0f + r[8] - r[0] - r[4])
+                outQuat[3] = (r[3] - r[1]) / s
+                outQuat[0] = (r[2] + r[6]) / s
+                outQuat[1] = (r[5] + r[7]) / s
+                outQuat[2] = 0.25f * s
+            }
         }
     }
 
@@ -260,6 +300,28 @@ class ImuManager(private val context: Context) {
                     currentRawAccel[1] = event.values[1]
                     currentRawAccel[2] = event.values[2]
                     currentRawAccel[3] = sqrt(event.values[0] * event.values[0] + event.values[1] * event.values[1] + event.values[2] * event.values[2])
+
+                    // Emit synchronized 100 Hz ImuFrame for active session recording / MCAP
+                    onFrameListener?.let { listener ->
+                        val frame = ImuFrame(
+                            elapsedRealtimeNs = event.timestamp,
+                            wallTimeMs = System.currentTimeMillis(),
+                            ax = currentRawAccel[0],
+                            ay = currentRawAccel[1],
+                            az = currentRawAccel[2],
+                            gx = currentGyroRad[0],
+                            gy = currentGyroRad[1],
+                            gz = currentGyroRad[2],
+                            qx = currentQuat[0],
+                            qy = currentQuat[1],
+                            qz = currentQuat[2],
+                            qw = currentQuat[3],
+                            linAx = currentLinearAccel[0],
+                            linAy = currentLinearAccel[1],
+                            linAz = currentLinearAccel[2]
+                        )
+                        listener.invoke(frame)
+                    }
                 }
                 Sensor.TYPE_LINEAR_ACCELERATION -> {
                     currentLinearAccel[0] = event.values[0]
@@ -268,7 +330,11 @@ class ImuManager(private val context: Context) {
                     currentLinearAccel[3] = sqrt(event.values[0] * event.values[0] + event.values[1] * event.values[1] + event.values[2] * event.values[2])
                 }
                 Sensor.TYPE_GYROSCOPE -> {
-                    // Convert rad/s to deg/s
+                    // Raw rad/s for MCAP / ROS sensor_msgs/msg/Imu
+                    currentGyroRad[0] = event.values[0]
+                    currentGyroRad[1] = event.values[1]
+                    currentGyroRad[2] = event.values[2]
+                    // Convert rad/s to deg/s for UI dashboard gauges
                     currentGyroRates[0] = Math.toDegrees(event.values[0].toDouble()).toFloat()
                     currentGyroRates[1] = Math.toDegrees(event.values[1].toDouble()).toFloat()
                     currentGyroRates[2] = Math.toDegrees(event.values[2].toDouble()).toFloat()
@@ -295,6 +361,9 @@ class ImuManager(private val context: Context) {
                         currentEulerAngles[0] = Math.toDegrees(orientationAngles[1].toDouble()).toFloat() // Pitch (Elevation of camera boresight)
                         currentEulerAngles[1] = Math.toDegrees(orientationAngles[2].toDouble()).toFloat() // Roll (Bank of dashboard)
                         currentEulerAngles[2] = Math.toDegrees(orientationAngles[0].toDouble()).toFloat() // Yaw (Heading)
+
+                        // Convert remapped matrix to vehicle attitude quaternion for MCAP
+                        rotationMatrixToQuaternion(targetMatrix, currentQuat)
                     } catch (e: Exception) {
                         // ignore malformed vector
                     }
@@ -375,11 +444,38 @@ class ImuManager(private val context: Context) {
     }
 
     /**
+     * Sets or clears the high-rate synchronized [ImuFrame] listener.
+     */
+    fun setOnFrameListener(listener: ((ImuFrame) -> Unit)?) {
+        this.onFrameListener = listener
+    }
+
+    /**
+     * Connects an active recording session and ensures 100 Hz sensor acquisition is running.
+     */
+    fun startSessionRecording(recorder: com.bajajauto.roadsense.recording.ImuSessionRecorder) {
+        setOnFrameListener { frame ->
+            recorder.recordFrame(frame)
+        }
+        if (!isMonitoring) {
+            startLiveMonitoring(delayUs = 10000)
+        }
+    }
+
+    /**
+     * Detaches the session recorder when recording completes.
+     */
+    fun stopSessionRecording() {
+        setOnFrameListener(null)
+    }
+
+    /**
      * Cleans up background threads and active listeners.
      */
     fun release() {
         stopBenchmark()
         stopLiveMonitoring()
+        setOnFrameListener(null)
         handlerThread.quitSafely()
     }
 }

@@ -49,6 +49,7 @@ class RadarSessionRecorder(
     private var isRecordingActive = false
 
     private var activeSession: SessionInfo? = null
+    val currentSession: SessionInfo? get() = activeSession
 
     // Framed packets stream
     private var framesFos: FileOutputStream? = null
@@ -183,7 +184,8 @@ class RadarSessionRecorder(
                     bytesRecorded = rawBytesRecorded,
                     durationMs = now - startTimeRealtimeMs,
                     gnssFixesRecorded = session.totalGnssFixes,
-                    cameraFramesRecorded = session.totalCameraFrames
+                    cameraFramesRecorded = session.totalCameraFrames,
+                    imuFramesRecorded = session.totalImuFrames
                 )
             }
         }
@@ -229,7 +231,8 @@ class RadarSessionRecorder(
                         totalBytes = totalBytes,
                         durationMs = durationMs,
                         totalGnssFixes = session.totalGnssFixes,
-                        totalCameraFrames = session.totalCameraFrames
+                        totalCameraFrames = session.totalCameraFrames,
+                        totalImuFrames = session.totalImuFrames
                     )
                 } else {
                     _recordingState.value = SessionRecordingState.Idle
