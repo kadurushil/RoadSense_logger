@@ -333,10 +333,13 @@
     <!-- Navigation Bar -->
     <nav class="nav-bar">
       <a href="README.md" class="nav-link">📖 Overview</a>
-      <a href="01_SYSTEM_ARCHITECTURE.md" class="nav-link">🏛️ Architecture Spec</a>
-      <a href="02_MULTITHREADING_AND_CONCURRENCY.md" class="nav-link">⚡ Multithreading</a>
-      <a href="03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md" class="nav-link">📚 Codebase Dictionary</a>
+      <a href="executive_business_and_systems_showcase.html" class="nav-link">💼 Executive Showcase</a>
+      <a href="00_EXECUTIVE_BUSINESS_AND_PRODUCT_OVERVIEW.md" class="nav-link">🚀 Business & ROI</a>
+      <a href="01_EMBEDDED_SYSTEMS_AND_CONTROL_SOLUTIONS.md" class="nav-link">⚙️ Control Solutions</a>
+      <a href="02_SYSTEM_ARCHITECTURE.md" class="nav-link">🏛️ Architecture Spec</a>
+      <a href="03_MULTITHREADING_AND_CONCURRENCY.md" class="nav-link">⚡ Multithreading</a>
       <a href="04_SENSOR_PIPELINES_AND_SYNC_ENGINE.md" class="nav-link">🔬 Pipelines & Sync</a>
+      <a href="05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md" class="nav-link">📚 Codebase Dictionary</a>
       <span class="nav-divider">|</span>
       <a href="interactive_architecture_map.html" class="nav-link active">🗺️ Architecture Map</a>
       <a href="interactive_multithreading_explorer.html" class="nav-link">⏱️ Thread Simulator</a>
@@ -568,7 +571,7 @@
         title: 'TI AWR1843BOOST mmWave Radar',
         badge: '77 GHz FMCW',
         file: 'Hardware Peripheral (CP2105 USB OTG)',
-        docLink: '01_SYSTEM_ARCHITECTURE.md#1-system-overview--physical-bus-topology',
+        docLink: '02_SYSTEM_ARCHITECTURE.md#1-system-overview--physical-bus-topology',
         thread: 'Onboard C674x DSP + ARM Cortex-R4F',
         rate: '20 Hz Frame Rate (~312.5 KB/sec)',
         invariant: 'Silicon Labs CP2105 Dual-Port Bridge',
@@ -579,7 +582,7 @@
         title: 'RadarConnectionManager',
         badge: '3.125 Mbps UART',
         file: 'app/src/main/java/com/bajajauto/roadsense/acquisition/RadarConnectionManager.kt',
-        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-21-combajajautoroadsenseacquisition',
+        docLink: '05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-21-combajajautoroadsenseacquisition',
         thread: 'SerialInputOutputManager Worker Thread (Priority: NORM+1)',
         rate: '3,125,000 baud (Data) | 115,200 baud (CLI)',
         invariant: 'Unbuffered direct listener dispatch to eliminate byte drops',
@@ -590,7 +593,7 @@
         title: 'RadarPacketAssembler & TLV Decoder',
         badge: 'Frame Sync',
         file: 'app/src/main/java/com/bajajauto/roadsense/decoding/RadarPacketAssembler.kt',
-        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-22-combajajautoroadsensedecoding',
+        docLink: '05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-22-combajajautoroadsensedecoding',
         thread: 'Invoked synchronously on Serial Worker Thread',
         rate: '20 Hz Frame Assembly',
         invariant: 'Syncs on 8-byte magic word (0x0102030405060708)',
@@ -601,7 +604,7 @@
         title: 'RadarSessionRecorder',
         badge: 'Binary Dump',
         file: 'app/src/main/java/com/bajajauto/roadsense/recording/RadarSessionRecorder.kt',
-        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
+        docLink: '05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
         thread: 'SingleThreadExecutor (RadarSessionRecorder-Worker)',
         rate: '~312.5 KB/s Continuous Write',
         invariant: '64 KB BufferedOutputStream to absorb flash stalls',
@@ -612,7 +615,7 @@
         title: 'Smartphone Camera Module',
         badge: 'Sony/Samsung CMOS',
         file: 'Internal MIPI CSI-2 Bus',
-        docLink: '01_SYSTEM_ARCHITECTURE.md#1-system-overview--physical-bus-topology',
+        docLink: '02_SYSTEM_ARCHITECTURE.md#1-system-overview--physical-bus-topology',
         thread: 'Hardware Image Signal Processor (ISP)',
         rate: '1080p @ 60 FPS (~12 Mbps H.264)',
         invariant: 'Hardware-accelerated MediaCodec Surface',
@@ -623,7 +626,7 @@
         title: 'CameraEngine',
         badge: 'Camera2 HAL',
         file: 'app/src/main/java/com/bajajauto/roadsense/camera/CameraEngine.kt',
-        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-23-combajajautoroadsensecamera',
+        docLink: '05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-23-combajajautoroadsensecamera',
         thread: 'CameraEngine-Worker HandlerThread (Looper)',
         rate: 'Up to 60 FPS Capture Callback',
         invariant: 'onCaptureStarted exact shutter exposure logging',
@@ -634,7 +637,7 @@
         title: 'CameraSessionRecorder',
         badge: 'MP4 & CSV',
         file: 'app/src/main/java/com/bajajauto/roadsense/recording/CameraSessionRecorder.kt',
-        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
+        docLink: '05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
         thread: 'CameraEngine-Worker HandlerThread',
         rate: '1080p Video + 60 Hz Shutter Metadata',
         invariant: 'Synchronous CSV append with nanosecond exposure stamps',
@@ -645,7 +648,7 @@
         title: 'SpatialProjectionEngine',
         badge: '6-DOF [R|T]',
         file: 'app/src/main/java/com/bajajauto/roadsense/fusion/engine/SpatialProjectionEngine.kt',
-        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-27-combajajautoroadsensefusion',
+        docLink: '05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-27-combajajautoroadsensefusion',
         thread: 'Invoked on UI rendering passes (Compose Canvas)',
         rate: 'Real-time 60 FPS projection',
         invariant: 'Painters Algorithm descending depth sorting',
@@ -667,7 +670,7 @@
         title: 'ImuManager',
         badge: '100 Hz Fused',
         file: 'app/src/main/java/com/bajajauto/roadsense/imu/ImuManager.kt',
-        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-24-combajajautoroadsenseimu',
+        docLink: '05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-24-combajajautoroadsenseimu',
         thread: 'RoadSense-ImuThread (Priority: URGENT_DISPLAY -8)',
         rate: '100 Hz continuous interrupts (<1.5ms jitter)',
         invariant: '128-entry pre-allocated circular jitter buffer',
@@ -678,7 +681,7 @@
         title: 'ImuSessionRecorder',
         badge: '100 Hz CSV',
         file: 'app/src/main/java/com/bajajauto/roadsense/recording/ImuSessionRecorder.kt',
-        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
+        docLink: '05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
         thread: 'RoadSense-ImuThread (Priority: URGENT_DISPLAY -8)',
         rate: '100 Hz Continuous Writes (~100 rows/sec)',
         invariant: 'Lockless unbuffered CSV writer with pre-formatted strings',
@@ -700,7 +703,7 @@
         title: 'GnssLocationManager',
         badge: 'Multi-Constellation',
         file: 'app/src/main/java/com/bajajauto/roadsense/gnss/GnssLocationManager.kt',
-        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-25-combajajautoroadsensegnss',
+        docLink: '05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-25-combajajautoroadsensegnss',
         thread: 'Main Looper / Location Callback Dispatcher',
         rate: '1 Hz to 5 Hz Navigation Fixes',
         invariant: 'Host monotonic nanosecond time correlation',
@@ -711,7 +714,7 @@
         title: 'GnssSessionRecorder',
         badge: 'Track CSV',
         file: 'app/src/main/java/com/bajajauto/roadsense/recording/GnssSessionRecorder.kt',
-        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
+        docLink: '05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
         thread: 'Location Callback Dispatcher',
         rate: '1 Hz to 5 Hz Position Updates',
         invariant: 'Appends geodetic coordinates with host monotonic correlation',
@@ -722,7 +725,7 @@
         title: 'CSS Electronics CANedge2',
         badge: 'Dual CAN FD / Wi-Fi',
         file: 'External OBD-II / J1939 Logger (802.11 b/g/n)',
-        docLink: '01_SYSTEM_ARCHITECTURE.md#1-system-overview--physical-bus-topology',
+        docLink: '02_SYSTEM_ARCHITECTURE.md#1-system-overview--physical-bus-topology',
         thread: 'ESP32 Dual-Core RTOS (FreeRTOS)',
         rate: 'Dual CAN Bus (up to 1 Mbps / 5 Mbps FD)',
         invariant: '1-minute split MF4 binary chunks logged to SD card',
@@ -733,7 +736,7 @@
         title: 'CanedgeIngestionManager',
         badge: 'HTTP REST Client',
         file: 'app/src/main/java/com/bajajauto/roadsense/canedge/ingestion/CanedgeIngestionManager.kt',
-        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-26-combajajautoroadsensecanedge',
+        docLink: '05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-26-combajajautoroadsensecanedge',
         thread: 'CoroutineScope on Dispatchers.IO',
         rate: '1-minute split MF4 chunks (~1.5 MB/min)',
         invariant: 'Sync paused during drives to prioritize Radar/Camera',
@@ -744,7 +747,7 @@
         title: 'SessionManager (CAN Staging & Timeline)',
         badge: 'MF4 & JSON',
         file: 'app/src/main/java/com/bajajauto/roadsense/recording/SessionManager.kt',
-        docLink: '03_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
+        docLink: '05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md#package-28-combajajautoroadsenserecording',
         thread: 'CoroutineScope on Dispatchers.IO',
         rate: '1-minute split MF4 chunks (~1.5 MB/file)',
         invariant: 'Monotonic session_timeline.csv cross-sensor index',
