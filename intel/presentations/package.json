@@ -5,7 +5,8 @@
   "main": "generate_roadsense_deck.js",
   "type": "module",
   "scripts": {
-    "build": "node generate_roadsense_deck.js"
+    "build": "node generate_roadsense_deck.js",
+    "build:week2": "node generate_roadsense_week2_deck.js"
   },
   "dependencies": {
     "pptxgenjs": "^3.12.0"
