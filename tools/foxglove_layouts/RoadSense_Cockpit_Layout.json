@@ -94,6 +94,24 @@
           "enabled": true,
           "color": "#ff3366",
           "label": "Filtered Vx (m/s)"
+        },
+        {
+          "value": "/imu/data.pitch_deg",
+          "enabled": false,
+          "color": "#9966ff",
+          "label": "IMU Pitch (deg)"
+        },
+        {
+          "value": "/imu/data.lin_ax",
+          "enabled": false,
+          "color": "#33ccff",
+          "label": "IMU Lin Accel X (m/s²)"
+        },
+        {
+          "value": "/imu/data.gz",
+          "enabled": false,
+          "color": "#ffcc00",
+          "label": "IMU Yaw Rate Gz (rad/s)"
         }
       ],
       "minYValue": 0,

@@ -579,7 +579,7 @@ def parse_radar_frames_bin(radar_bin_path):
 
     return frames
 
-def process_session(session_dir, force=False, export_mcap=False, flip_video=False):
+def process_session(session_dir, force=False, export_mcap=False, flip_video=False, hwaccel="auto"):
     """
     Converts raw session logs in `session_dir` into:
     1. track_history.json
@@ -614,6 +614,7 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
             return True
 
     print(f"\n[+] Processing Session: {os.path.basename(session_dir)}")
+    print(f"[PROGRESS] {json.dumps({'step': 'sync_start', 'desc': f'[{session_name}] Decoding radar frames...', 'pct': 10})}", flush=True)
     camera_csv = os.path.join(session_dir, "camera", "camera_frames.csv")
     camera_mp4 = os.path.join(session_dir, "camera", "camera_video.mp4")
     gnss_csv = os.path.join(session_dir, "gnss", "gnss_fixes.csv")
@@ -659,6 +660,9 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
     start_mono_ns = radar_frames[0]["mono_ns"]
 
     for rel_idx, rf in enumerate(radar_frames, start=1):
+        if rel_idx % 500 == 0:
+            pct = round(15.0 + (rel_idx / len(radar_frames)) * 55.0, 1)
+            print(f"[PROGRESS] {json.dumps({'step': 'sync_align', 'desc': f'[{session_name}] Aligning frame #{rel_idx:,} / {len(radar_frames):,}', 'current': rel_idx, 'total': len(radar_frames), 'pct': pct})}", flush=True)
         hw_fn = rf["hw_frame_num"]
         mono_ns = rf["mono_ns"]
         timestamp_ms = (mono_ns - start_mono_ns) / 1e6
@@ -848,6 +852,7 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
     print(f"    [+] Generated: {mapping_path} ({len(mapping_records):,} sync records as JSON Lines)")
 
     # Write `track_history.json`
+    print(f"[PROGRESS] {json.dumps({'step': 'sync_save', 'desc': f'[{session_name}] Writing track_history.json & frame_mapping.json...', 'pct': 72})}", flush=True)
     final_payload = {
         "radarFrames": viz_radar_frames,
         "tracks": list(tracks_trajectory_map.values())
@@ -865,11 +870,12 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
     # Optional MCAP export
     if export_mcap:
         try:
+            print(f"[PROGRESS] {json.dumps({'step': 'mcap_start', 'desc': f'[{session_name}] Launching Foxglove MCAP export...', 'pct': 75})}", flush=True)
             script_dir = os.path.dirname(os.path.abspath(__file__))
             if script_dir not in sys.path:
                 sys.path.insert(0, script_dir)
             from convert_session_to_mcap import convert_session_to_mcap
-            convert_session_to_mcap(session_dir, flip_video=flip_video)
+            convert_session_to_mcap(session_dir, flip_video=flip_video, hwaccel=hwaccel)
         except Exception as e:
             print(f"    [!] Error generating MCAP: {e}")
 
@@ -885,6 +891,7 @@ def main():
     parser.add_argument("--force-all", action="store_true", help="Force re-processing and re-generating visualizer files for ALL sessions")
     parser.add_argument("--mcap", action="store_true", help="Automatically generate Foxglove .mcap file alongside visualizer JSON")
     parser.add_argument("--flip-video", action="store_true", help="Physically rotate video 180° during MCAP conversion")
+    parser.add_argument("--hwaccel", choices=["auto", "nvenc", "cpu"], default="auto", help="Hardware acceleration mode for video re-encoding (default: auto)")
     args = parser.parse_args()
 
     if args.force_all:
@@ -929,7 +936,7 @@ def main():
     success_count = 0
     for s_dir in session_dirs:
         try:
-            if process_session(s_dir, force=args.force, export_mcap=args.mcap, flip_video=args.flip_video):
+            if process_session(s_dir, force=args.force, export_mcap=args.mcap, flip_video=args.flip_video, hwaccel=args.hwaccel):
                 success_count += 1
         except Exception as e:
             print(f"    [!] Error processing {os.path.basename(s_dir)}: {e}")

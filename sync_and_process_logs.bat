@@ -1,6 +1,6 @@
 @echo off
 setlocal
-title RoadSense - Log Sync, Visualizer & Foxglove MCAP Pipeline
+title RoadSense - Telemetry, Diagnostics ^& Automation Hub
 
 cd /d "%~dp0"
 
@@ -10,8 +10,25 @@ if exist "%USERPROFILE%\.conda\envs\roadsense-mcap\python.exe" (
     set "PYTHON_CMD=%USERPROFILE%\.conda\envs\roadsense-mcap\python.exe"
 )
 
+:: If --cli flag is passed, jump directly to legacy command prompt menu
+if "%1"=="--cli" goto run_cli_menu
+
+:: Default action: Launch the RoadSense Web Dashboard
 echo ===============================================================================
-echo          RoadSense - Log Sync, Visualizer & Foxglove MCAP Pipeline
+echo          RoadSense - Telemetry, Diagnostics ^& Automation Hub
+echo ===============================================================================
+echo Python Interpreter: %PYTHON_CMD%
+echo.
+echo [*] Starting RoadSense Web Dashboard...
+echo [*] Tip: Run 'sync_and_process_logs.bat --cli' to access the legacy text menu.
+echo.
+
+"%PYTHON_CMD%" tools\roadsense_web_server.py
+goto end_script
+
+:run_cli_menu
+echo ===============================================================================
+echo          RoadSense - Log Sync, Visualizer ^& Foxglove MCAP Pipeline (CLI)
 echo ===============================================================================
 echo Python Interpreter: %PYTHON_CMD%
 echo.

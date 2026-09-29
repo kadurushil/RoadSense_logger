@@ -12,6 +12,8 @@ Supported Channels & Modalities:
   - /camera/video        : foxglove.CompressedVideo (H.264 Annex B bitstream, camera_optical)
   - /camera/calib        : foxglove.CameraCalibration (Pinhole intrinsics K, D, R, P)
   - /gnss/fix            : foxglove.LocationFix (GPS satellite track, speed, bearing)
+  - /imu/data            : roadsense.Imu (100 Hz calibrated acc, gyro, linear acc, Euler roll/pitch/yaw)
+  - /imu/pose            : foxglove.PoseInFrame (100 Hz orientation quaternion in base_link)
   - /vehicle/telemetry   : roadsense.VehicleTelemetry (Powertrain CAN / TLV 5 dynamics)
   - /tf                  : foxglove.FrameTransforms (6-DOF extrinsics base_link -> radar_link, camera_optical)
   - /diagnostics/logs    : foxglove.Log (Session flight recorder logs)
@@ -41,6 +43,7 @@ try:
     from foxglove_schemas_protobuf.LocationFix_pb2 import LocationFix
     from foxglove_schemas_protobuf.CameraCalibration_pb2 import CameraCalibration
     from foxglove_schemas_protobuf.FrameTransforms_pb2 import FrameTransforms
+    from foxglove_schemas_protobuf.PoseInFrame_pb2 import PoseInFrame
     from foxglove_schemas_protobuf.Log_pb2 import Log
     from foxglove_schemas_protobuf.Vector3_pb2 import Vector3
     from foxglove_schemas_protobuf.Quaternion_pb2 import Quaternion
@@ -57,6 +60,79 @@ try:
     HAS_PYAV = True
 except ImportError:
     HAS_PYAV = False
+
+_HWACCEL_CACHE = None
+
+def detect_hardware_video_acceleration():
+    """
+    Probes system and PyAV for NVIDIA GPU hardware acceleration (NVDEC & NVENC).
+    Returns a dictionary of capabilities and recommended codecs.
+    """
+    global _HWACCEL_CACHE
+    if _HWACCEL_CACHE is not None:
+        return _HWACCEL_CACHE
+
+    result = {
+        "available": False,
+        "gpu_name": "",
+        "nvenc": False,
+        "nvdec": False,
+        "dec_codec": "h264",
+        "enc_codec": "libx264"
+    }
+
+    if not HAS_PYAV:
+        _HWACCEL_CACHE = result
+        return result
+
+    codecs = getattr(av, "codecs_available", set())
+    has_nvenc = "h264_nvenc" in codecs
+    has_cuvid = "h264_cuvid" in codecs
+
+    if not (has_nvenc or has_cuvid):
+        _HWACCEL_CACHE = result
+        return result
+
+    gpu_name = ""
+    try:
+        import subprocess
+        smi = subprocess.run(
+            ["nvidia-smi", "--query-gpu=gpu_name", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            timeout=3
+        )
+        if smi.returncode == 0 and smi.stdout.strip():
+            gpu_name = smi.stdout.strip().splitlines()[0]
+    except Exception:
+        pass
+
+    # Validate NVENC with a micro-test
+    nvenc_ok = False
+    if has_nvenc:
+        try:
+            import io
+            buf = io.BytesIO()
+            test_c = av.open(buf, mode="w", format="h264")
+            test_s = test_c.add_stream("h264_nvenc", rate=30)
+            test_s.width = 64
+            test_s.height = 64
+            test_s.pix_fmt = "yuv420p"
+            test_s.options = {"preset": "p1", "tune": "ull"}
+            test_c.close()
+            nvenc_ok = True
+        except Exception:
+            nvenc_ok = False
+
+    result["available"] = nvenc_ok
+    result["gpu_name"] = gpu_name or ("NVIDIA GPU" if nvenc_ok else "")
+    result["nvenc"] = nvenc_ok
+    result["nvdec"] = has_cuvid and nvenc_ok
+    result["dec_codec"] = "h264_cuvid" if (has_cuvid and nvenc_ok) else "h264"
+    result["enc_codec"] = "h264_nvenc" if nvenc_ok else "libx264"
+
+    _HWACCEL_CACHE = result
+    return result
 
 # RoadSense Framing Constants
 ROAD_MAGIC = b"ROAD"
@@ -351,6 +427,65 @@ def parse_radar_stream(radar_bin_path):
         yield frame_data
 
 
+def parse_imu_csv(imu_csv_path):
+    """Generator yielding IMU sensor readings from imu_frames.csv with nanosecond timestamps."""
+    if not os.path.isfile(imu_csv_path):
+        return
+    import csv
+    with open(imu_csv_path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                mono_ns = int(row["elapsed_realtime_ns"])
+                wall_ms = int(row["wall_time_ms"]) if row.get("wall_time_ms") else None
+                ax = float(row["ax"])
+                ay = float(row["ay"])
+                az = float(row["az"])
+                gx = float(row["gx"])
+                gy = float(row["gy"])
+                gz = float(row["gz"])
+                qx = float(row["qx"])
+                qy = float(row["qy"])
+                qz = float(row["qz"])
+                qw = float(row["qw"])
+                lin_ax = float(row.get("lin_ax", 0.0))
+                lin_ay = float(row.get("lin_ay", 0.0))
+                lin_az = float(row.get("lin_az", 0.0))
+
+                # Compute Euler angles from rotation vector quaternion (degrees)
+                sinr_cosp = 2.0 * (qw * qx + qy * qz)
+                cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy)
+                roll_deg = math.degrees(math.atan2(sinr_cosp, cosr_cosp))
+
+                sinp = 2.0 * (qw * qy - qz * qx)
+                if abs(sinp) >= 1.0:
+                    pitch_deg = math.copysign(90.0, sinp)
+                else:
+                    pitch_deg = math.degrees(math.asin(sinp))
+
+                siny_cosp = 2.0 * (qw * qz + qx * qy)
+                cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
+                yaw_deg = math.degrees(math.atan2(siny_cosp, cosy_cosp))
+
+                yield {
+                    "mono_ns": mono_ns,
+                    "wall_ms": wall_ms,
+                    "acceleration": {"x": ax, "y": ay, "z": az},
+                    "angular_velocity": {"x": gx, "y": gy, "z": gz},
+                    "linear_acceleration": {"x": lin_ax, "y": lin_ay, "z": lin_az},
+                    "orientation": {"x": qx, "y": qy, "z": qz, "w": qw},
+                    "ax": ax, "ay": ay, "az": az,
+                    "gx": gx, "gy": gy, "gz": gz,
+                    "lin_ax": lin_ax, "lin_ay": lin_ay, "lin_az": lin_az,
+                    "qx": qx, "qy": qy, "qz": qz, "qw": qw,
+                    "roll_deg": round(roll_deg, 2),
+                    "pitch_deg": round(pitch_deg, 2),
+                    "yaw_deg": round(yaw_deg, 2)
+                }
+            except (ValueError, KeyError):
+                continue
+
+
 def parse_gnss_csv(gnss_csv_path):
     """Generator yielding GNSS fixes from gnss_fixes.csv with nanosecond timestamps."""
     if not os.path.isfile(gnss_csv_path):
@@ -378,12 +513,13 @@ def parse_gnss_csv(gnss_csv_path):
                 continue
 
 
-def parse_camera_video_frames(video_mp4_path, frames_csv_path, flip_video=False):
+def parse_camera_video_frames(video_mp4_path, frames_csv_path, flip_video=False, hwaccel="auto"):
     """
     Generator yielding Annex B H.264 video frame packets from camera_video.mp4,
     synchronized with exact shutter monotonic timestamps from camera_frames.csv.
     If flip_video is True, frames are physically rotated 180° (vflip + hflip) and re-encoded
-    so the raw bitstream is upright in all external players.
+    using GPU hardware acceleration (NVDEC h264_cuvid + NVENC h264_nvenc) when available,
+    or software CPU libx264 as fallback.
     """
     if not HAS_PYAV or not os.path.isfile(video_mp4_path) or not os.path.isfile(frames_csv_path):
         return
@@ -402,19 +538,73 @@ def parse_camera_video_frames(video_mp4_path, frames_csv_path, flip_video=False)
         return
 
     try:
-        container = av.open(video_mp4_path)
+        hw_info = detect_hardware_video_acceleration() if hwaccel != "cpu" else {"available": False}
+        use_gpu = hwaccel in ("auto", "nvenc", "cuda") and hw_info.get("available", False)
+
+        container = None
+        if flip_video and use_gpu and hw_info.get("nvdec", False):
+            try:
+                container = av.open(video_mp4_path, options={"c:v": "h264_cuvid"})
+            except Exception:
+                container = None
+
+        if container is None:
+            container = av.open(video_mp4_path)
+
         stream = container.streams.video[0]
+        stream.thread_type = "AUTO"
+        total_frames = len(shutter_timestamps) if shutter_timestamps else (stream.frames or 1)
+        t_vid_start = time.time()
+        last_report_t = t_vid_start
 
         if flip_video:
-            # Physical 180° flip (hflip + vflip) and fast re-encode
             import io
             out_buf = io.BytesIO()
             out_container = av.open(out_buf, mode="w", format="h264")
-            out_stream = out_container.add_stream("libx264", rate=30)
-            out_stream.width = stream.width
-            out_stream.height = stream.height
-            out_stream.pix_fmt = "yuv420p"
-            out_stream.options = {"preset": "ultrafast", "tune": "zerolatency"}
+
+            enc_opts_cpu = {
+                "preset": "veryfast",
+                "crf": "24",
+                "g": "30",
+                "repeat-headers": "1"
+            }
+            desc_tag = "CPU libx264"
+
+            if use_gpu and hw_info.get("nvenc", False):
+                try:
+                    out_stream = out_container.add_stream("h264_nvenc", rate=30)
+                    out_stream.width = stream.width
+                    out_stream.height = stream.height
+                    out_stream.pix_fmt = "yuv420p"
+                    out_stream.gop_size = 30
+                    out_stream.options = {
+                        "preset": "p1",
+                        "tune": "ull",
+                        "g": "30",              # Force IDR keyframe every 30 frames (1.0s at 30 fps)
+                        "forced-idr": "1",      # Force keyframes to be IDR for clean seek recovery
+                        "repeat-headers": "1",  # Repeat SPS and PPS before every IDR frame for Foxglove seeking
+                        "spatial_aq": "0",
+                        "temporal_aq": "0",
+                        "rc-lookahead": "0",
+                        "zerolatency": "1",
+                        "b_adapt": "0"
+                    }
+                    desc_tag = f"GPU NVDEC+NVENC ({hw_info.get('gpu_name', 'NVIDIA')})"
+                except Exception as e:
+                    print(f"    [-] NVENC initialization failed ({e}), falling back to CPU libx264.")
+                    out_stream = out_container.add_stream("libx264", rate=30)
+                    out_stream.width = stream.width
+                    out_stream.height = stream.height
+                    out_stream.pix_fmt = "yuv420p"
+                    out_stream.gop_size = 30
+                    out_stream.options = enc_opts_cpu
+            else:
+                out_stream = out_container.add_stream("libx264", rate=30)
+                out_stream.width = stream.width
+                out_stream.height = stream.height
+                out_stream.pix_fmt = "yuv420p"
+                out_stream.gop_size = 30
+                out_stream.options = enc_opts_cpu
 
             graph = av.filter.Graph()
             src = graph.add_buffer(template=stream)
@@ -446,6 +636,16 @@ def parse_camera_video_frames(video_mp4_path, frames_csv_path, flip_video=False)
                         "height": stream.height
                     }
                     frame_idx += 1
+
+                now = time.time()
+                if now - last_report_t >= 0.4:
+                    last_report_t = now
+                    elapsed = max(now - t_vid_start, 0.001)
+                    fps = frame_idx / elapsed
+                    rem_frames = max(total_frames - frame_idx, 0)
+                    eta_s = rem_frames / fps if fps > 0 else 0
+                    pct = min(round(30.0 + (frame_idx / total_frames) * 65.0, 1), 95.0)
+                    print(f"[PROGRESS] {json.dumps({'step': 'video_reencode', 'desc': f'Rotating 180° Video ({desc_tag})', 'current': frame_idx, 'total': total_frames, 'pct': pct, 'fps': round(fps, 1), 'eta_s': round(eta_s, 1)})}", flush=True)
 
             # Flush encoder
             for p in out_stream.encode(None):
@@ -480,6 +680,16 @@ def parse_camera_video_frames(video_mp4_path, frames_csv_path, flip_video=False)
                         "height": stream.height
                     }
                     frame_idx += 1
+
+                now = time.time()
+                if now - last_report_t >= 0.4:
+                    last_report_t = now
+                    elapsed = max(now - t_vid_start, 0.001)
+                    fps = frame_idx / elapsed
+                    rem_frames = max(total_frames - frame_idx, 0)
+                    eta_s = rem_frames / fps if fps > 0 else 0
+                    pct = min(round(30.0 + (frame_idx / total_frames) * 65.0, 1), 95.0)
+                    print(f"[PROGRESS] {json.dumps({'step': 'video_demux', 'desc': 'Demuxing H.264 Video Stream (Zero-Copy Pass-Through)', 'current': frame_idx, 'total': total_frames, 'pct': pct, 'fps': round(fps, 1), 'eta_s': round(eta_s, 1)})}", flush=True)
         container.close()
     except Exception as e:
         print(f"[-] Video processing warning: {e}")
@@ -541,10 +751,10 @@ def parse_flight_recorder_logs(session_log_path, start_wall_ms, start_iso_str=No
                 continue
 
 
-def convert_session_to_mcap(session_dir, output_path=None, include_video=True, flip_video=False):
+def convert_session_to_mcap(session_dir, output_path=None, include_video=True, flip_video=False, hwaccel="auto"):
     """
     Main conversion entrypoint. Ingests all session data and compiles a unified Foxglove MCAP.
-    If flip_video is True, physically rotates video frames 180° during conversion.
+    If flip_video is True, physically rotates video frames 180° during conversion using hardware acceleration when available.
     """
     session_dir = os.path.abspath(session_dir)
     session_name = os.path.basename(session_dir.rstrip("\\/"))
@@ -627,6 +837,10 @@ def convert_session_to_mcap(session_dir, output_path=None, include_video=True, f
 
     session_log = os.path.join(session_dir, "session_debug.log")
 
+    imu_csv = os.path.join(session_dir, "imu", "imu_frames.csv")
+    if not os.path.isfile(imu_csv):
+        imu_csv = os.path.join(session_dir, "imu_frames.csv")
+
     # 4. Open MCAP Writer with Zstandard Compression
     temp_output = output_path + ".tmp"
     message_counts = {}
@@ -687,6 +901,72 @@ def convert_session_to_mcap(session_dir, output_path=None, include_video=True, f
             topic="/radar/diagnostics",
             message_encoding="json",
             schema_id=diags_schema_id
+        )
+
+        imu_schema_id = writer._writer.register_schema(
+            name="roadsense.Imu",
+            encoding="jsonschema",
+            data=json.dumps({
+                "type": "object",
+                "properties": {
+                    "elapsed_realtime_ns": {"type": "integer"},
+                    "wall_time_ms": {"type": "integer"},
+                    "acceleration": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number"},
+                            "y": {"type": "number"},
+                            "z": {"type": "number"}
+                        }
+                    },
+                    "angular_velocity": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number"},
+                            "y": {"type": "number"},
+                            "z": {"type": "number"}
+                        }
+                    },
+                    "linear_acceleration": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number"},
+                            "y": {"type": "number"},
+                            "z": {"type": "number"}
+                        }
+                    },
+                    "orientation": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number"},
+                            "y": {"type": "number"},
+                            "z": {"type": "number"},
+                            "w": {"type": "number"}
+                        }
+                    },
+                    "ax": {"type": "number"},
+                    "ay": {"type": "number"},
+                    "az": {"type": "number"},
+                    "gx": {"type": "number"},
+                    "gy": {"type": "number"},
+                    "gz": {"type": "number"},
+                    "lin_ax": {"type": "number"},
+                    "lin_ay": {"type": "number"},
+                    "lin_az": {"type": "number"},
+                    "qx": {"type": "number"},
+                    "qy": {"type": "number"},
+                    "qz": {"type": "number"},
+                    "qw": {"type": "number"},
+                    "roll_deg": {"type": "number"},
+                    "pitch_deg": {"type": "number"},
+                    "yaw_deg": {"type": "number"}
+                }
+            }).encode("utf-8")
+        )
+        imu_chan_id = writer._writer.register_channel(
+            topic="/imu/data",
+            message_encoding="json",
+            schema_id=imu_schema_id
         )
 
         # 5. Emit Static Transforms & Camera Calibration
@@ -771,7 +1051,17 @@ def convert_session_to_mcap(session_dir, output_path=None, include_video=True, f
         # Ingest Radar Frames
         if os.path.isfile(radar_bin):
             print(f"    - Ingesting Radar Point Clouds & EKF Tracks: {radar_bin}")
+            print(f"[PROGRESS] {json.dumps({'step': 'radar_start', 'desc': 'Ingesting Radar Point Clouds & EKF Tracks', 'pct': 5, 'eta_s': 0})}", flush=True)
+            radar_count = 0
+            t_radar_start = time.time()
             for r_frame in parse_radar_stream(radar_bin):
+                radar_count += 1
+                if radar_count % 500 == 0:
+                    r_elapsed = max(time.time() - t_radar_start, 0.001)
+                    r_fps = radar_count / r_elapsed
+                    pct = min(round(5.0 + (radar_count / 7200.0) * 20.0, 1), 25.0)
+                    hw_fn = r_frame["hw_frame_num"]
+                    print(f"[PROGRESS] {json.dumps({'step': 'radar', 'desc': f'Ingesting Radar Frame #{hw_fn}', 'current': radar_count, 'pct': pct, 'fps': round(r_fps, 1), 'eta_s': 0})}", flush=True)
                 utc_ns = r_frame["mono_ns"] + time_offset_ns
                 sec = utc_ns // 1_000_000_000
                 nano = utc_ns % 1_000_000_000
@@ -794,77 +1084,78 @@ def convert_session_to_mcap(session_dir, output_path=None, include_video=True, f
                     count_msg("/radar/points")
 
                 # 6.2 3D Scene Update (EKF Tracks)
+                # Use static entity ID so Foxglove replaces the previous frame's entity
+                # rather than rendering overlapping ghost tracks from consecutive frames.
                 tracks = r_frame["tracks"]
-                if tracks:
-                    su_msg = SceneUpdate()
-                    entity = su_msg.entities.add()
-                    entity.id = f"radar_tracks_{r_frame['hw_frame_num']}"
-                    entity.frame_id = "base_link"
-                    entity.timestamp.seconds = sec
-                    entity.timestamp.nanos = nano
-                    entity.lifetime.nanos = 100_000_000 # 100 ms persistence
+                su_msg = SceneUpdate()
+                entity = su_msg.entities.add()
+                entity.id = "radar_tracks"
+                entity.frame_id = "base_link"
+                entity.timestamp.seconds = sec
+                entity.timestamp.nanos = nano
+                entity.lifetime.nanos = 150_000_000 # 150 ms fallback persistence
 
-                    for t in tracks:
-                        # 3D Bounding Box
-                        cube = entity.cubes.add()
-                        cube.pose.position.x = t["x_fwd"]
-                        cube.pose.position.y = t["y_left"]
-                        cube.pose.position.z = calib_params["radarHeightM"]
-                        
-                        heading_rad = math.radians(t["heading_deg"])
-                        qx, qy, qz, qw = euler_to_quaternion(0.0, 0.0, heading_rad)
-                        cube.pose.orientation.x = qx
-                        cube.pose.orientation.y = qy
-                        cube.pose.orientation.z = qz
-                        cube.pose.orientation.w = qw
+                for t in tracks:
+                    # 3D Bounding Box
+                    cube = entity.cubes.add()
+                    cube.pose.position.x = t["x_fwd"]
+                    cube.pose.position.y = t["y_left"]
+                    cube.pose.position.z = calib_params["radarHeightM"]
+                    
+                    heading_rad = math.radians(t["heading_deg"])
+                    qx, qy, qz, qw = euler_to_quaternion(0.0, 0.0, heading_rad)
+                    cube.pose.orientation.x = qx
+                    cube.pose.orientation.y = qy
+                    cube.pose.orientation.z = qz
+                    cube.pose.orientation.w = qw
 
-                        cube.size.x = t["length"]
-                        cube.size.y = t["width"]
-                        cube.size.z = t["height"]
+                    cube.size.x = t["length"]
+                    cube.size.y = t["width"]
+                    cube.size.z = t["height"]
 
-                        # Color by risk / alert level
-                        if t["risk"] >= 3:
-                            cube.color.r = 1.0; cube.color.g = 0.1; cube.color.b = 0.1; cube.color.a = 0.75 # Red (High Risk)
-                        elif t["risk"] == 2:
-                            cube.color.r = 1.0; cube.color.g = 0.6; cube.color.b = 0.0; cube.color.a = 0.75 # Orange (Warning)
-                        elif t["risk"] == 1:
-                            cube.color.r = 1.0; cube.color.g = 0.9; cube.color.b = 0.0; cube.color.a = 0.75 # Yellow (Caution)
-                        else:
-                            cube.color.r = 0.2; cube.color.g = 0.8; cube.color.b = 0.3; cube.color.a = 0.65 # Green (Normal)
+                    # Color by risk / alert level
+                    if t["risk"] >= 3:
+                        cube.color.r = 1.0; cube.color.g = 0.1; cube.color.b = 0.1; cube.color.a = 0.75 # Red (High Risk)
+                    elif t["risk"] == 2:
+                        cube.color.r = 1.0; cube.color.g = 0.6; cube.color.b = 0.0; cube.color.a = 0.75 # Orange (Warning)
+                    elif t["risk"] == 1:
+                        cube.color.r = 1.0; cube.color.g = 0.9; cube.color.b = 0.0; cube.color.a = 0.75 # Yellow (Caution)
+                    else:
+                        cube.color.r = 0.2; cube.color.g = 0.8; cube.color.b = 0.3; cube.color.a = 0.65 # Green (Normal)
 
-                        # Velocity Vector Arrow
-                        speed_mag = math.hypot(t["vx_fwd"], t["vy_left"])
-                        if speed_mag > 0.5:
-                            arrow = entity.arrows.add()
-                            arrow.pose.position.x = t["x_fwd"]
-                            arrow.pose.position.y = t["y_left"]
-                            arrow.pose.position.z = calib_params["radarHeightM"] + 0.1
+                    # Velocity Vector Arrow
+                    speed_mag = math.hypot(t["vx_fwd"], t["vy_left"])
+                    if speed_mag > 0.5:
+                        arrow = entity.arrows.add()
+                        arrow.pose.position.x = t["x_fwd"]
+                        arrow.pose.position.y = t["y_left"]
+                        arrow.pose.position.z = calib_params["radarHeightM"] + 0.1
 
-                            vel_yaw = math.atan2(t["vy_left"], t["vx_fwd"])
-                            aqx, aqy, aqz, aqw = euler_to_quaternion(0.0, 0.0, vel_yaw)
-                            arrow.pose.orientation.x = aqx
-                            arrow.pose.orientation.y = aqy
-                            arrow.pose.orientation.z = aqz
-                            arrow.pose.orientation.w = aqw
+                        vel_yaw = math.atan2(t["vy_left"], t["vx_fwd"])
+                        aqx, aqy, aqz, aqw = euler_to_quaternion(0.0, 0.0, vel_yaw)
+                        arrow.pose.orientation.x = aqx
+                        arrow.pose.orientation.y = aqy
+                        arrow.pose.orientation.z = aqz
+                        arrow.pose.orientation.w = aqw
 
-                            arrow.shaft_length = min(speed_mag * 0.5, 5.0)
-                            arrow.shaft_diameter = 0.12
-                            arrow.head_length = 0.35
-                            arrow.head_diameter = 0.25
-                            arrow.color.r = 0.1; arrow.color.g = 0.9; arrow.color.b = 1.0; arrow.color.a = 0.9
+                        arrow.shaft_length = min(speed_mag * 0.5, 5.0)
+                        arrow.shaft_diameter = 0.12
+                        arrow.head_length = 0.35
+                        arrow.head_diameter = 0.25
+                        arrow.color.r = 0.1; arrow.color.g = 0.9; arrow.color.b = 1.0; arrow.color.a = 0.9
 
-                        # Floating Label
-                        txt = entity.texts.add()
-                        txt.pose.position.x = t["x_fwd"]
-                        txt.pose.position.y = t["y_left"]
-                        txt.pose.position.z = calib_params["radarHeightM"] + 1.2
-                        txt.text = f"ID #{t['tid']} | {t['vx_fwd']:.1f} m/s | TTI {t['tti']:.1f}s"
-                        txt.font_size = 0.45
-                        txt.billboard = True
-                        txt.color.r = 1.0; txt.color.g = 1.0; txt.color.b = 1.0; txt.color.a = 1.0
+                    # Floating Label
+                    txt = entity.texts.add()
+                    txt.pose.position.x = t["x_fwd"]
+                    txt.pose.position.y = t["y_left"]
+                    txt.pose.position.z = calib_params["radarHeightM"] + 1.2
+                    txt.text = f"ID #{t['tid']} | {t['vx_fwd']:.1f} m/s | TTI {t['tti']:.1f}s"
+                    txt.font_size = 0.45
+                    txt.billboard = True
+                    txt.color.r = 1.0; txt.color.g = 1.0; txt.color.b = 1.0; txt.color.a = 1.0
 
-                    writer.write_message("/radar/tracks", su_msg, log_time=utc_ns)
-                    count_msg("/radar/tracks")
+                writer.write_message("/radar/tracks", su_msg, log_time=utc_ns)
+                count_msg("/radar/tracks")
 
                 # 6.3 Vehicle Powertrain CAN Inputs (TLV 5)
                 if r_frame["can_inputs"]:
@@ -889,6 +1180,7 @@ def convert_session_to_mcap(session_dir, output_path=None, include_video=True, f
         # Ingest GNSS Satellite Fixes
         if os.path.isfile(gnss_csv):
             print(f"    - Ingesting GNSS Fixes: {gnss_csv}")
+            print(f"[PROGRESS] {json.dumps({'step': 'gnss', 'desc': 'Ingesting GNSS Satellite Fixes', 'pct': 26})}", flush=True)
             for fix in parse_gnss_csv(gnss_csv):
                 utc_ns = fix["mono_ns"] + time_offset_ns
                 loc_msg = LocationFix()
@@ -906,6 +1198,32 @@ def convert_session_to_mcap(session_dir, output_path=None, include_video=True, f
                 writer.write_message("/gnss/fix", loc_msg, log_time=utc_ns)
                 count_msg("/gnss/fix")
 
+        # Ingest IMU Telemetry (100 Hz Accelerometer, Gyroscope & Orientation)
+        if os.path.isfile(imu_csv):
+            print(f"    - Ingesting IMU Telemetry (100 Hz): {imu_csv}")
+            print(f"[PROGRESS] {json.dumps({'step': 'imu', 'desc': 'Ingesting IMU Telemetry (100 Hz)', 'pct': 28})}", flush=True)
+            for imu_sample in parse_imu_csv(imu_csv):
+                utc_ns = imu_sample["mono_ns"] + time_offset_ns
+                writer._writer.add_message(
+                    channel_id=imu_chan_id,
+                    log_time=utc_ns,
+                    data=json.dumps(imu_sample).encode("utf-8"),
+                    publish_time=utc_ns
+                )
+                count_msg("/imu/data")
+
+                # Orientation Pose in base_link
+                pose_msg = PoseInFrame()
+                pose_msg.timestamp.seconds = utc_ns // 1_000_000_000
+                pose_msg.timestamp.nanos = utc_ns % 1_000_000_000
+                pose_msg.frame_id = "base_link"
+                pose_msg.pose.orientation.x = imu_sample["qx"]
+                pose_msg.pose.orientation.y = imu_sample["qy"]
+                pose_msg.pose.orientation.z = imu_sample["qz"]
+                pose_msg.pose.orientation.w = imu_sample["qw"]
+                writer.write_message("/imu/pose", pose_msg, log_time=utc_ns)
+                count_msg("/imu/pose")
+
         # Ingest Camera Video Bitstream (H.264 Annex B)
         if include_video and os.path.isfile(video_mp4) and os.path.isfile(frames_csv):
             if flip_video:
@@ -913,7 +1231,7 @@ def convert_session_to_mcap(session_dir, output_path=None, include_video=True, f
             else:
                 print(f"    - Demuxing H.264 Video Stream: {video_mp4}")
             from foxglove_schemas_protobuf.CompressedVideo_pb2 import CompressedVideo
-            for v_frame in parse_camera_video_frames(video_mp4, frames_csv, flip_video=flip_video):
+            for v_frame in parse_camera_video_frames(video_mp4, frames_csv, flip_video=flip_video, hwaccel=hwaccel):
                 utc_ns = v_frame["mono_ns"] + time_offset_ns
                 vid_msg = CompressedVideo()
                 vid_msg.timestamp.seconds = utc_ns // 1_000_000_000
@@ -964,6 +1282,7 @@ def convert_session_to_mcap(session_dir, output_path=None, include_video=True, f
 
         # 8. Flush Summary Indexes & Close
         print("[+] Finalizing chunk indexes, summary statistics, and footer...")
+        print(f"[PROGRESS] {json.dumps({'step': 'finalize', 'desc': 'Finalizing Chunk Indexes & Compressing...', 'pct': 97})}", flush=True)
         writer.finish()
 
     # Atomically move temp output to final destination
@@ -979,6 +1298,7 @@ def convert_session_to_mcap(session_dir, output_path=None, include_video=True, f
     for topic, count in sorted(message_counts.items()):
         print(f"      * {topic:<24}: {count:,} messages")
     print(f"    Saved to: {output_path}\n")
+    print(f"[PROGRESS] {json.dumps({'step': 'done', 'desc': f'MCAP Created: {session_name}.mcap ({size_mb:.1f} MB)', 'pct': 100})}", flush=True)
     return output_path
 
 
@@ -988,6 +1308,7 @@ def main():
     parser.add_argument("--output", "-o", help="Optional output .mcap file path")
     parser.add_argument("--no-video", action="store_true", help="Exclude video stream for ultra-compact MCAP")
     parser.add_argument("--flip-video", action="store_true", help="Physically rotate video 180° during conversion so raw stream is upright everywhere")
+    parser.add_argument("--hwaccel", choices=["auto", "nvenc", "cpu"], default="auto", help="Hardware acceleration mode for video re-encoding (default: auto)")
 
     args = parser.parse_args()
     if not os.path.isdir(args.session_dir):
@@ -998,7 +1319,8 @@ def main():
         session_dir=args.session_dir,
         output_path=args.output,
         include_video=not args.no_video,
-        flip_video=args.flip_video
+        flip_video=args.flip_video,
+        hwaccel=args.hwaccel
     )
 
 

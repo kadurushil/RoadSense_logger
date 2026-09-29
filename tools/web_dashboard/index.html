@@ -1,0 +1,1166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RoadSense Telemetry & Script Hub</title>
+  <style>
+    :root {
+      --bg-dark: #0f1117;
+      --bg-card: #181b24;
+      --bg-card-hover: #212532;
+      --bg-terminal: #0b0c10;
+      --border-color: #2b3040;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --accent-cyan: #06b6d4;
+      --accent-green: #10b981;
+      --accent-orange: #f59e0b;
+      --accent-red: #ef4444;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: "Cascadia Code", "Consolas", "Courier New", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--font-ui);
+      font-size: 14px;
+      line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* Top Navigation Bar */
+    header {
+      background-color: var(--bg-card);
+      border-bottom: 1px solid var(--border-color);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-shrink: 0;
+    }
+
+    .brand-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text-main);
+      letter-spacing: 0.5px;
+    }
+
+    .brand-title .badge-logo {
+      background: linear-gradient(135deg, var(--primary), var(--accent-cyan));
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .header-pills {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background-color: #12141c;
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .pill-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+    .pill-dot.green { background-color: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
+    .pill-dot.gray { background-color: #64748b; }
+    .pill-dot.amber { background-color: var(--accent-orange); }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    button {
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      border-radius: 6px;
+      padding: 7px 14px;
+      border: 1px solid transparent;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+
+    .btn-secondary {
+      background-color: #262b3a;
+      color: var(--text-main);
+      border-color: var(--border-color);
+    }
+    .btn-secondary:hover {
+      background-color: #333a4e;
+    }
+
+    .btn-primary {
+      background-color: var(--primary);
+      color: #ffffff;
+    }
+    .btn-primary:hover {
+      background-color: var(--primary-hover);
+    }
+
+    .btn-danger {
+      background-color: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border-color: rgba(239, 68, 68, 0.3);
+    }
+    .btn-danger:hover {
+      background-color: rgba(239, 68, 68, 0.3);
+      color: #fff;
+    }
+
+    /* Main Container (Split Panes) */
+    .main-container {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Left Pane: Script Selector & Config */
+    .left-pane {
+      width: 480px;
+      min-width: 380px;
+      max-width: 580px;
+      background-color: var(--bg-card);
+      border-right: 1px solid var(--border-color);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    /* Tabs Bar */
+    .tab-bar {
+      display: flex;
+      background-color: #12141c;
+      border-bottom: 1px solid var(--border-color);
+      overflow-x: auto;
+    }
+
+    .tab-btn {
+      flex: 1;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      padding: 12px 10px;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      border-radius: 0;
+      justify-content: center;
+    }
+    .tab-btn:hover {
+      color: var(--text-main);
+      background-color: rgba(255, 255, 255, 0.02);
+    }
+    .tab-btn.active {
+      color: var(--accent-cyan);
+      border-bottom-color: var(--accent-cyan);
+      background-color: rgba(6, 182, 212, 0.05);
+    }
+
+    /* Tab Content Area */
+    .tab-panel {
+      padding: 20px;
+      display: none;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .tab-panel.active {
+      display: flex;
+    }
+
+    .panel-header {
+      margin-bottom: 4px;
+    }
+    .panel-header h2 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-header p {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Form Groups */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-group label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    select, input[type="text"], input[type="number"] {
+      background-color: #10121a;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      color: var(--text-main);
+      padding: 8px 12px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s ease;
+    }
+    select:focus, input[type="text"]:focus, input[type="number"]:focus {
+      border-color: var(--primary);
+    }
+
+    /* Radio Group */
+    .radio-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      background-color: #10121a;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 10px 14px;
+    }
+
+    .radio-item, .checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .radio-item input, .checkbox-item input {
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+
+    .checkbox-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .action-row {
+      margin-top: 10px;
+      display: flex;
+      gap: 10px;
+    }
+    .action-row .btn-primary {
+      flex: 1;
+      padding: 10px 16px;
+      font-size: 14px;
+      justify-content: center;
+    }
+
+    /* Right Pane: Live Console */
+    .right-pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background-color: var(--bg-terminal);
+      overflow: hidden;
+    }
+
+    .console-header {
+      background-color: #12141c;
+      border-bottom: 1px solid var(--border-color);
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    .console-status-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .status-idle { background: #262b3a; color: #94a3b8; }
+    .status-running { background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); }
+    .status-done { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
+    .status-error { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+
+    .execution-timer {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .console-tools {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .console-tools button {
+      padding: 4px 10px;
+      font-size: 12px;
+    }
+
+    /* Terminal Output */
+    #terminalOutput {
+      flex: 1;
+      background-color: var(--bg-terminal);
+      color: #d1d5db;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.5;
+      padding: 16px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* Colorized line styles */
+    .log-line { display: block; }
+    .log-success { color: #4ade80; }       /* [+] */
+    .log-warning { color: #fbbf24; }       /* [-] */
+    .log-error { color: #f87171; font-weight: 600; }  /* [!] or Error */
+    .log-header { color: #38bdf8; font-weight: 700; } /* === or --- */
+    .log-info { color: #cbd5e1; }
+
+    /* Footer info */
+    .console-footer {
+      background-color: #12141c;
+      border-top: 1px solid var(--border-color);
+      padding: 6px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+    }
+
+    /* Progress Indicator Animation */
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.35; transform: scale(0.85); }
+    }
+    .pulse-indicator {
+      animation: pulseGlow 1.4s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <header>
+    <div class="brand-title">
+      <span class="badge-logo">ROAD SENSE</span>
+      <span>Telemetry & Script Automation Hub</span>
+    </div>
+
+    <div class="header-pills">
+      <div class="pill" id="gpuStatusPill" title="NVIDIA GPU NVENC/NVDEC Status">
+        <span class="pill-dot gray" id="gpuDot"></span>
+        <span id="gpuText">Detecting GPU...</span>
+      </div>
+      <div class="pill" id="adbStatusPill">
+        <span class="pill-dot gray" id="adbDot"></span>
+        <span id="adbText">Detecting ADB...</span>
+      </div>
+      <div class="pill">
+        <span id="sessionCountText">0 Local Sessions</span>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button class="btn-secondary" onclick="refreshStatus()" title="Refresh sessions and ADB status">
+        🔄 Refresh
+      </button>
+      <button class="btn-danger" id="btnStopGlobal" onclick="stopActiveRun()" disabled title="Kill running script">
+        ⏹ Stop Script
+      </button>
+      <button class="btn-secondary" onclick="shutdownServer()" title="Shutdown web server">
+        🚪 Exit
+      </button>
+    </div>
+  </header>
+
+  <!-- Split View -->
+  <div class="main-container">
+
+    <!-- Left Script Configuration Panes -->
+    <div class="left-pane">
+
+      <!-- Navigation Tabs -->
+      <div class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('syncTab')">🔄 Sync & Process</button>
+        <button class="tab-btn" onclick="switchTab('mcapTab')">📦 MCAP Export</button>
+        <button class="tab-btn" onclick="switchTab('diagTab')">🩺 Diagnostics</button>
+        <button class="tab-btn" onclick="switchTab('searchTab')">🔍 Log Search</button>
+        <button class="tab-btn" onclick="switchTab('inspectTab')">🔬 Inspectors</button>
+      </div>
+
+      <!-- Tab 1: Sync & Process -->
+      <div class="tab-panel active" id="syncTab">
+        <div class="panel-header">
+          <h2>🔄 Session Sync & Visualizer Processing</h2>
+          <p>Automated ADB extraction, JSON frame alignment, and Foxglove generation.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Operation Mode</label>
+          <div class="radio-group">
+            <label class="radio-item">
+              <input type="radio" name="syncMode" value="full" checked>
+              <span>Full Pipeline: Sync from Device (ADB) & Process New</span>
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="syncMode" value="sync-only">
+              <span>Sync Only: Pull sessions from Device without processing</span>
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="syncMode" value="process-only">
+              <span>Process Only: Process local sessions (skip device sync)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Session Scope</label>
+          <select id="syncSessionScope">
+            <option value="all">All Sessions (Process new/unprocessed)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Options</label>
+          <div class="checkbox-list">
+            <label class="checkbox-item">
+              <input type="checkbox" id="syncOptMcap" checked>
+              <span>Export Foxglove .mcap container (--mcap)</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="syncOptForce">
+              <span>Force re-process even if up-to-date (--force / --force-all)</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="syncOptFlip">
+              <span>Rotate video 180° for upright MCAP (--flip-video)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Hardware Acceleration</label>
+          <select id="syncHwAccel">
+            <option value="auto">Auto (GPU NVENC/NVDEC if available)</option>
+            <option value="nvenc">Force NVIDIA GPU (NVENC / NVDEC)</option>
+            <option value="cpu">Force CPU Software (libx264)</option>
+          </select>
+        </div>
+
+        <div class="action-row">
+          <button class="btn-primary" onclick="runSyncPipeline()">▶ Run Pipeline</button>
+        </div>
+      </div>
+
+      <!-- Tab 2: MCAP Export -->
+      <div class="tab-panel" id="mcapTab">
+        <div class="panel-header">
+          <h2>📦 Standalone Foxglove MCAP Converter</h2>
+          <p>Converts a single session into a self-contained multimodal .mcap container.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Target Session Folder</label>
+          <select id="mcapSessionSelect">
+            <option value="">Select a local session...</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Hardware Acceleration</label>
+          <select id="mcapHwAccel">
+            <option value="auto">Auto (GPU NVENC/NVDEC if available)</option>
+            <option value="nvenc">Force NVIDIA GPU (NVENC / NVDEC)</option>
+            <option value="cpu">Force CPU Software (libx264)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Conversion Options</label>
+          <div class="checkbox-list">
+            <label class="checkbox-item">
+              <input type="checkbox" id="mcapOptNoVideo">
+              <span>Exclude video stream for ultra-compact MCAP (--no-video)</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="mcapOptFlip">
+              <span>Physically rotate video 180° (--flip-video)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="action-row">
+          <button class="btn-primary" onclick="runMcapConverter()">▶ Export to MCAP</button>
+        </div>
+      </div>
+
+      <!-- Tab 3: Diagnostics & Sensor Health -->
+      <div class="tab-panel" id="diagTab">
+        <div class="panel-header">
+          <h2>🩺 Sensor Diagnostics & Validation Suite</h2>
+          <p>Zero-dependency sensor validation and timing jitter verification.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Diagnostic Tool</label>
+          <select id="diagToolSelect" onchange="onDiagToolChanged()">
+            <option value="session_health_check.py">Master 7-Point Health Check (session_health_check.py)</option>
+            <option value="audit_cross_sensor_sync.py">Cross-Sensor Monotonic Sync Audit (audit_cross_sensor_sync.py)</option>
+            <option value="validate_radar_stream.py">Radar Binary Stream Validator (validate_radar_stream.py)</option>
+            <option value="validate_camera_video.py">Camera Video & Shutter Timing Validator (validate_camera_video.py)</option>
+            <option value="validate_gnss_fixes.py">GNSS Fixes & CEP Accuracy Validator (validate_gnss_fixes.py)</option>
+            <option value="validate_canedge_staging.py">CANedge MDF4 Validator (validate_canedge_staging.py)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Target Session</label>
+          <div class="radio-group">
+            <label class="radio-item">
+              <input type="radio" name="diagTargetMode" value="latest" checked onchange="toggleDiagSessionDropdown()">
+              <span>Latest Session (--latest)</span>
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="diagTargetMode" value="specific" onchange="toggleDiagSessionDropdown()">
+              <span>Specific Local Session:</span>
+            </label>
+          </div>
+          <select id="diagSessionSelect" style="margin-top: 6px; display: none;">
+            <option value="">Select a local session...</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="canPoolGroup" style="display: none;">
+          <label>CANedge Special Option</label>
+          <label class="checkbox-item">
+            <input type="checkbox" id="canOptPool">
+            <span>Audit Phone Staging Pool Directly (--pool)</span>
+          </label>
+        </div>
+
+        <div class="action-row">
+          <button class="btn-primary" onclick="runDiagnostics()">▶ Run Diagnostic</button>
+        </div>
+      </div>
+
+      <!-- Tab 4: Flight Recorder Search -->
+      <div class="tab-panel" id="searchTab">
+        <div class="panel-header">
+          <h2>🔍 Flight Recorder Search Engine</h2>
+          <p>High-speed search across app_system.log and session_debug.log files.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Search Keyword / Tag</label>
+          <input type="text" id="searchQuery" placeholder="e.g. Canedge, Rescued, CameraEngine, drop...">
+        </div>
+
+        <div class="form-group">
+          <label>Filters</label>
+          <div class="checkbox-list">
+            <label class="checkbox-item">
+              <input type="checkbox" id="searchErrorsOnly">
+              <span>Filter for errors and exceptions only (-e / --errors)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Session Filter (Optional)</label>
+          <select id="searchSessionSelect">
+            <option value="">All Sessions & App Runs</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Max Results</label>
+          <input type="number" id="searchMax" value="80" min="10" max="500">
+        </div>
+
+        <div class="action-row">
+          <button class="btn-primary" onclick="runFlightRecorderSearch()">▶ Search Flight Recorder</button>
+        </div>
+      </div>
+
+      <!-- Tab 5: Deep Inspection -->
+      <div class="tab-panel" id="inspectTab">
+        <div class="panel-header">
+          <h2>🔬 Binary & Trajectory Inspectors</h2>
+          <p>Low-level inspection of raw UART streams, radar packets, and GPS coordinates.</p>
+        </div>
+
+        <div class="form-group">
+          <label>Inspector Utility</label>
+          <select id="inspectToolSelect">
+            <option value="inspect_session.py">Inspect Session Metadata & Radar Frames (inspect_session.py)</option>
+            <option value="analyze_gnss_trajectory.py">Analyze GNSS Trajectory & Haversine Distance (analyze_gnss_trajectory.py)</option>
+            <option value="inspect_raw_uart.py">Inspect Raw UART Stream Dump (inspect_raw_uart.py)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Target Session</label>
+          <select id="inspectSessionSelect">
+            <option value="">Select a local session...</option>
+          </select>
+        </div>
+
+        <div class="action-row">
+          <button class="btn-primary" onclick="runInspector()">▶ Run Inspector</button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Right Live Console Pane -->
+    <div class="right-pane">
+      <div class="console-header">
+        <div class="console-status-group">
+          <div class="status-badge status-idle" id="statusBadge">● IDLE</div>
+          <span class="execution-timer" id="timerLabel">00:00.0</span>
+          <span style="font-size: 12px; color: var(--text-muted);" id="currentCmdLabel"></span>
+        </div>
+
+        <div class="console-tools">
+          <label class="checkbox-item" style="font-size: 11px; color: var(--text-muted);">
+            <input type="checkbox" id="autoScrollCheck" checked>
+            <span>Auto-scroll</span>
+          </label>
+          <button class="btn-secondary" onclick="copyConsoleOutput()">📋 Copy</button>
+          <button class="btn-secondary" onclick="clearConsole()">🗑 Clear</button>
+        </div>
+      </div>
+ 
+      <!-- Progress Bar Widget -->
+      <div id="progressWidget" style="display: none; background: #131722; border-bottom: 1px solid var(--border-color); padding: 12px 18px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+          <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+            <div id="progressPulse" class="pulse-indicator" style="width: 9px; height: 9px; border-radius: 50%; background: var(--accent-cyan); box-shadow: 0 0 8px var(--accent-cyan); flex-shrink: 0;"></div>
+            <span id="progressTask" style="font-weight: 600; font-size: 13px; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Processing...</span>
+            <span id="progressDetails" style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap;"></span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 14px; font-family: var(--font-mono); font-size: 12px; flex-shrink: 0;">
+            <span id="progressSpeed" style="color: var(--accent-cyan);"></span>
+            <span id="progressEta" style="color: var(--accent-orange); font-weight: 600;"></span>
+            <span id="progressPercent" style="color: #fff; font-weight: 700; font-size: 13px;">0%</span>
+          </div>
+        </div>
+        <div style="width: 100%; height: 7px; background: #1e2230; border-radius: 4px; overflow: hidden;">
+          <div id="progressBarFill" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent-cyan)); border-radius: 4px; transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+        </div>
+      </div>
+
+      <!-- Output Box -->
+      <div id="terminalOutput">RoadSense Web Automation Terminal Ready.
+Select an operation on the left and click Run.
+</div>
+
+      <div class="console-footer">
+        <span id="scriptPathLabel">Ready</span>
+        <span>Standard Output & Errors (Live Server-Sent Events)</span>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    let activeSessions = [];
+    let isRunning = false;
+    let timerInterval = null;
+    let startTime = 0;
+    let eventSource = null;
+
+    // --- Tab Switching ---
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      
+      const idx = ['syncTab', 'mcapTab', 'diagTab', 'searchTab', 'inspectTab'].indexOf(tabId);
+      if (idx >= 0) {
+        document.querySelectorAll('.tab-btn')[idx].classList.add('active');
+      }
+      const target = document.getElementById(tabId);
+      if (target) target.classList.add('active');
+    }
+
+    function toggleDiagSessionDropdown() {
+      const mode = document.querySelector('input[name="diagTargetMode"]:checked').value;
+      const select = document.getElementById('diagSessionSelect');
+      select.style.display = (mode === 'specific') ? 'block' : 'none';
+    }
+
+    function onDiagToolChanged() {
+      const tool = document.getElementById('diagToolSelect').value;
+      const poolGroup = document.getElementById('canPoolGroup');
+      poolGroup.style.display = (tool === 'validate_canedge_staging.py') ? 'block' : 'none';
+    }
+
+    // --- SSE Stream Connection ---
+    function initEventStream() {
+      if (eventSource) {
+        eventSource.close();
+      }
+      eventSource = new EventSource('/api/stream');
+
+      eventSource.onmessage = function(e) {
+        appendLogLine(e.data);
+      };
+
+      eventSource.addEventListener('process_status', function(e) {
+        try {
+          const data = JSON.parse(e.data);
+          updateProcessState(data);
+        } catch(err) {
+          console.error("Invalid status JSON:", err);
+        }
+      });
+
+      eventSource.onerror = function() {
+        // SSE handles reconnection automatically
+      };
+    }
+
+    function updateProgressBar(p) {
+      const widget = document.getElementById('progressWidget');
+      const taskEl = document.getElementById('progressTask');
+      const detailsEl = document.getElementById('progressDetails');
+      const speedEl = document.getElementById('progressSpeed');
+      const etaEl = document.getElementById('progressEta');
+      const pctEl = document.getElementById('progressPercent');
+      const fillEl = document.getElementById('progressBarFill');
+      const pulseEl = document.getElementById('progressPulse');
+
+      if (!widget) return;
+      widget.style.display = 'block';
+
+      if (p.desc) taskEl.textContent = p.desc;
+      
+      if (p.current != null && p.total != null && p.total > 0) {
+        detailsEl.textContent = `(${p.current.toLocaleString()} / ${p.total.toLocaleString()})`;
+      } else if (p.current != null) {
+        detailsEl.textContent = `(#${p.current.toLocaleString()})`;
+      } else {
+        detailsEl.textContent = '';
+      }
+
+      if (p.fps != null && p.fps > 0) {
+        speedEl.textContent = `${p.fps} fps`;
+      } else {
+        speedEl.textContent = '';
+      }
+
+      if (p.eta_s != null && p.eta_s > 0) {
+        const m = Math.floor(p.eta_s / 60);
+        const s = Math.floor(p.eta_s % 60);
+        etaEl.textContent = `ETA: ${m > 0 ? m + 'm ' : ''}${s}s`;
+      } else {
+        etaEl.textContent = '';
+      }
+
+      const pct = Math.min(Math.max(p.pct != null ? p.pct : 0, 0), 100);
+      pctEl.textContent = `${Math.round(pct)}%`;
+      fillEl.style.width = `${pct}%`;
+
+      if (p.step === 'done' || pct >= 100) {
+        pulseEl.style.background = 'var(--accent-green)';
+        pulseEl.style.boxShadow = '0 0 8px var(--accent-green)';
+        fillEl.style.background = 'var(--accent-green)';
+      } else if (p.error) {
+        pulseEl.style.background = 'var(--accent-red)';
+        pulseEl.style.boxShadow = '0 0 8px var(--accent-red)';
+        fillEl.style.background = 'var(--accent-red)';
+      } else {
+        pulseEl.style.background = 'var(--accent-cyan)';
+        pulseEl.style.boxShadow = '0 0 8px var(--accent-cyan)';
+        fillEl.style.background = 'linear-gradient(90deg, var(--primary), var(--accent-cyan))';
+      }
+    }
+
+    function updateProcessState(data) {
+      const badge = document.getElementById('statusBadge');
+      const stopBtn = document.getElementById('btnStopGlobal');
+      const cmdLabel = document.getElementById('currentCmdLabel');
+
+      if (data.running) {
+        isRunning = true;
+        badge.className = 'status-badge status-running';
+        badge.innerText = '● RUNNING';
+        stopBtn.disabled = false;
+        cmdLabel.innerText = data.script ? `Running: ${data.script}` : 'Executing...';
+        if (!timerInterval) {
+          startTime = Date.now();
+          timerInterval = setInterval(updateTimer, 100);
+          updateProgressBar({ pct: 0, desc: "Starting execution...", current: null, total: null, fps: null, eta_s: null });
+        }
+      } else {
+        isRunning = false;
+        stopBtn.disabled = true;
+        if (timerInterval) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+        }
+
+        if (data.exit_code === 0) {
+          badge.className = 'status-badge status-done';
+          badge.innerText = '● FINISHED (0)';
+          updateProgressBar({ pct: 100, desc: "Task completed successfully", current: null, total: null, fps: null, eta_s: null, step: "done" });
+        } else if (data.exit_code !== null) {
+          badge.className = 'status-badge status-error';
+          badge.innerText = `● EXIT (${data.exit_code})`;
+          updateProgressBar({ pct: 100, desc: `Task exited with code ${data.exit_code}`, current: null, total: null, fps: null, eta_s: null, error: true });
+        } else {
+          badge.className = 'status-badge status-idle';
+          badge.innerText = '● IDLE';
+          const widget = document.getElementById('progressWidget');
+          if (widget) widget.style.display = 'none';
+        }
+      }
+    }
+
+    function updateTimer() {
+      const elapsed = Date.now() - startTime;
+      const s = Math.floor(elapsed / 1000);
+      const ms = Math.floor((elapsed % 1000) / 100);
+      const mins = Math.floor(s / 60);
+      const secs = s % 60;
+      document.getElementById('timerLabel').innerText = 
+        `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${ms}`;
+    }
+
+    // --- Logging & Colorizing ---
+    function appendLogLine(line) {
+      if (line.startsWith('[PROGRESS]')) {
+        try {
+          const payload = JSON.parse(line.substring(10).trim());
+          updateProgressBar(payload);
+        } catch (err) {
+          console.error("Failed to parse progress update:", err);
+        }
+        return; // Suppress raw progress JSON from flooding terminal output
+      }
+
+      const term = document.getElementById('terminalOutput');
+      const span = document.createElement('span');
+      span.className = 'log-line';
+
+      if (line.startsWith('[+]')) {
+        span.className += ' log-success';
+      } else if (line.startsWith('[-]')) {
+        span.className += ' log-warning';
+      } else if (line.startsWith('[!]') || line.toLowerCase().includes('error') || line.toLowerCase().includes('traceback')) {
+        span.className += ' log-error';
+      } else if (line.startsWith('===') || line.startsWith('---')) {
+        span.className += ' log-header';
+      } else {
+        span.className += ' log-info';
+      }
+
+      span.textContent = line + '\n';
+      term.appendChild(span);
+
+      if (document.getElementById('autoScrollCheck').checked) {
+        term.scrollTop = term.scrollHeight;
+      }
+    }
+
+    function clearConsole() {
+      document.getElementById('terminalOutput').innerHTML = '';
+      document.getElementById('timerLabel').innerText = '00:00.0';
+    }
+
+    function copyConsoleOutput() {
+      const term = document.getElementById('terminalOutput');
+      navigator.clipboard.writeText(term.innerText).then(() => {
+        alert("Console output copied to clipboard!");
+      });
+    }
+
+    // --- API Calls ---
+    async function refreshStatus() {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        
+        // Populate GPU Status
+        const gpuText = document.getElementById('gpuText');
+        const gpuDot = document.getElementById('gpuDot');
+        if (data.gpu && data.gpu.available) {
+          gpuDot.className = 'pill-dot green';
+          const name = data.gpu.gpu_name || 'NVIDIA GPU';
+          gpuText.innerText = `GPU: ${name}`;
+          document.getElementById('gpuStatusPill').title = `GPU NVENC/NVDEC Active: ${name} (Encoders: ${(data.gpu.encoders || []).join(', ')})`;
+        } else {
+          gpuDot.className = 'pill-dot gray';
+          gpuText.innerText = 'GPU: CPU Mode';
+          document.getElementById('gpuStatusPill').title = 'GPU Acceleration Unavailable (using CPU libx264)';
+        }
+
+        // Populate ADB
+        const adbText = document.getElementById('adbText');
+        const adbDot = document.getElementById('adbDot');
+        if (data.adb && data.adb.connected) {
+          adbDot.className = 'pill-dot green';
+          adbText.innerText = `ADB: ${data.adb.devices.join(', ')}`;
+        } else {
+          adbDot.className = 'pill-dot gray';
+          adbText.innerText = 'ADB: Disconnected';
+        }
+
+        // Populate Sessions
+        activeSessions = data.sessions || [];
+        document.getElementById('sessionCountText').innerText = `${activeSessions.length} Local Sessions`;
+        populateSessionDropdowns();
+
+        if (data.process) {
+          updateProcessState(data.process);
+        }
+      } catch (err) {
+        console.error("Failed to fetch status:", err);
+      }
+    }
+
+    function populateSessionDropdowns() {
+      const syncScope = document.getElementById('syncSessionScope');
+      const mcapSelect = document.getElementById('mcapSessionSelect');
+      const diagSelect = document.getElementById('diagSessionSelect');
+      const searchSelect = document.getElementById('searchSessionSelect');
+      const inspectSelect = document.getElementById('inspectSessionSelect');
+
+      // Preserve currently selected values
+      const prevSync = syncScope.value;
+      const prevMcap = mcapSelect.value;
+      const prevDiag = diagSelect.value;
+      const prevSearch = searchSelect.value;
+      const prevInspect = inspectSelect.value;
+
+      syncScope.innerHTML = '<option value="all">All Sessions (Process new/unprocessed)</option>';
+      mcapSelect.innerHTML = '<option value="">Select a local session...</option>';
+      diagSelect.innerHTML = '<option value="">Select a local session...</option>';
+      searchSelect.innerHTML = '<option value="">All Sessions & App Runs</option>';
+      inspectSelect.innerHTML = '<option value="">Select a local session...</option>';
+
+      activeSessions.forEach(s => {
+        syncScope.appendChild(new Option(s, s));
+        mcapSelect.appendChild(new Option(s, s));
+        diagSelect.appendChild(new Option(s, s));
+        searchSelect.appendChild(new Option(s, s));
+        inspectSelect.appendChild(new Option(s, s));
+      });
+
+      if (prevSync) syncScope.value = prevSync;
+      if (prevMcap) mcapSelect.value = prevMcap;
+      if (prevDiag) diagSelect.value = prevDiag;
+      if (prevSearch) searchSelect.value = prevSearch;
+      if (prevInspect) inspectSelect.value = prevInspect;
+    }
+
+    async function executeCommand(script, args) {
+      clearConsole();
+      document.getElementById('scriptPathLabel').innerText = `${script} ${args.join(' ')}`;
+      try {
+        const res = await fetch('/api/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ script: script, args: args })
+        });
+        const result = await res.json();
+        if (!result.success) {
+          appendLogLine(`[-] Error starting script: ${result.error}`);
+        }
+      } catch (err) {
+        appendLogLine(`[!] Failed to send run request: ${err}`);
+      }
+    }
+
+    async function stopActiveRun() {
+      try {
+        await fetch('/api/stop', { method: 'POST' });
+        appendLogLine('[-] Terminate request sent to active process.');
+      } catch (err) {
+        appendLogLine(`[!] Error sending stop request: ${err}`);
+      }
+    }
+
+    async function shutdownServer() {
+      if (confirm("Shutdown RoadSense Web Dashboard server?")) {
+        try {
+          await fetch('/api/shutdown', { method: 'POST' });
+          document.body.innerHTML = '<div style="padding: 40px; text-align: center; color: #94a3b8;"><h2>RoadSense Server Shutdown.</h2><p>You can safely close this browser window.</p></div>';
+        } catch (err) {
+          // Window closing
+        }
+      }
+    }
+
+    // --- Script Action Handlers ---
+    function runSyncPipeline() {
+      const mode = document.querySelector('input[name="syncMode"]:checked').value;
+      const scope = document.getElementById('syncSessionScope').value;
+      const optMcap = document.getElementById('syncOptMcap').checked;
+      const optForce = document.getElementById('syncOptForce').checked;
+      const optFlip = document.getElementById('syncOptFlip').checked;
+      const hwAccel = document.getElementById('syncHwAccel').value;
+
+      const args = [];
+      if (mode === 'sync-only') args.push('--sync-only');
+      if (mode === 'process-only') args.push('--process-only');
+      
+      if (scope !== 'all') {
+        args.push('--session', scope);
+        if (optForce) args.push('--force');
+      } else {
+        if (optForce) args.push('--force-all');
+      }
+
+      if (optMcap) args.push('--mcap');
+      if (optFlip) args.push('--flip-video');
+      if (hwAccel) args.push('--hwaccel', hwAccel);
+
+      executeCommand('tools/sync_and_process_sessions.py', args);
+    }
+
+    function runMcapConverter() {
+      const sess = document.getElementById('mcapSessionSelect').value;
+      if (!sess) {
+        alert("Please select a session directory to export.");
+        return;
+      }
+      const optNoVideo = document.getElementById('mcapOptNoVideo').checked;
+      const optFlip = document.getElementById('mcapOptFlip').checked;
+      const hwAccel = document.getElementById('mcapHwAccel').value;
+
+      const args = [`logs/${sess}`];
+      if (optNoVideo) args.push('--no-video');
+      if (optFlip) args.push('--flip-video');
+      if (hwAccel) args.push('--hwaccel', hwAccel);
+
+      executeCommand('tools/convert_session_to_mcap.py', args);
+    }
+
+    function runDiagnostics() {
+      const tool = document.getElementById('diagToolSelect').value;
+      const targetMode = document.querySelector('input[name="diagTargetMode"]:checked').value;
+      const sess = document.getElementById('diagSessionSelect').value;
+      const canPool = document.getElementById('canOptPool').checked;
+
+      const args = [];
+      if (tool === 'validate_canedge_staging.py' && canPool) {
+        args.push('--pool');
+      } else if (targetMode === 'latest') {
+        args.push('--latest');
+      } else {
+        if (!sess) {
+          alert("Please select a session to audit.");
+          return;
+        }
+        args.push(sess);
+      }
+
+      executeCommand(`scripts/${tool}`, args);
+    }
+
+    function runFlightRecorderSearch() {
+      const query = document.getElementById('searchQuery').value.trim();
+      const errorsOnly = document.getElementById('searchErrorsOnly').checked;
+      const sess = document.getElementById('searchSessionSelect').value;
+      const maxResults = document.getElementById('searchMax').value;
+
+      const args = [];
+      if (query) args.push('-q', query);
+      if (errorsOnly) args.push('-e');
+      if (sess) args.push('-s', sess);
+      if (maxResults) args.push('-m', maxResults);
+
+      if (!query && !errorsOnly) {
+        alert("Please specify a search query or check 'Errors & Exceptions Only'.");
+        return;
+      }
+
+      executeCommand('scripts/search_flight_recorder.py', args);
+    }
+
+    function runInspector() {
+      const tool = document.getElementById('inspectToolSelect').value;
+      const sess = document.getElementById('inspectSessionSelect').value;
+      if (!sess) {
+        alert("Please select a session to inspect.");
+        return;
+      }
+
+      let targetArg = `logs/${sess}`;
+      if (tool === 'inspect_raw_uart.py') {
+        targetArg = `logs/${sess}/radar/radar_raw_stream.bin`;
+      }
+
+      executeCommand(`tools/${tool}`, [targetArg]);
+    }
+
+    // Startup
+    window.addEventListener('load', () => {
+      initEventStream();
+      refreshStatus();
+      setInterval(refreshStatus, 6000);
+    });
+  </script>
+</body>
+</html>
