@@ -245,6 +245,38 @@ def compute_camera_optical_tf(pitch_deg, yaw_deg, roll_deg, setback, lateral, he
     return quat, trans
 
 
+def extract_video_orientation_degrees(mp4_path):
+    """
+    Parses MPEG-4 tkhd (Track Header) matrix to determine the video display rotation (0, 90, 180, 270).
+    Zero dependencies, reads only the container header atoms in O(1) time.
+    """
+    if not os.path.isfile(mp4_path):
+        return 0
+    try:
+        with open(mp4_path, 'rb') as f:
+            f.seek(0, 2)
+            size = f.tell()
+            for offset in [0, max(0, size - 300000)]:
+                f.seek(offset)
+                data = f.read(300000)
+                idx = data.find(b'tkhd')
+                if idx != -1 and idx + 80 <= len(data):
+                    matrix_data = data[idx+44:idx+44+36]
+                    m = struct.unpack('>9i', matrix_data)
+                    a, b, u, c, d, v, x, y, w = [round(val / 65536.0, 2) for val in m]
+                    if a == -1.0 and d == -1.0:
+                        return 180
+                    elif b == 1.0 and c == -1.0:
+                        return 90
+                    elif b == -1.0 and c == 1.0:
+                        return 270
+                    elif a == 1.0 and d == 1.0:
+                        return 0
+    except Exception:
+        pass
+    return 0
+
+
 def parse_radar_stream(radar_bin_path):
     """
     Generator yielding radar frames parsed from radar_frames.bin with nanosecond timestamps.
@@ -996,10 +1028,21 @@ def convert_session_to_mcap(session_dir, output_path=None, include_video=True, f
         tf_cam.parent_frame_id = "base_link"
         tf_cam.child_frame_id = "camera_optical"
 
+        # Determine camera optical roll:
+        # If flip_video is False, video is demuxed zero-copy (raw sensor orientation).
+        # We auto-detect the MP4 container's orientation hint (e.g. 180° for reverse landscape mounts)
+        # and fold it into the optical roll angle so Foxglove's 3D frustum projects 100% upright in world space!
+        mp4_rot = extract_video_orientation_degrees(video_mp4) if os.path.isfile(video_mp4) else 0
+        if not flip_video and mp4_rot != 0:
+            effective_roll = (calib_params.get("rollDeg", 0.0) + mp4_rot) % 360.0
+            print(f"[+] Camera mount orientation: {mp4_rot}° detected -> Adjusted 3D optical frame roll to {effective_roll}° (Zero-Copy Upright)")
+        else:
+            effective_roll = calib_params.get("rollDeg", 0.0)
+
         cam_quat, cam_trans = compute_camera_optical_tf(
             pitch_deg=calib_params.get("pitchDeg", 7.0),
             yaw_deg=calib_params.get("yawDeg", -1.0),
-            roll_deg=calib_params.get("rollDeg", 0.0),
+            roll_deg=effective_roll,
             setback=calib_params.get("setbackM", 0.30),
             lateral=calib_params.get("lateralOffsetM", 0.00),
             height=calib_params.get("radarHeightM", 0.95) + calib_params.get("heightOffsetM", 0.50)
@@ -1279,6 +1322,27 @@ def convert_session_to_mcap(session_dir, output_path=None, include_video=True, f
                     data=cf.read()
                 )
             print("    - Embedded attachment: radar_camera_calib.json")
+
+        # Embed RoadSense Cockpit Layout (for 1-click layout export/loading in Foxglove)
+        layout_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "foxglove_layouts", "RoadSense_Cockpit_Layout.json")
+        if os.path.isfile(layout_file):
+            with open(layout_file, "rb") as lf:
+                layout_data = lf.read()
+                writer._writer.add_attachment(
+                    create_time=start_wall_ms * 1_000_000,
+                    log_time=start_wall_ms * 1_000_000,
+                    name="RoadSense_Cockpit_Layout.json",
+                    media_type="application/json",
+                    data=layout_data
+                )
+                writer._writer.add_attachment(
+                    create_time=start_wall_ms * 1_000_000,
+                    log_time=start_wall_ms * 1_000_000,
+                    name="foxglove.layout",
+                    media_type="application/json",
+                    data=layout_data
+                )
+            print("    - Embedded attachment: RoadSense_Cockpit_Layout.json")
 
         # 8. Flush Summary Indexes & Close
         print("[+] Finalizing chunk indexes, summary statistics, and footer...")

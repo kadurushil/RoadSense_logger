@@ -65,7 +65,7 @@
       "calibrationTopic": "/camera/calib",
       "transformMarkers": true,
       "synchronize": true,
-      "rotation": 0,
+      "rotation": 180,
       "flipHorizontal": false,
       "flipVertical": false
     },
