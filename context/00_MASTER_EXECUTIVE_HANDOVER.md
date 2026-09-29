@@ -5,7 +5,7 @@
 > **Audience:** Autonomous AI Coding Agents & Incoming Core Engineers  
 > **Workspace Path:** `C:\Users\rakadu1.AHEAD\AndroidStudioProjects\RoadSense`  
 > **Active Branch:** `feature/3125000-baud`  
-> **Last Handover Date:** September 22, 2026  
+> **Last Handover Date:** September 29, 2026  
 
 ---
 
@@ -24,7 +24,7 @@ The application operates as an autonomous multi-sensor logger synchronizing five
 
 ## 2. Recent Major Milestones Achieved
 
-As of September 23, 2026, the following major architectural milestones have been completed and verified with passing JVM unit tests and clean APK builds:
+As of September 29, 2026, the following major architectural milestones have been completed and verified with passing JVM unit tests and clean builds:
 
 | Feature / Subsystem | Implementation Status | Key Components Involved |
 |---|---|---|
@@ -47,6 +47,12 @@ As of September 23, 2026, the following major architectural milestones have been
 | **Perspective Radar Range Rings**| **Production Ready** (10m/30m/60m/120m ground arcs + boresight)| `SpatialProjectionEngine.kt`, `RadarRangeOverlay`, `ViewfinderRadarOverlay.kt` |
 | **Dedicated Fullscreen Viewfinder**| **Production Ready** (Edge-to-edge preview, swipe lock)| `FullscreenCameraPreview.kt`, `MainActivity.kt`, `CameraEngine.kt` |
 | **IMU Subsystem & Rate Profiler** | **Production Ready** (100 Hz HAL cap, Jitter Analyzer) | `ImuManager.kt`, `ImuDashboardCard.kt`, `LiveMetricsBar.kt`, `CockpitTab.IMU` |
+| **Interactive Web Dashboard** | **Production Ready** (Local browser UI, device status, SSE stream) | `tools/roadsense_web_server.py`, `tools/web_dashboard/index.html` |
+| **Foxglove MCAP Container Toolchain** | **Production Ready** (Single `.mcap` archive, Protobuf schemas) | `tools/convert_session_to_mcap.py`, `roadsense-mcap` Conda env |
+| **Zero-Cost 3D Orientation Alignment** | **Production Ready** (>11,500 FPS, $O(1)$ `tkhd` parse, `/tf` roll) | `tools/convert_session_to_mcap.py`, `compute_camera_optical_tf()` |
+| **Hardware NVENC Acceleration & Keyframe Fix** | **Production Ready** (~650 FPS, GOP 30, repeated SPS/PPS) | `tools/convert_session_to_mcap.py`, `h264_nvenc` + CPU fallback |
+| **Foxglove Ghost Track Elimination** | **Production Ready** (Atomic state updates, static entity ID) | `tools/convert_session_to_mcap.py` (`foxglove.SceneUpdate`) |
+| **Embedded Layout Container Attachments** | **Production Ready** (Auto-embeds `RoadSense_Cockpit_Layout.json`) | `tools/convert_session_to_mcap.py`, Foxglove attachments tab |
 
 ---
 

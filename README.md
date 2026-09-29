@@ -20,6 +20,7 @@ The application operates as an autonomous multi-sensor flight recorder, synchron
 2. **Camera Video & Perception:** Hardware-accelerated 1080p/720p H.264 video via Camera2 with per-frame monotonic exposure timestamps (`camera_frames.csv`), autonomous dual-zone Road AE, and hyperfocal optical infinity focus lock.
 3. **High-Accuracy GNSS:** Real-time vehicular trajectory, ground speed, bearing, altitude, and raw NMEA sentence logging via Android Location Services (`gnss_track.csv`).
 4. **Automotive CAN Bus:** CSS Electronics **CANedge2** dual-channel CAN/CAN-FD logger logging cyclic 1-minute split MF4 (MDF4) files, ingested wirelessly via local Wi-Fi AP using an autonomous 2-folder staging pool and post-recording finalizer.
+5. **Inertial Measurement Unit (IMU):** High-rate 100 Hz calibrated Accelerometer, Gyroscope, Linear Acceleration (gravity-removed), and 6-DOF Game Rotation Vector acquired via dedicated background worker thread.
 
 ---
 
@@ -63,6 +64,13 @@ To overcome 3D-to-2D depth ambiguity, distance compression ($1/Y$), and occlusio
 * **Deferred Post-Recording Finalizer:** During high-speed driving trials, CAN downloads pause to preserve CPU/battery; upon session stop, the finalizer sweeps and assigns the exact MF4 logs to the completed session folder.
 * **Smart FIFO Auto-Pruning:** Background garbage collection purges downloaded files from the staging pool while guaranteeing active session files are permanently preserved.
 
+### 2.6 PC Processing Ecosystem, Web Dashboard & Foxglove MCAP Archiving
+* **Zero-Dependency Local Web Dashboard (`http://localhost:8088`):** Lightweight Python HTTP server (`tools/roadsense_web_server.py`) and dark-mode browser UI (`tools/web_dashboard/index.html`) providing 1-click ADB session sync, legacy visualizer JSON export, and MCAP conversion with real-time SSE progress streaming (stage, speed, ETA) and device battery/storage gauges.
+* **Unified Foxglove MCAP Single-Container Archiving:** Packages radar point clouds, 3D EKF bounding boxes, H.264 camera video, 100 Hz IMU telemetry, and GNSS tracks into a single `.mcap` container using standardized Protobuf schemas.
+* **Zero-Cost Mathematical Mount Inversion:** Converts 1080p drives at **>11,500 FPS** in **~3.4 seconds** with **0% GPU load**. Reads the smartphone's $180^\circ$ mount matrix in $O(1)$ time and automatically folds $180^\circ$ into the `camera_optical` `/tf` frame roll so Foxglove's 3D frustum projects 100% upright in world space without altering video bytes.
+* **Hardware NVENC Transcoding & Seeking Stability:** Hardware-accelerated video decoding (`h264_cuvid`) and encoding (`h264_nvenc`) with enforced 1-second closed GOPs (`-g 30`, `-forced-idr 1`, `repeat-headers=1`), eliminating seeking freezes and "waiting for keyframe" delays.
+* **Embedded Cockpit Layouts:** Automatically packages `RoadSense_Cockpit_Layout.json` directly into the `.mcap` container as attachments for 1-click layout loading.
+
 ---
 
 ## 3. Hardware Architecture & Specifications
@@ -73,6 +81,7 @@ To overcome 3D-to-2D depth ambiguity, distance compression ($1/Y$), and occlusio
 | **CAN Bus Logger** | CSS Electronics CANedge2 | Dual CAN/CAN-FD, 802.11 b/g/n Wi-Fi AP | 1-minute split MF4 vehicle telemetry logging |
 | **Video Camera** | Android Device Camera Sensor | Camera2 HAL (1080p/720p H.264 MP4) | Scene context, lane dynamics & visual tracking |
 | **Location** | Multi-Constellation GNSS | GPS + GLONASS + Galileo + BeiDou + NMEA | High-precision trajectory, ground speed & bearing |
+| **Inertial Sensors (IMU)** | STMicroelectronics LSM6DSL | Android Sensor HAL @ **100 Hz** | 6-DOF Accelerometer, Gyroscope & Linear Acceleration |
 | **Compute Host** | Android Smartphone (API 31+) | USB OTG Host + Wi-Fi Client | Central synchronization, logging & cockpit UI |
 
 ---

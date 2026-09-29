@@ -23,7 +23,7 @@
   * [`08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md`](context/08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md) — 6-DOF extrinsics, reverse touch solver, hybrid lollipops & range rings.
 * **`intel/`**: In-depth hardware integration guides, post-mortems, and theoretical formulations:
   * `intel/Sensor fusion basics.md` — Complete spatial calibration and perspective projection theory.
-  * `intel/debugging_and_troubleshooting_knowledge_base.md` — Post-mortem analysis of Bugs #1 through #12.
+  * `intel/debugging_and_troubleshooting_knowledge_base.md` — Post-mortem analysis of Bugs #1 through #15.
   * `intel/CANedge2_Android_Integration_Guide.md` — Full hardware spec for CSS Electronics CANedge2.
   * `intel/presentations/` — Presentation deck generator and executive slides.
   * `intel/Implementations/` — Step-by-step implementation plans and walkthroughs.
@@ -129,6 +129,14 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
 * **Logging Mode:** 1-minute (60s) MF4 file splitting, cyclic logging enabled (`"cyclic": 1`).
 * **Single-Connection MCU Server (Bug #10):** ESP32 cannot handle concurrent HTTP connections. All downloads must be sequential with 1.5s error backoff cooldowns. Never send HTTP DELETE.
 
+### 5.5 PC Toolchain, Web Dashboard & Foxglove MCAP Pipeline
+* **Local Web Dashboard Server:** Zero-dependency Python server running on `http://localhost:8088` (`tools/roadsense_web_server.py`) with Server-Sent Events (SSE) progress streaming, ADB device health monitoring, and dark-mode web cockpit (`tools/web_dashboard/index.html`).
+* **Conda Environment:** `roadsense-mcap` (Python 3.12) with Zstandard and Protobuf support.
+* **Zero-Cost Video Demuxing (Default):** Demuxes H.264 bitstream directly into MCAP at **>11,500 FPS** in **~3.4 seconds** with **0% GPU load**. Reads the MP4 `tkhd` matrix in $O(1)$ time and automatically folds $180^\circ$ into the `camera_optical` `/tf` frame roll so 3D world projections render upright.
+* **Hardware NVENC Transcoding (`--flip-video`):** Hardware `h264_cuvid` decoding + `h264_nvenc` encoding (~650 FPS) with CPU fallback. Enforces strict 1-second closed GOPs (`-g 30`, `-forced-idr 1`) and in-band SPS/PPS headers (`repeat-headers=1`) to eliminate seeking freeze bugs (Bug #14).
+* **Foxglove Ghost Track Fix (Bug #13):** Uses static entity ID `"radar_tracks"` in `foxglove.SceneUpdate` to atomically update 3D tracks per frame.
+* **Embedded Layout Attachments:** Automatically embeds `RoadSense_Cockpit_Layout.json` and `foxglove.layout` directly inside every generated `.mcap` container.
+
 ---
 
 ## 6. Storage Directory Structure
@@ -156,7 +164,16 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
            │    └── camera_frames.csv
            ├── gnss/
            │    └── gnss_track.csv
+           ├── imu/
+           │    └── imu_frames.csv             <-- 100 Hz LSM6DSL Accel/Gyro, Linear Accel & Orientation
            └── can/
                 ├── 00000033_00000001.MF4
                 └── 00000034_00000001.MF4
+
+Downstream PC Archive: logs/session_YYYYMMDD_HHMMSS/
+ ├── session_YYYYMMDD_HHMMSS.mcap      <-- Unified Foxglove MCAP single-container archive
+ │    ├── Channels: /radar/points, /radar/tracks, /camera/video, /camera/calib, /gnss/fix, /imu/*, /tf
+ │    └── Attachments: session_metadata.json, radar_camera_calib.json, RoadSense_Cockpit_Layout.json
+ ├── track_history.json                <-- Legacy web visualizer radar perception & trajectories
+ └── frame_mapping.json                <-- Legacy radar-to-camera temporal sync index
 ```

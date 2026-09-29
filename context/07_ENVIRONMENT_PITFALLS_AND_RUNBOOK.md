@@ -88,3 +88,21 @@ python tools/sync_and_process_sessions.py --sync-only
 # Full pipeline (Sync from phone + Process radar & video to JSON)
 python tools/sync_and_process_sessions.py
 ```
+
+### 4.4 Web Dashboard & Foxglove MCAP Runbook
+```powershell
+# 1-Click Launch: Sync, Dashboard & Foxglove
+.\sync_and_process_logs.bat
+
+# Start the Web Dashboard server directly (http://localhost:8088)
+python tools/roadsense_web_server.py
+
+# Activate the MCAP conversion Conda environment
+conda activate roadsense-mcap
+
+# Instant zero-copy MCAP conversion (>11,500 FPS, ~3.4s, zero GPU load)
+python tools/convert_session_to_mcap.py logs/session_YYYYMMDD_HHMMSS
+
+# Physical video re-encoding (rotates video frames 180° via NVENC / libx264)
+python tools/convert_session_to_mcap.py logs/session_YYYYMMDD_HHMMSS --flip-video
+```

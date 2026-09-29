@@ -157,32 +157,22 @@ Offset 24  (N bytes): TI Radar Packet (Magic Word + 40B Header + TLVs)
 
 ---
 
-## 6. Multi-Sensor Integration Roadmap
+## 6. Multi-Sensor Integration Roadmap & Status
 
 ```
 Milestones 01-08: Radar USB, Baud 3.125M, Framing, TLV Decoding, BEV Canvas [COMPLETED]
 Milestone 09:     Structured Session Architecture & Binary Recording         [COMPLETED]
+Milestone 10:     Phase 9 — GNSS / Location Acquisition & Logging            [COMPLETED]
+Milestone 11:     Phase 10 — Monotonic Timebase Synchronization Engine       [COMPLETED]
+Milestone 12:     Phase 11 — Camera2 Hardware Video & Autonomous Road AE     [COMPLETED]
+Milestone 13:     Phase 12 — CANedge2 Dual-Channel CAN/CAN-FD Ingestion      [COMPLETED]
+Milestone 14:     Phase 13 — 6-DOF Spatial Calibration & Reverse Solver       [COMPLETED]
+Milestone 15:     Phase 14 — 100 Hz LSM6DSL IMU & Rate Profiler              [COMPLETED]
+Milestone 16:     Phase 15 — Interactive Web Dashboard (localhost:8088)      [COMPLETED]
+Milestone 17:     Phase 16 — Foxglove MCAP Toolchain & Zero-Cost 3D Roll     [COMPLETED]
                                    │
                                    ▼
-Milestone 10:     Phase 9 — GNSS / Location Acquisition & Logging
-                  - LocationProviderManager with FusedLocationProviderClient
-                  - Real-time Lat/Lon/Speed/Bearing telemetry card
-                  - Thread-safe CSV writer stamped with elapsedRealtimeNanos()
-                                   │
-                                   ▼
-Milestone 11:     Phase 10 — Monotonic Timebase Synchronization Engine
-                  - Temporal alignment validator verifying dt across Radar and GNSS
-                  - Offline correlation tool (tools/sync_validator.py)
-                                   │
-                                   ▼
-Milestone 12:     Phase 11 — Camera2 Hardware Video Recording
-                  - Camera2 / CameraX pipeline with MediaCodec hardware acceleration
-                  - Concurrent video capture (1080p @ 30/60 FPS)
-                  - Frame exposure timestamp callback logging
-                                   │
-                                   ▼
-Milestone 13:     Phase 12 — Master Multi-Sensor Recording Controller
-                  - Single master Start/Stop session button
-                  - Dynamic storage space checking & thermal throttling safeguards
-                  - One-click session package export & ADB pull integration
+Milestone 18:     Phase 17 — On-Device Edge Object Detection & Bounding Boxes (TFLite / NNAPI)
+Milestone 19:     Phase 18 — Multimodal Fusion EKF Tracker (Radar Points + Camera Bounding Boxes)
+Milestone 20:     Phase 19 — Real-Time Forward Collision Warning (FCW) & Blind Spot Detection (BSD)
 ```

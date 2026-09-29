@@ -87,10 +87,26 @@ All persistent logs, calibration profiles, and active sessions are stored inside
            │
            ├── gnss/
            │    └── gnss_track.csv                 <-- Lat, lon, alt, speed, bearing, accuracy
+            │
+            ├── imu/
+            │    └── imu_frames.csv                 <-- 100 Hz LSM6DSL Accel/Gyro, Linear Accel & Orientation
            │
            └── can/
                 ├── 00000041_00000051.MF4          <-- CANedge chunks assigned to this drive session
                 └── 00000041_00000052.MF4
+```
+
+### 3.2 Downstream PC Analysis Storage Layout (`logs/`)
+When extracted via ADB and processed via the PC Toolchain (`sync_and_process_sessions.py` or `convert_session_to_mcap.py`):
+```text
+logs/
+ └── session_YYYYMMDD_HHMMSS/
+      ├── session_YYYYMMDD_HHMMSS.mcap      <-- Unified Foxglove MCAP single-container archive
+      │    ├── Channels: /radar/points, /radar/tracks, /camera/video, /camera/calib, /gnss/fix, /imu/*, /tf
+      │    └── Attachments: session_metadata.json, radar_camera_calib.json, RoadSense_Cockpit_Layout.json
+      ├── track_history.json                <-- Legacy web visualizer radar perception & trajectories
+      ├── frame_mapping.json                <-- Legacy radar-to-camera temporal sync index
+      └── [original pulled sensor subfolders: radar/, camera/, gnss/, imu/, can/]
 ```
 
 ---

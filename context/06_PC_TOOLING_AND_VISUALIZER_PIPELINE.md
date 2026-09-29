@@ -143,10 +143,86 @@ python scripts/audit_cross_sensor_sync.py logs/session_20260911_141256
 
 RoadSense supports single-container archiving using the **Foxglove MCAP (`.mcap`)** format. A dedicated Conda environment **`roadsense-mcap`** (Python 3.12) provides binary compatibility with Zstandard and Protobuf.
 
-### Core Capabilities:
-* **Protobuf Schemas:** Encodes `/radar/points` (`foxglove.PointCloud`), `/radar/tracks` (`foxglove.SceneUpdate`), `/camera/video` (`foxglove.CompressedVideo` with Annex B H.264), `/camera/calib` (`foxglove.CameraCalibration`), `/gnss/fix` (`foxglove.LocationFix`), `/tf` (`foxglove.FrameTransforms`), and `/diagnostics/logs` (`foxglove.Log`).
+### 5.1 Core Capabilities & Schemas
+* **Protobuf Schemas:**
+  - `/radar/points` (`foxglove.PointCloud`): 3D Cartesian radar point reflections with Doppler and SNR channels.
+  - `/radar/tracks` (`foxglove.SceneUpdate`): 3D oriented bounding boxes, velocity vectors, and tracking status. Uses static entity ID `"radar_tracks"` with `delete_existing = True` to atomically refresh scene state and eliminate ghost tracks.
+  - `/camera/video` (`foxglove.CompressedVideo`): Annex B H.264 stream. Supports both zero-copy bitstream pass-through (>11,500 FPS) and hardware NVENC transcoding (~650 FPS).
+  - `/camera/calib` (`foxglove.CameraCalibration`): Pinhole intrinsic matrix ($K$), distortion coefficients, and image dimensions.
+  - `/gnss/fix` (`foxglove.LocationFix`): WGS-84 latitude, longitude, altitude, and fix quality.
+  - `/imu/data` & `/imu/pose` (`foxglove.Imu` / `geometry_msgs.PoseStamped`): 100 Hz calibrated accelerometer, gyroscope, linear acceleration, and 6-DOF game rotation vectors.
+  - `/tf` (`foxglove.FrameTransforms`): Static transforms between `base_link`, `radar_sensor`, and `camera_optical`. Automatically adjusts camera roll ($\phi_{\text{effective}} = \phi_{\text{calib}} + 180^\circ$) to project inverted mount video 100% upright in 3D space with zero GPU overhead.
+  - `/diagnostics/logs` (`foxglove.Log`): Nanosecond-indexed flight recorder logs.
 * **JSON Telemetry:** `/vehicle/telemetry` and `/radar/diagnostics` for time-series plotting.
-* **Embedded Attachments:** Native embedding of `session_metadata.json` and `radar_camera_calib.json`.
-* **Cockpit Layout:** Pre-configured dashboard layout preset at `tools/foxglove_layouts/RoadSense_Cockpit_Layout.json`.
-* **Operational Guide:** Detailed instructions in `docs/MCAP_CONVERSION_AND_FOXGLOVE_GUIDE.md`.
+* **Embedded Attachments:** Native embedding of `session_metadata.json`, `radar_camera_calib.json`, `RoadSense_Cockpit_Layout.json`, and `foxglove.layout`.
+* **Progress Reporting:** Emits structured JSON events (`[PROGRESS] {"step": ..., "pct": ..., "fps": ..., "eta_s": ...}`) parsed by CLI and the Web Dashboard.
 
+### 5.2 Video Processing Modes & Benchmarks
+
+| Parameter / Metric | Zero-Cost Demux Mode (Default) | Hardware NVENC Transcoding (`--flip-video`) |
+| :--- | :--- | :--- |
+| **Video Processing** | Zero-copy NAL bitstream demux | `h264_cuvid` decode + `h264_nvenc` encode |
+| **Throughput** | **>11,500 FPS** | **~650 FPS** (with CPU `libx264` fallback at ~180 FPS) |
+| **Conversion Time (6-min drive)** | **~3.4 seconds** | **~16 seconds** |
+| **GPU Utilization** | **0% (Idle)** | **80% GPU Core** |
+| **3D Frustum Orientation** | Upright via dynamic `/tf` frame roll | Upright via physically rotated pixels |
+| **2D Viewport Orientation** | Upright via Foxglove layout shader (`"rotation": 180`) | Upright natively (`"rotation": 0`) |
+| **Keyframe Seeking Stability** | Native camera keyframes (1s interval) | Enforced GOP 30 (`-g 30`, `-forced-idr 1`, `repeat-headers=1`) |
+
+### 5.3 CLI Invocation
+```powershell
+# Conda environment activation
+conda activate roadsense-mcap
+
+# Instant zero-copy conversion (default, recommended)
+python tools/convert_session_to_mcap.py logs/session_20260928_120732
+
+# Physical video rotation via NVENC / CPU transcoding
+python tools/convert_session_to_mcap.py logs/session_20260928_120732 --flip-video
+
+# Headless conversion without video stream
+python tools/convert_session_to_mcap.py logs/session_20260928_120732 --no-video
+```
+
+---
+
+## 6. RoadSense Interactive Web Dashboard
+
+A zero-external-dependency local HTTP server (`tools/roadsense_web_server.py`) and browser-based dark-mode dashboard (`tools/web_dashboard/index.html`) provide an intuitive control center for managing test sessions, monitoring device health, and launching visualizations.
+
+```mermaid
+flowchart TD
+    AndroidDevice[Android Smartphone] <-->|ADB TCP/USB| WebServer[tools/roadsense_web_server.py<br>http://localhost:8088]
+    WebServer <-->|REST API + SSE Stream| BrowserUI[Web Dashboard<br>tools/web_dashboard/index.html]
+    WebServer -->|Subprocess Launch| SyncScript[tools/sync_and_process_sessions.py]
+    WebServer -->|Subprocess Launch| McapScript[tools/convert_session_to_mcap.py]
+    WebServer -->|System Launcher| Foxglove[Foxglove Studio Desktop]
+```
+
+### 6.1 Server Architecture (`tools/roadsense_web_server.py`)
+* **Port:** `8088` (`http://localhost:8088` or `http://127.0.0.1:8088`).
+* **Concurrency:** `ThreadingHTTPServer` with non-blocking subprocess streaming.
+* **Auto-Discovery:** Automatically locates `adb.exe`, Android SDK, Conda Python executable (`roadsense-mcap`), and Foxglove Studio executable across standard Windows installation paths.
+
+### 6.2 REST & Streaming Endpoints
+
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/api/sessions` | `GET` | Returns list of local and device recording sessions with file sizes, timestamps, and processing status. |
+| `/api/device/status` | `GET` | Returns real-time battery level, battery temperature, and internal storage space via ADB. |
+| `/api/sync` | `POST` | Triggers background ADB pull of all recording sessions from the connected phone. |
+| `/api/process` | `POST` | Triggers legacy visualizer JSON generation (`track_history.json`, `frame_mapping.json`). |
+| `/api/mcap` | `POST` | Triggers MCAP conversion with options (`include_video`, `flip_video`). |
+| `/api/progress` | `GET (SSE)` | Server-Sent Events stream delivering real-time stage, percentage, speed (FPS), and ETA. |
+| `/api/terminal/stream` | `GET (SSE)` | Raw terminal stdout/stderr stream for console diagnostics in the browser. |
+| `/api/open-foxglove` | `POST` | Launches Foxglove Studio Desktop with the selected `.mcap` file pre-loaded. |
+
+### 6.3 1-Click Launching
+The Web Dashboard is automatically started by running the master launcher:
+```cmd
+sync_and_process_logs.bat
+```
+Alternatively, start the server directly in PowerShell:
+```powershell
+python tools/roadsense_web_server.py
+```

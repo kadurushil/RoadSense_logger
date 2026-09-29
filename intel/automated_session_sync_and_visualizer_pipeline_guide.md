@@ -30,20 +30,23 @@ The automated pipeline implemented in [`tools/sync_and_process_sessions.py`](fil
   ├── radar/radar_frames.bin (24B ROAD header + TI TLVs)
   ├── camera/camera_video.mp4 & camera_frames.csv
   ├── gnss/gnss_fixes.csv
+  ├── imu/imu_frames.csv
   └── session_metadata.json
               │
               │  [1] ADB Pull (Smart Differential Skip)
               ▼
 [ Local Host: logs/session_YYYYMMDD_HHMMSS/ ]
               │
-              │  [2] Binary TLV Parser (Adaptive 20B/14B/12B Stride)
-              │  [3] Nanosecond Cross-Sensor Monotonic Time-Alignment
-              │  [4] Hardware EKF Track Trajectory Accumulation
-              ▼
-[ Visualizer Output Artifacts ]
-  ├── track_history.json   <-- Strict visualizer schema (Point Cloud, Clusters, Tracks)
-  ├── frame_mapping.json   <-- Frame-accurate radar-to-camera sync index
-  └── camera_video.mp4     <-- Direct video asset
+              ├─────────────────────────────────────────────┐
+              │ [2] MCAP Converter Pipeline                 │ [3] Legacy JSON Pipeline
+              ▼                                             ▼
+[ Unified Foxglove MCAP (.mcap) ]             [ Legacy Visualizer JSONs ]
+  ├── Channels: /radar/*, /camera/*, /imu/*     ├── track_history.json
+  ├── Static /tf: Auto-aligned optical roll     ├── frame_mapping.json
+  └── Embedded Layout & Calibration Attachments └── camera_video.mp4
+              │                                             │
+              ▼                                             ▼
+[ Foxglove Studio Desktop ]                   [ Legacy Web Radar Visualizer ]
 ```
 
 ---
@@ -318,3 +321,25 @@ Pipeline Finished: Successfully processed 6/10 sessions in 0.08 seconds.
 | Session is skipped but files need re-generating | Visualizer format updated or bug fixed. | Run with `--force` flag or select **Option `[4]`** in `sync_and_process_logs.bat`. |
 | Missing `camera_video.mp4` | Recording was radar-only or video encoding crashed before session stop. | `track_history.json` and `frame_mapping.json` are still generated with `video_frame_index: null`. |
 | JSON validation error in visualizer | Bare `NaN` or `Inf` values emitted. | Ensure all numeric conversions use `safe_float(val)`. |
+
+---
+
+## 8. Web Dashboard & Foxglove MCAP Ecosystem
+
+### 8.1 Zero-Dependency Local Web Dashboard
+The RoadSense toolchain includes an interactive browser cockpit (`tools/web_dashboard/index.html`) served by a lightweight Python HTTP server (`tools/roadsense_web_server.py`) at `http://localhost:8088`:
+* **Device Telemetry:** Continuously polls connected phone battery percentage, battery temperature, and internal storage space via ADB.
+* **1-Click Operations:** Trigger ADB pull, legacy JSON processing, or Foxglove MCAP conversion with a single click.
+* **Live SSE Progress Bar:** Real-time Server-Sent Events stream delivering current stage, percentage, speed (FPS), and ETA.
+* **Foxglove Studio Integration:** One-click launch button to open any session's `.mcap` file directly in Foxglove Studio.
+
+### 8.2 Foxglove MCAP Conversion Engine (`convert_session_to_mcap.py`)
+Converts raw multi-modal sessions into a single, self-contained `.mcap` container using Protobuf schemas:
+* **Zero-Cost Pass-Through Demuxing (Default):**
+  - Demuxes H.264 video bitstream without transcoding at **>11,500 FPS** in **~3.4 seconds** with **0% GPU load**.
+  - Auto-detects reverse landscape phone mounting from the MP4 `tkhd` matrix and dynamically adjusts the `/tf` `camera_optical` frame roll by $180^\circ$.
+  - In Foxglove 3D space, camera frustum and image projection are 100% upright and align with radar points.
+  - Automatically embeds `RoadSense_Cockpit_Layout.json` and `foxglove.layout` directly into the `.mcap` container.
+* **Hardware-Accelerated NVENC Transcoding (`--flip-video`):**
+  - Hardware-accelerated decode (`h264_cuvid`) and encode (`h264_nvenc`) with auto-fallback to CPU `libx264`.
+  - Enforces 1-second closed GOPs (`-g 30`, `-forced-idr 1`, `repeat-headers=1`) to eliminate seeking freezes and "waiting for keyframe" bugs.
