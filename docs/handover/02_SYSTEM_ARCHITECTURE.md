@@ -169,6 +169,19 @@ All data recorded by RoadSense is partitioned into structured, isolated director
                 └── 00000045_00000002.MF4
 ```
 
+### 3.2 Downstream PC Analysis Storage Layout (`logs/`)
+When pulled over USB via ADB and converted via the PC toolchain (`tools/convert_session_to_mcap.py`):
+```text
+logs/
+ └── session_YYYYMMDD_HHMMSS/
+      ├── session_YYYYMMDD_HHMMSS.mcap      <-- Unified Foxglove MCAP single-container archive
+      │    ├── Channels: /radar/points, /radar/tracks, /camera/video, /camera/calib, /gnss/fix, /imu/*, /tf
+      │    └── Attachments: session_metadata.json, radar_camera_calib.json, RoadSense_Cockpit_Layout.json
+      ├── track_history.json                <-- Legacy web visualizer radar perception & trajectories
+      ├── frame_mapping.json                <-- Legacy radar-to-camera temporal sync index
+      └── [original pulled sensor subfolders: radar/, camera/, gnss/, imu/, can/]
+```
+
 ---
 
 ## 4. Metadata File Specifications
@@ -292,3 +305,27 @@ stateDiagram-v2
 
     Finalizing --> Idle: Session Ready for Replay and Export
 ```
+
+---
+
+## 6. Downstream PC Processing, Web Dashboard & Foxglove Archiving
+
+RoadSense couples the on-device mobile logger with a high-throughput PC ingestion and visualization toolchain:
+
+### 6.1 Zero-Dependency Local Web Dashboard
+* **Architecture:** Python HTTP server (`tools/roadsense_web_server.py`) running on `http://localhost:8088` with a dark-mode browser cockpit (`tools/web_dashboard/index.html`).
+* **Device Telemetry:** Polls connected smartphone battery level, battery temperature, and storage space in real time over ADB.
+* **1-Click Actions:** Autonomous ADB session sync, legacy visualizer JSON generation, and Foxglove MCAP conversion.
+* **Server-Sent Events (SSE):** Delivers live percentage, processing speed (FPS), and ETA indicators to the browser.
+* **Direct Launcher:** Double-clicking `sync_and_process_logs.bat` launches the complete environment with a single click.
+
+### 6.2 Foxglove MCAP Single-Container Archiving (`convert_session_to_mcap.py`)
+* **Zero-Cost Pass-Through Demuxing (Default):**
+  - Demuxes H.264 video directly from MP4 containers into MCAP without re-encoding at **>11,500 FPS** in **~3.4 seconds** with **0% GPU load**.
+  - Reads the MP4 `tkhd` track header in $O(1)$ time to detect reverse landscape mounting ($180^\circ$) and dynamically folds $180^\circ$ into the `camera_optical` `/tf` frame roll.
+  - In Foxglove 3D space, camera frustums and image textures project 100% upright and align with 3D radar point clouds.
+* **Hardware-Accelerated NVENC Transcoding (`--flip-video`):**
+  - Hardware `h264_cuvid` decoding + `h264_nvenc` encoding (~650 FPS) with automatic CPU `libx264` fallback.
+  - Enforces 1-second closed GOPs (`-g 30`, `-forced-idr 1`) and in-band SPS/PPS headers (`repeat-headers=1`) to eliminate seeking freezes and "waiting for keyframe" bugs.
+* **Embedded Cockpit Layout Attachments:**
+  - Automatically embeds `RoadSense_Cockpit_Layout.json` and `foxglove.layout` directly inside every `.mcap` container.

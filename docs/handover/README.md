@@ -2,7 +2,7 @@
 
 > **Document Classification:** Autonomous Vehicle Research & Engineering Systems  
 > **Target Audience:** Executive Leadership, Chief Engineers, Systems Architects, Perception & Embedded Software Developers  
-> **Subsystem Scope:** Multi-Sensor Acquisition, High-Speed Serial Drivers, Camera2 Pipeline, 100 Hz IMU Fusion, CANedge2 Ingestion, 6-DOF Spatial Calibration  
+> **Subsystem Scope:** Multi-Sensor Acquisition, High-Speed Serial Drivers, Camera2 Pipeline, 100 Hz IMU Fusion, CANedge2 Ingestion, 6-DOF Spatial Calibration, Foxglove MCAP Container Archiving, Interactive Web Dashboard  
 > **Workspace Path:** `AndroidStudioProjects/RoadSense`  
 > **Status:** Production / Research Baseline (API 34)
 
@@ -84,7 +84,8 @@ docs/handover/
 | **Track 2** | **[`02_SYSTEM_ARCHITECTURE.md`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/docs/handover/02_SYSTEM_ARCHITECTURE.md)** | Software Architects, Pipeline Engineers | Physical hardware bus architecture, Unidirectional Data Flow (UDF), session folder hierarchies, metadata and timeline CSV schemas |
 | **Track 2** | **[`03_MULTITHREADING_AND_CONCURRENCY.md`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/docs/handover/03_MULTITHREADING_AND_CONCURRENCY.md)** | Concurrency & Real-Time Developers | Complete priority matrix (Linux niceness), looper worker threads, coroutine dispatchers, GC churn elimination, race condition prevention |
 | **Track 2** | **[`04_SENSOR_PIPELINES_AND_SYNC_ENGINE.md`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/docs/handover/04_SENSOR_PIPELINES_AND_SYNC_ENGINE.md)** | Perception & Sensor Fusion Specialists | TI mmWave TLV decoding math, Camera2 shutter extraction, 100 Hz IMU quaternions, CANedge staging, 6-DOF projection & Painter's depth sorting |
-| **Track 2** | **[`05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/docs/handover/05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md)** | Incoming Core Developers | Complete class-by-class, file-by-file technical encyclopedia across all 12 packages in the application codebase |
+| **Track 2** | **[`05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/docs/handover/05_CODEBASE_DICTIONARY_AND_FILE_GUIDE.md)** | Incoming Core Developers | Complete class-by-class, file-by-file technical encyclopedia across all 12 packages in the application codebase and PC toolchain (`tools/`, `scripts/`) |
+| **Track 2** | **[`Web Dashboard & MCAP Pipeline`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/web_dashboard/index.html)** | Data Engineers, Perception Researchers | Zero-dependency local web dashboard (`http://localhost:8088`), real-time SSE progress streaming, zero-cost H.264 bitstream demux (>11,500 FPS), and single-container Foxglove `.mcap` archive |
 | **Track 2** | **[`interactive_architecture_map.html`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/docs/handover/interactive_architecture_map.html)** | Software Developers | Interactive visual node graph, component inspector, live data flow animator (open in any browser) |
 | **Track 2** | **[`interactive_multithreading_explorer.html`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/docs/handover/interactive_multithreading_explorer.html)** | Real-Time Platform Engineers | Interactive multi-track thread simulator, buffer watermarks, thread priority matrix inspector |
 
@@ -128,6 +129,9 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
 
 # Assemble Debug APK
 ./gradlew assembleDebug
+
+# Start PC Web Dashboard (http://localhost:8088) & ADB Session Sync
+.\sync_and_process_logs.bat
 ```
 
 ### Live ADB Telemetry Monitoring

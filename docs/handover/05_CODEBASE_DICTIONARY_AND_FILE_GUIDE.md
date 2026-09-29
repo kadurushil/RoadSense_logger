@@ -255,3 +255,44 @@ com.bajajauto.roadsense
 * **`RadarBevPlot.kt`**: High-performance 2D Canvas polar plot rendering mmWave point clouds in Cartesian space.
 * **`QuickNudgeBar.kt`**: Precision +/- step buttons for pitch, yaw, roll, and distance offsets.
 * **`CameraCalibrationCard.kt`**: Extrinsic sliders, baseline reset, and calibration save buttons.
+
+---
+
+## 3. PC Processing, Web Dashboard & Visualizer Toolchain (`tools/` & `scripts/`)
+
+In addition to the Android mobile codebase, RoadSense provides a comprehensive desktop pipeline:
+
+### 3.1 Local Web Dashboard & Server (`tools/`)
+* **[`roadsense_web_server.py`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/roadsense_web_server.py):**
+  - Lightweight Python HTTP server running on `http://localhost:8088` (`ThreadingHTTPServer`).
+  - Implements REST APIs for session listing (`/api/sessions`), ADB pull (`/api/sync`), legacy JSON processing (`/api/process`), MCAP conversion (`/api/mcap`), device telemetry (`/api/device/status`), and Foxglove Studio launching (`/api/open-foxglove`).
+  - Provides real-time Server-Sent Events (SSE) streaming for progress bars (`/api/progress`) and console stdout/stderr (`/api/terminal/stream`).
+* **[`web_dashboard/index.html`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/web_dashboard/index.html):**
+  - Zero-external-dependency dark-mode browser dashboard.
+  - Displays real-time device battery percentage, battery temperature, and storage space gauges.
+  - Provides 1-click triggers with live stage, percentage, speed (FPS), and ETA indicators.
+* **[`sync_and_process_logs.bat`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/sync_and_process_logs.bat):**
+  - Master 1-click Windows batch launcher. Checks ADB connectivity, pulls sessions, processes logs, starts the Web Dashboard, and launches Foxglove Studio.
+
+### 3.2 Foxglove MCAP Conversion Engine (`tools/convert_session_to_mcap.py`)
+* Packages all 5 multi-sensor streams into a single `.mcap` container using Protobuf schemas:
+  - `/radar/points` (`foxglove.PointCloud`), `/radar/tracks` (`foxglove.SceneUpdate` with static entity ID `"radar_tracks"`).
+  - `/camera/video` (`foxglove.CompressedVideo`), `/camera/calib` (`foxglove.CameraCalibration`).
+  - `/gnss/fix` (`foxglove.LocationFix`), `/imu/data` & `/imu/pose` (`foxglove.Imu`, `geometry_msgs.PoseStamped`).
+  - `/tf` (`foxglove.FrameTransforms`) with automatic $180^\circ$ optical roll adjustment.
+* **Zero-Cost Video Demuxing (Default):** Demuxes H.264 bitstream directly into MCAP at **>11,500 FPS** in **~3.4 seconds** with **0% GPU load**.
+* **Hardware NVENC Transcoding (`--flip-video`):** Hardware `h264_cuvid` decoding + `h264_nvenc` encoding (~650 FPS) with 1-second closed GOPs (`-g 30`, `-forced-idr 1`, `repeat-headers=1`).
+* **Embedded Layout Attachments:** Automatically embeds `RoadSense_Cockpit_Layout.json` and `foxglove.layout` directly inside every `.mcap` container.
+
+### 3.3 Foxglove Cockpit Layout Preset
+* **[`RoadSense_Cockpit_Layout.json`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/foxglove_layouts/RoadSense_Cockpit_Layout.json):**
+  - Pre-configured Foxglove Studio workspace featuring 3D scene view (frustum + radar points + tracks), 2D camera viewport (with `"rotation": 180`), vehicle telemetry plots, and 100 Hz IMU orientation/acceleration strip charts.
+
+### 3.4 Standalone Multi-Sensor Diagnostic Suite (`scripts/`)
+* **`session_health_check.py`**: Validates file integrity and non-zero byte size across all sensor subdirectories.
+* **`validate_radar_stream.py`**: Verifies TI mmWave magic words, parses TLVs, and validates point counts and FPS.
+* **`validate_camera_video.py`**: Verifies MP4 video stream readability, resolution, frame rate, and monotonic PTS alignment.
+* **`validate_gnss_fixes.py`**: Verifies NMEA/CSV latitude, longitude, HDOP accuracy, speed, and satellite lock count.
+* **`validate_canedge_staging.py`**: Validates MF4 chunks in `can/` against the master session timeline.
+* **`audit_cross_sensor_sync.py`**: Computes cross-sensor timestamp latency deltas and inter-sensor drift.
+* **`search_flight_recorder.py`**: Regex search across `app_system.log` and `session_debug.log` for warnings, errors, and drops.

@@ -156,7 +156,9 @@ RoadSense is architected not merely as a temporary logger, but as an **extensibl
 │   ├── Camera2 1080p60 with deterministic shutter sync & autonomous Road AE             │
 │   ├── 100 Hz fused IMU kinematics & 5 Hz GNSS tracking                                 │
 │   ├── Autonomous CANedge2 dual CAN bus Wi-Fi staging & MF4 ingestion                   │
-│   └── 6-DOF spatial calibration engine with interactive Reverse Touch Solver           │
+│   ├── 6-DOF spatial calibration engine with interactive Reverse Touch Solver           │
+│   ├── Zero-dependency Web Dashboard (localhost:8088) with real-time SSE progress       │
+│   └── Foxglove MCAP single-container archiving with zero-cost 3D roll (>11,500 FPS)    │
 │                                                                                        │
 │   PHASE 2: On-Device Edge Perception & Active Safety Prototyping (NEAR-TERM)           │
 │   ├── On-device target tracking: Extended Kalman Filter (EKF) & Hungarian association │
@@ -165,7 +167,6 @@ RoadSense is architected not merely as a temporary logger, but as an **extensibl
 │   └── Blind Spot Detection (BSD) & Lane Change Assist (LCA) zone monitoring            │
 │                                                                                        │
 │   PHASE 3: Connected Fleet Data Engine & Autonomous Simulation (STRATEGIC)             │
-│   ├── MCAP open-standard containerization for native ROS2 / Foxglove integration       │
 │   ├── Automated cloud telemetry sync via 4G/5G when test vehicle enters Wi-Fi depot   │
 │   ├── Shadow-mode validation: comparing on-vehicle edge perception against ground-truth│
 │   └── Direct dataset ingestion into Software-in-the-Loop (SIL) simulation farms        │
