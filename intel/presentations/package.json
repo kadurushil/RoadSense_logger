@@ -9,6 +9,8 @@
     "build:week2": "node generate_roadsense_week2_deck.js"
   },
   "dependencies": {
+    "katex": "^0.18.10",
+    "mathjax-full": "^3.2.1",
     "pptxgenjs": "^3.12.0"
   }
 }

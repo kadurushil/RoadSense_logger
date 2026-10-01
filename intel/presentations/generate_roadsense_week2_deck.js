@@ -14,10 +14,51 @@
 
 import pptxgen from "pptxgenjs";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
+import { mathjax } from "mathjax-full/js/mathjax.js";
+import { TeX } from "mathjax-full/js/input/tex.js";
+import { SVG } from "mathjax-full/js/output/svg.js";
+import { liteAdaptor } from "mathjax-full/js/adaptors/liteAdaptor.js";
+import { RegisterHTMLHandler } from "mathjax-full/js/handlers/html.js";
+import { AllPackages } from "mathjax-full/js/input/tex/AllPackages.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Initialize MathJax headless SVG renderer
+const adaptor = liteAdaptor();
+RegisterHTMLHandler(adaptor);
+const mathjaxDoc = mathjax.document('', {
+    InputJax: new TeX({ packages: AllPackages }),
+    OutputJax: new SVG({ fontCache: 'local' })
+});
+
+function renderLatexToSvg(tex, filename, color = '#1D4ED8') {
+    const node = mathjaxDoc.convert(tex, { display: true });
+    let svg = adaptor.innerHTML(node);
+    if (!svg.includes('xmlns="http://www.w3.org/2000/svg"')) {
+        svg = svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ');
+    }
+    svg = svg.replace(/currentColor/g, color);
+
+    const match = svg.match(/viewBox="([^"]+)"/);
+    let aspectRatio = 4.0;
+    if (match) {
+        const parts = match[1].trim().split(/\s+/).map(Number);
+        if (parts.length === 4 && parts[3] > 0) {
+            aspectRatio = parts[2] / parts[3];
+        }
+    }
+
+    const outDir = path.join(__dirname, 'assets', 'generated_math');
+    if (!fs.existsSync(outDir)) {
+        fs.mkdirSync(outDir, { recursive: true });
+    }
+    const filePath = path.join(outDir, filename);
+    fs.writeFileSync(filePath, svg);
+    return { filePath, aspectRatio };
+}
 
 export async function generateRoadSenseWeek2Presentation() {
     const pres = new pptxgen();
@@ -296,55 +337,244 @@ export async function generateRoadSenseWeek2Presentation() {
     }
 
     // =========================================================================
-    // SLIDE 3: 6-DOF Spatial Calibration & Reverse Touch Solver
+    // SLIDE 3: 6-DOF Spatial Calibration & Perspective Projection Math
     // =========================================================================
     {
         const slide = pres.addSlide();
-        addSlideHeader(slide, "Spatial Fusion", "60-Second In-Situ Extrinsic Calibration Engine", "Solving mounting pitch and yaw in closed form (O(1)) without calibration rigs", 3);
+        addSlideHeader(
+            slide,
+            "Perception & Sensor Fusion Engineering",
+            "6-DOF Spatial Calibration & Perspective Projection Math",
+            "Rigorous mathematical formulation for cross-sensor extrinsic alignment and closed-form angular recovery",
+            3
+        );
 
-        const colW = 5.65;
-        const colY = 1.75;
-        const colH = 5.15;
+        const colW = 5.75;
+        const colY = 1.55;
+        const colH = 5.40;
 
-        // Left Column: Closed-Form Reverse Touch Solver & Math
+        // Render mathematical equation SVGs via MathJax
+        const eqPvehicle = renderLatexToSvg(
+            '\\mathbf{P}_{\\text{vehicle}} = \\mathbf{R}_{\\text{extrinsic}}(\\mathbf{P}_R - \\mathbf{T})',
+            'eq_p_vehicle.svg',
+            '#1D4ED8'
+        );
+
+        const eqMaxis = renderLatexToSvg(
+            '\\mathbf{M}_{\\text{axis}} = \\begin{bmatrix} 1 & 0 & 0 \\\\ 0 & 0 & -1 \\\\ 0 & 1 & 0 \\end{bmatrix}',
+            'eq_m_axis_matrix.svg',
+            '#1D4ED8'
+        );
+
+        const eqPinholeMatrix = renderLatexToSvg(
+            '\\begin{bmatrix} u \\cdot w \\\\ v \\cdot w \\\\ w \\end{bmatrix} = \\mathbf{K} \\cdot \\mathbf{P}_C = \\begin{bmatrix} f_x & 0 & c_x \\\\ 0 & f_y & c_y \\\\ 0 & 0 & 1 \\end{bmatrix} \\begin{bmatrix} X_C \\\\ Y_C \\\\ Z_C \\end{bmatrix}',
+            'eq_pinhole_matrix.svg',
+            '#0284C7'
+        );
+
+        const eqPerspectiveDiv = renderLatexToSvg(
+            'u = \\frac{f_x \\cdot X_C}{Z_C} + c_x, \\qquad v = \\frac{f_y \\cdot Y_C}{Z_C} + c_y',
+            'eq_perspective_division.svg',
+            '#0284C7'
+        );
+
+        const eqNormRay = renderLatexToSvg(
+            'u_{\\text{norm}} = \\frac{u_{\\text{tap}} - c_x}{f_x}, \\qquad v_{\\text{norm}} = \\frac{v_{\\text{tap}} - c_y}{f_y}',
+            'eq_norm_ray.svg',
+            '#0284C7'
+        );
+
+        const eqAngleRecovery = renderLatexToSvg(
+            '\\text{pitch } \\theta = -\\arctan(v_{\\text{norm}}), \\qquad \\text{yaw } \\psi = \\arctan(u_{\\text{norm}})',
+            'eq_angle_recovery.svg',
+            '#0284C7'
+        );
+
+        // ---------------------------------------------------------------------
+        // LEFT COLUMN: Coordinate Frame Conventions & Translation / Axis Permutation
+        // ---------------------------------------------------------------------
         addCard(slide, 0.80, colY, colW, colH, COLOR_PRIMARY, "F8FAFC");
+        const leftX = 1.00;
+        const leftW = colW - 0.40;
+        const leftCenterX = 0.80 + (colW / 2);
+
+        // 1. Coordinate Frame Conventions
         slide.addText([
-            { text: "Closed-Form Mathematical Reverse Touch Solver\n\n", options: { fontSize: 13, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
-            { text: "1. 6-DOF Rigid Body Transformation [ R | T ]:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Extrinsics specify 3D baseline: Lateral offset ΔX, Setback ΔY, Height ΔZ.\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "   • Rotation matrix parameterized by Pitch (θ), Yaw (ψ), and Roll (φ).\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "2. Camera Intrinsics Matrix (K):\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Automatically queried from CameraCharacteristics (LENS_INTRINSIC_CALIBRATION).\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "   • Focal lengths (fx, fy) and optical principal center (cx, cy) mapped to preview.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "3. Closed-Form Angle Recovery (O(1)):\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Given a known radar target at forward range R and tap pixel (u, v):\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "     u_norm = (u - cx) / fx    |    v_norm = (v - cy) / fy\n", options: { fontSize: 9.5, bold: true, color: COLOR_PRIMARY, fontFace: "Consolas" } },
-            { text: "     pitch_solved = -atan(v_norm)    |    yaw_solved = atan(u_norm)\n", options: { fontSize: 9.5, bold: true, color: COLOR_PRIMARY, fontFace: "Consolas" } },
-            { text: "   • Solves pitch and yaw instantaneously without iterative gradient descent or non-linear optimization loops.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "4. Single-Tap Snap Workflow:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • In-situ technician taps vehicle center in viewfinder; system locks calibration in <60s.", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+            { text: "1. Coordinate Frame Conventions:\n", options: { fontSize: 11, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
+            { text: "   • Radar Frame {R}: ", options: { fontSize: 9.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "+X_R = Right,  +Y_R = Forward (boresight),  +Z_R = Up.\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "   • Camera Optical Frame {C}: ", options: { fontSize: 9.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "+X_C = Right,  +Y_C = Down,  +Z_C = Optical Depth (Forward).", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
         ], {
-            x: 1.00, y: colY + 0.20, w: colW - 0.40, h: colH - 0.40,
+            x: leftX, y: colY + 0.18, w: leftW, h: 0.95,
             valign: "top", margin: 0, wrap: true
         });
 
-        // Right Column: Interactive Calibration Studio & UX Controls
-        addCard(slide, 6.88, colY, colW, colH, COLOR_SECONDARY, "F8FAFC");
+        // 2. Translation & Axis Transformation Intro
         slide.addText([
-            { text: "Interactive Cockpit Calibration Studio\n\n", options: { fontSize: 13, bold: true, color: COLOR_SECONDARY, fontFace: "Segoe UI" } },
-            { text: "1. Real-Time Fullscreen Reticle HUD:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Viewfinder displays high-contrast target reticle overlay with live coordinate readouts.\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "   • Displays live target range (m), azimuth (°), and pixel reprojection error.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "2. Dual-Mode Manual Fine-Tuning:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Trackpad Delta Drag: Smooth finger dragging across virtual trackpad for fine analog adjustment.\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "   • Precision Nudge Bar: Discrete step buttons (±0.1° fine, ±1.0° coarse) for pitch/yaw.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "3. Persistent JSON Calibration Profile:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Automatically saved to /sdcard/.../calibration/radar_camera_calib.json.\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "   • Reloaded across app restarts and embedded into downstream session archives.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "4. Accidental Gesture Interlock:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Cockpit HorizontalPager userScrollEnabled = false during active calibration to prevent inadvertent tab paging while dragging reticles.", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+            { text: "2. Translation & Axis Transformation:\n", options: { fontSize: 11, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
+            { text: "A point ", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "P_R = [X_R, Y_R, Z_R]^T", options: { fontSize: 9, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: " is translated by physical lever-arm offset ", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "T", options: { fontSize: 9, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: " and rotated by Euler angles (pitch θ, yaw ψ, roll φ):", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
         ], {
-            x: 7.08, y: colY + 0.20, w: colW - 0.40, h: colH - 0.40,
+            x: leftX, y: colY + 1.20, w: leftW, h: 0.60,
+            valign: "top", margin: 0, wrap: true
+        });
+
+        // Equation 1: P_vehicle = R_extrinsic (P_R - T)
+        const eq1W = Math.min(3.80, Math.max(2.40, eqPvehicle.aspectRatio * 0.36));
+        const eq1H = eq1W / eqPvehicle.aspectRatio;
+        slide.addImage({
+            path: eqPvehicle.filePath,
+            x: leftCenterX - (eq1W / 2),
+            y: colY + 1.85,
+            w: eq1W,
+            h: eq1H
+        });
+
+        // Text: M_axis application
+        slide.addText([
+            { text: "To align the vehicle/radar axes into camera optical frame {C}, we apply the permutation matrix ", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "M_axis", options: { fontSize: 9, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: ":", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+        ], {
+            x: leftX, y: colY + 2.30, w: leftW, h: 0.40,
+            valign: "top", margin: 0, wrap: true
+        });
+
+        // Equation 2: M_axis matrix
+        const eq2H = 0.75;
+        const eq2W = eq2H * eqMaxis.aspectRatio;
+        slide.addImage({
+            path: eqMaxis.filePath,
+            x: leftCenterX - (eq2W / 2),
+            y: colY + 2.75,
+            w: eq2W,
+            h: eq2H
+        });
+
+        // Text: mapping result
+        slide.addText([
+            { text: "which maps: ", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "X_C = X_veh,  Y_C = -Z_veh", options: { fontSize: 9, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
+            { text: " (up becomes down),  ", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "Z_C = Y_veh", options: { fontSize: 9, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
+            { text: " (forward becomes optical depth).", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+        ], {
+            x: leftX, y: colY + 3.65, w: leftW, h: 0.50,
+            valign: "top", margin: 0, wrap: true
+        });
+
+        // Key Architectural Benefit note
+        slide.addText([
+            { text: "• Zero-Calibration Rig Requirement: ", options: { fontSize: 8.5, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
+            { text: "Rigid-body baseline offsets [ΔX, ΔY, ΔZ] are measured directly at installation, decoupling translation from orientation.", options: { fontSize: 8.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+        ], {
+            x: leftX, y: colY + 4.30, w: leftW, h: 0.70,
+            valign: "top", margin: 0, wrap: true
+        });
+
+        // ---------------------------------------------------------------------
+        // RIGHT COLUMN: Pinhole Perspective Projection & Reverse Touch Solver
+        // ---------------------------------------------------------------------
+        addCard(slide, 6.78, colY, colW, colH, COLOR_SECONDARY, "F8FAFC");
+        const rightX = 6.98;
+        const rightW = colW - 0.40;
+        const rightCenterX = 6.78 + (colW / 2);
+
+        // 3. Pinhole Perspective Projection Title
+        slide.addText("3. Pinhole Perspective Projection:", {
+            x: rightX, y: colY + 0.18, w: rightW, h: 0.28,
+            fontSize: 11, bold: true, color: COLOR_SECONDARY, fontFace: "Segoe UI",
+            valign: "top", margin: 0
+        });
+
+        // Equation 3: [u*w, v*w, w]^T = K * P_C
+        const eq3H = 0.65;
+        const eq3W = eq3H * eqPinholeMatrix.aspectRatio;
+        slide.addImage({
+            path: eqPinholeMatrix.filePath,
+            x: rightCenterX - (eq3W / 2),
+            y: colY + 0.50,
+            w: eq3W,
+            h: eq3H
+        });
+
+        // Equation 4: u = (fx * X_C) / Z_C + cx, v = (fy * Y_C) / Z_C + cy
+        const eq4H = 0.38;
+        const eq4W = Math.min(rightW, eq4H * eqPerspectiveDiv.aspectRatio);
+        slide.addImage({
+            path: eqPerspectiveDiv.filePath,
+            x: rightCenterX - (eq4W / 2),
+            y: colY + 1.22,
+            w: eq4W,
+            h: eq4H
+        });
+
+        // CameraCharacteristics note
+        slide.addText([
+            { text: "where ", options: { fontSize: 8.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "[fx, fy, cx, cy]", options: { fontSize: 8.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: " are retrieved programmatically from Android's ", options: { fontSize: 8.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "CameraCharacteristics.LENS_INTRINSIC_CALIBRATION", options: { fontSize: 8.5, bold: true, color: COLOR_SECONDARY, fontFace: "Consolas" } },
+            { text: ".", options: { fontSize: 8.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+        ], {
+            x: rightX, y: colY + 1.68, w: rightW, h: 0.35,
+            valign: "top", margin: 0, wrap: true
+        });
+
+        // 4. Closed-Form Reverse Touch Solver Title & Lead Text
+        slide.addText([
+            { text: "4. Closed-Form Reverse Touch Solver (O(1) Calibration):\n", options: { fontSize: 11, bold: true, color: COLOR_SECONDARY, fontFace: "Segoe UI" } },
+            { text: "Instead of iterative non-linear optimization or checkerboards, the user taps a vehicle bounding centroid ", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "(u_tap, v_tap)", options: { fontSize: 9, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: " at radar distance ", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "R", options: { fontSize: 9, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: ":", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+        ], {
+            x: rightX, y: colY + 2.15, w: rightW, h: 0.60,
+            valign: "top", margin: 0, wrap: true
+        });
+
+        // Equation 5: u_norm, v_norm
+        const eq5H = 0.38;
+        const eq5W = Math.min(rightW, eq5H * eqNormRay.aspectRatio);
+        slide.addImage({
+            path: eqNormRay.filePath,
+            x: rightCenterX - (eq5W / 2),
+            y: colY + 2.80,
+            w: eq5W,
+            h: eq5H
+        });
+
+        // Equation 6: pitch theta = -arctan(v_norm), yaw psi = arctan(u_norm)
+        const eq6H = 0.36;
+        const eq6W = Math.min(rightW, eq6H * eqAngleRecovery.aspectRatio);
+        slide.addImage({
+            path: eqAngleRecovery.filePath,
+            x: rightCenterX - (eq6W / 2),
+            y: colY + 3.26,
+            w: eq6W,
+            h: eq6H
+        });
+
+        // Conclusion & Test Track Convergence Note
+        slide.addText([
+            { text: "• Instant Track Convergence: ", options: { fontSize: 8.5, bold: true, color: COLOR_SUCCESS, fontFace: "Segoe UI" } },
+            { text: "Recovers pitch and yaw in <1 ms with zero gradient descent or bundle adjustment. Guarantees instant, repeatable calibration right on the test track.", options: { fontSize: 8.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+        ], {
+            x: rightX, y: colY + 3.80, w: rightW, h: 0.55,
+            valign: "top", margin: 0, wrap: true
+        });
+
+        // Storage & Monotonic sync note
+        slide.addText([
+            { text: "• Persistent JSON & Monotonic Sync: ", options: { fontSize: 8.5, bold: true, color: COLOR_SECONDARY, fontFace: "Segoe UI" } },
+            { text: "Angles are saved to calibration/radar_camera_calib.json and attached directly to session MCAP containers for unified Foxglove playback.", options: { fontSize: 8.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+        ], {
+            x: rightX, y: colY + 4.40, w: rightW, h: 0.65,
             valign: "top", margin: 0, wrap: true
         });
     }
@@ -468,13 +698,13 @@ export async function generateRoadSenseWeek2Presentation() {
         // Left Column: Server Architecture (tools/roadsense_web_server.py)
         addCard(slide, 0.80, colY, colW, colH, COLOR_PRIMARY, "F8FAFC");
         slide.addText([
-            { text: "Zero-Dependency Local Web Server\n\n", options: { fontSize: 13, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
+            { text: "Zero-Dependency Local Web Server & Automation Engine\n\n", options: { fontSize: 13, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
             { text: "1. Zero External Python Packages:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
             { text: "   • Built exclusively on Python 3 standard library (http.server.ThreadingHTTPServer).\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
             { text: "   • Runs instantly out-of-the-box on Windows/Linux without pip dependency conflicts.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
             { text: "2. Port 8088 Service Architecture:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
             { text: "   • Accessible at http://localhost:8088 across local browser sessions.\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "   • Robust REST API endpoints for sessions, devices, extraction, and playback.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "   • Robust REST API endpoints (/api/status, /api/sessions, /api/run, /api/stop).\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
             { text: "3. Server-Sent Events (SSE) Live Streaming:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
             { text: "   • Endpoint: /api/stream delivers real-time execution progress directly to browser.\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
             { text: "   • Eliminates aggressive client polling loops; streams byte-level transfer progress.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
@@ -485,25 +715,38 @@ export async function generateRoadSenseWeek2Presentation() {
             valign: "top", margin: 0, wrap: true
         });
 
-        // Right Column: Web Cockpit Interface (tools/web_dashboard/index.html)
-        addCard(slide, 6.88, colY, colW, colH, COLOR_SECONDARY, "F8FAFC");
-        slide.addText([
-            { text: "Automotive Web Cockpit Features\n\n", options: { fontSize: 13, bold: true, color: COLOR_SECONDARY, fontFace: "Segoe UI" } },
-            { text: "1. Dark-Mode Automotive Cockpit:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • High-contrast slate/cyan UI designed for test-track visibility and quick operation.\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "   • Dynamic gauges for Battery (%), Thermal State (°C), and Storage (GB free).\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "2. Session Ingestion & Health Inspector:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Automatically enumerates all on-device drive sessions with sensor inventories.\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "   • 1-Click extraction pulling Radar, Camera, IMU, GNSS, and CANedge2 logs.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "3. Automated MCAP Conversion Pipeline:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Triggers session_to_mcap.py directly with user-selectable demuxing modes.\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "   • Real-time progress bar tracking video demux, point cloud serialization, and /tf.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "4. Instant 1-Click Foxglove Launcher:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Generates direct desktop foxglove://open?ds=file URIs for instant visualization.", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
-        ], {
-            x: 7.08, y: colY + 0.20, w: colW - 0.40, h: colH - 0.40,
-            valign: "top", margin: 0, wrap: true
+        // Right Column Top: Visual Dashboard Header Mockup
+        addCard(slide, 6.88, colY, colW, 1.45, COLOR_SECONDARY, "0F172A");
+        slide.addText("RoadSense Telemetry & Script Hub  •  http://127.0.0.1:8088", {
+            x: 7.08, y: colY + 0.15, w: colW - 0.40, h: 0.25,
+            fontSize: 10, bold: true, color: "38BDF8", fontFace: "Segoe UI", margin: 0
         });
+
+        // 4 Status Badges on the Mockup Header
+        const dashBadges = [
+            { label: "ADB STATUS", val: "Connected (M21)", col: "10B981" },
+            { label: "PHONE BATTERY", val: "55% • 36.2°C", col: "F59E0B" },
+            { label: "PHONE STORAGE", val: "42.8 GB Free", col: "38BDF8" },
+            { label: "DESKTOP GPU", val: "NVENC Active", col: "A855F7" }
+        ];
+        dashBadges.forEach((b, idx) => {
+            const bx = 7.08 + (idx % 2) * 2.65;
+            const by = colY + 0.48 + Math.floor(idx / 2) * 0.42;
+            addCard(slide, bx, by, 2.50, 0.36, "334155", "1E293B");
+            slide.addText(`${b.label}: ${b.val}`, {
+                x: bx + 0.10, y: by + 0.08, w: 2.30, h: 0.20,
+                fontSize: 8, bold: true, color: b.col, fontFace: "Segoe UI", margin: 0
+            });
+        });
+
+        // Right Column Bottom: Designated Dashboard Visual Showcase Placeholder
+        addPlaceholder(
+            slide,
+            6.88, colY + 1.65, colW, 3.50,
+            "RoadSense Web Cockpit (http://localhost:8088)",
+            "Live browser cockpit interface demonstrating:\n• 1-Click ADB log extraction, verification & MCAP compilation\n• Real-time SSE progress streaming with transfer bitrates\n• Session inventory table with sensor health indicators\n• 1-Click Foxglove desktop player launcher button",
+            "Web Dashboard Visual Showcase"
+        );
     }
 
     // =========================================================================
@@ -513,75 +756,84 @@ export async function generateRoadSenseWeek2Presentation() {
         const slide = pres.addSlide();
         addSlideHeader(slide, "Data Architecture", "High-Throughput Foxglove MCAP Pipeline (>11,500 FPS)", "Mathematical coordinate alignment eliminating GPU transcoding overhead", 7);
 
-        // Top Summary Card: Breakthrough & Mathematical /tf Roll Alignment
-        addCard(slide, 0.80, 1.75, 11.733, 2.05, COLOR_PRIMARY, "F8FAFC");
+        const colW = 5.65;
+        const colY = 1.75;
+        const colH = 5.15;
+
+        // Left Column Top Card: Breakthrough & Mathematical /tf Roll Alignment
+        addCard(slide, 0.80, colY, colW, 2.05, COLOR_PRIMARY, "F8FAFC");
         slide.addText([
-            { text: "The Orientation Challenge & The Zero-Cost Mathematical Breakthrough\n\n", options: { fontSize: 12.5, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
-            { text: "• The Hardware Orientation Dilemma: ", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "Android smartphones mounted in landscape record H.264 video with an internal 180° rotation matrix. Previously, rendering this upright in Foxglove 3D space required full video transcoding (decoding and re-encoding every frame).\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "• Zero-Cost Bitstream Demuxing (>11,500 FPS): ", options: { fontSize: 10, bold: true, color: COLOR_SUCCESS, fontFace: "Segoe UI" } },
-            { text: "Instead of modifying pixel buffers, session_to_mcap.py inspects the MP4 tkhd matrix in O(1) time and automatically folds 180° into the camera_optical /tf frame roll:\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "  tf_roll = 180.0°   |   tf_pitch = -mounting_pitch   |   tf_yaw = -mounting_yaw\n", options: { fontSize: 9.5, bold: true, color: COLOR_PRIMARY, fontFace: "Consolas" } },
-            { text: "• Embedded Cockpit Layout: ", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "Every .mcap file automatically embeds RoadSense_Cockpit_Layout.json as a container attachment for zero-setup 3D perception visualization.", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+            { text: "Zero-Cost Mathematical /tf Frame Roll Alignment\n\n", options: { fontSize: 12, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
+            { text: "• The Hardware Orientation Dilemma: ", options: { fontSize: 9.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "Android smartphones mounted in landscape record H.264 video with an internal 180° rotation matrix. Rendering this upright in 3D space previously required full video re-encoding.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "• Zero-Cost Bitstream Demuxing (>11,500 FPS): ", options: { fontSize: 9.5, bold: true, color: COLOR_SUCCESS, fontFace: "Segoe UI" } },
+            { text: "session_to_mcap.py inspects the MP4 tkhd matrix in O(1) time and folds 180° into the camera_optical /tf frame roll:\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "  tf_roll = 180.0°   |   tf_pitch = -mounting_pitch   |   tf_yaw = -mounting_yaw\n", options: { fontSize: 8.5, bold: true, color: COLOR_PRIMARY, fontFace: "Consolas" } },
+            { text: "• Embedded Layout: ", options: { fontSize: 9.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "Auto-embeds RoadSense_Cockpit_Layout.json for instant 3D visualization.", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
         ], {
-            x: 1.00, y: 1.90, w: 11.333, h: 1.75,
+            x: 1.00, y: colY + 0.15, w: colW - 0.40, h: 1.75,
             valign: "top", margin: 0, wrap: true
         });
 
-        // Bottom Table: Quantitative Performance Benchmark Matrix
+        // Left Column Bottom: Quantitative Performance Benchmark Matrix
         const benchmarkRows = [
             [
-                { text: "Conversion Mode", options: { fontSize: 9.5, bold: true, color: "FFFFFF", fill: "1E293B" } },
-                { text: "Processing Speed", options: { fontSize: 9.5, bold: true, color: "FFFFFF", fill: "1E293B" } },
-                { text: "1-Min Video Duration", options: { fontSize: 9.5, bold: true, color: "FFFFFF", fill: "1E293B" } },
-                { text: "GPU / Hardware Load", options: { fontSize: 9.5, bold: true, color: "FFFFFF", fill: "1E293B" } },
-                { text: "Image Bitstream Quality", options: { fontSize: 9.5, bold: true, color: "FFFFFF", fill: "1E293B" } },
-                { text: "Recommended Use Case", options: { fontSize: 9.5, bold: true, color: "FFFFFF", fill: "1E293B" } }
+                { text: "Conversion Mode", options: { fontSize: 8.5, bold: true, color: "FFFFFF", fill: "1E293B" } },
+                { text: "Processing Speed", options: { fontSize: 8.5, bold: true, color: "FFFFFF", fill: "1E293B" } },
+                { text: "1-Min Video", options: { fontSize: 8.5, bold: true, color: "FFFFFF", fill: "1E293B" } },
+                { text: "GPU Load", options: { fontSize: 8.5, bold: true, color: "FFFFFF", fill: "1E293B" } },
+                { text: "Bitstream Quality", options: { fontSize: 8.5, bold: true, color: "FFFFFF", fill: "1E293B" } }
             ],
             [
-                { text: "Zero-Cost Demux (Default)", options: { fontSize: 9, bold: true, color: COLOR_SUCCESS } },
-                { text: ">11,500 FPS", options: { fontSize: 9, bold: true, color: COLOR_SUCCESS } },
-                { text: "~3.4 seconds", options: { fontSize: 9, bold: true, color: COLOR_SUCCESS } },
-                { text: "0% GPU (Minimal CPU)", options: { fontSize: 9, color: COLOR_TEXT_MUTED } },
-                { text: "100% Bit-Lossless Copy", options: { fontSize: 9, color: COLOR_TEXT_MUTED } },
-                { text: "Default high-throughput archiving pipeline", options: { fontSize: 9, color: COLOR_TEXT_MUTED } }
+                { text: "Zero-Cost Demux (Default)", options: { fontSize: 8, bold: true, color: COLOR_SUCCESS } },
+                { text: ">11,500 FPS", options: { fontSize: 8, bold: true, color: COLOR_SUCCESS } },
+                { text: "~3.4 seconds", options: { fontSize: 8, bold: true, color: COLOR_SUCCESS } },
+                { text: "0% GPU (Low CPU)", options: { fontSize: 8, color: COLOR_TEXT_MUTED } },
+                { text: "100% Bit-Lossless Copy", options: { fontSize: 8, color: COLOR_TEXT_MUTED } }
             ],
             [
-                { text: "NVENC Transcoding (--flip-video)", options: { fontSize: 9, bold: true, color: COLOR_PRIMARY } },
-                { text: "~650 FPS", options: { fontSize: 9, bold: true, color: COLOR_PRIMARY } },
-                { text: "~32 seconds", options: { fontSize: 9, bold: true, color: COLOR_PRIMARY } },
-                { text: "Dedicated NVENC SIP block", options: { fontSize: 9, color: COLOR_TEXT_MUTED } },
-                { text: "High-Bitrate (GOP 30 / IDR)", options: { fontSize: 9, color: COLOR_TEXT_MUTED } },
-                { text: "3rd-party viewers lacking /tf roll support", options: { fontSize: 9, color: COLOR_TEXT_MUTED } }
+                { text: "NVENC Transcode (--flip-video)", options: { fontSize: 8, bold: true, color: COLOR_PRIMARY } },
+                { text: "~650 FPS", options: { fontSize: 8, bold: true, color: COLOR_PRIMARY } },
+                { text: "~32 seconds", options: { fontSize: 8, bold: true, color: COLOR_PRIMARY } },
+                { text: "NVENC Dedicated Block", options: { fontSize: 8, color: COLOR_TEXT_MUTED } },
+                { text: "High-Bitrate (GOP 30 / IDR)", options: { fontSize: 8, color: COLOR_TEXT_MUTED } }
             ],
             [
-                { text: "CPU Software Transcoding", options: { fontSize: 9, color: COLOR_TEXT_SUBTLE } },
-                { text: "~85 FPS", options: { fontSize: 9, color: COLOR_TEXT_SUBTLE } },
-                { text: "~240 seconds", options: { fontSize: 9, color: COLOR_TEXT_SUBTLE } },
-                { text: "100% Multi-Core CPU Load", options: { fontSize: 9, color: COLOR_TEXT_SUBTLE } },
-                { text: "Standard libx264 profile", options: { fontSize: 9, color: COLOR_TEXT_SUBTLE } },
-                { text: "Fallback for non-NVIDIA test machines", options: { fontSize: 9, color: COLOR_TEXT_SUBTLE } }
+                { text: "CPU Software Transcode", options: { fontSize: 8, color: COLOR_TEXT_SUBTLE } },
+                { text: "~85 FPS", options: { fontSize: 8, color: COLOR_TEXT_SUBTLE } },
+                { text: "~240 seconds", options: { fontSize: 8, color: COLOR_TEXT_SUBTLE } },
+                { text: "100% Multi-Core CPU", options: { fontSize: 8, color: COLOR_TEXT_SUBTLE } },
+                { text: "libx264 profile", options: { fontSize: 8, color: COLOR_TEXT_SUBTLE } }
             ]
         ];
 
         slide.addTable(benchmarkRows, {
-            x: 0.80, y: 4.05, w: 11.733,
-            colW: [2.50, 1.60, 1.80, 2.00, 1.933, 1.90],
+            x: 0.80, y: colY + 2.20, w: colW,
+            colW: [1.55, 1.05, 0.95, 1.05, 1.05],
             border: { type: "solid", pt: 1, color: "CBD5E1" },
             fill: "F8FAFC",
             valign: "middle"
         });
 
-        // Bottom Callout Note
-        addCard(slide, 0.80, 6.05, 11.733, 0.75, "BFDBFE", "EFF6FF");
+        // Callout under table
+        addCard(slide, 0.80, colY + 4.25, colW, 0.90, "BFDBFE", "EFF6FF");
         slide.addText([
-            { text: "ARCHITECTURAL RESULT: ", options: { fontSize: 9.5, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
-            { text: "Zero-cost demuxing delivers a 9.4x speedup over hardware NVENC and a 70x speedup over CPU transcoding, allowing field engineers to convert 1-hour multi-sensor drive runs in under 3.5 minutes on standard laptops.", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+            { text: "PERFORMANCE MULTIPLIER: ", options: { fontSize: 9, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
+            { text: "Zero-cost demuxing delivers a 9.4x speedup over NVENC and 70x over CPU encoding, converting 1-hour sessions in under 3.5 minutes on standard laptops.", options: { fontSize: 8.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
         ], {
-            x: 1.00, y: 6.10, w: 11.333, h: 0.65,
+            x: 0.95, y: colY + 4.30, w: colW - 0.30, h: 0.80,
             valign: "middle", margin: 0, wrap: true
         });
+
+        // Right Column: Designated Foxglove 3D Perception Visual Showcase
+        addPlaceholder(
+            slide,
+            6.88, colY, colW, colH,
+            "Foxglove Studio 3D Perception Cockpit",
+            "Embedded RoadSense_Cockpit_Layout.json:\n• Upright 1080p camera feed with /tf optical roll alignment\n• 3D TI mmWave radar point cloud & Doppler velocity vectors\n• Persistent target tracks with velocity vectors & bounding boxes\n• Monotonic timeline scrubber with synchronized multi-sensor playback",
+            "Foxglove 3D Perception Showcase"
+        );
     }
 
     // =========================================================================
@@ -756,117 +1008,127 @@ export async function generateRoadSenseWeek2Presentation() {
     }
 
     // =========================================================================
-    // SLIDE 10: ADAS Roadmap: Week 3 & Beyond
+    // SLIDE 10: Phase 3 — Automated ML Validation & Sensor Fusion
     // =========================================================================
     {
         const slide = pres.addSlide();
-        addSlideHeader(slide, "Strategic Direction", "The Road Ahead: On-Device Edge Perception & Active Safety Alerts", "Transitioning from multimodal dataset logging to real-time collision warning", 10);
+        addSlideHeader(slide, "Strategic Direction • Phase 3", "Automated ML Validation & Multi-Modal Sensor Fusion Engine", "Correlating camera ground truth with radar point clouds to train superior perception models", 10);
 
         const colW = 3.65;
         const colY = 1.75;
         const colH = 5.15;
 
-        // Pillar 1: On-Device Edge Object Detection
+        // Pillar 1: Optical Ground Truth & Road Boundary Segmentation
         addCard(slide, 0.80, colY, colW, colH, COLOR_PRIMARY, "F8FAFC");
         slide.addText([
-            { text: "Pillar 1: Edge Object Detection\n\n", options: { fontSize: 13, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
-            { text: "• Lightweight TFLite / YOLO-Nano:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "  Deploy quantized mobile neural network directly onto smartphone NPU / GPU delegate.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "• 30 FPS Real-Time Inference:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "  Zero latency penalty on Camera2 recording pipeline; asynchronous frame sampling.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "• 2D Bounding Box Extraction:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "  Detect vehicles, motorcycles, auto-rickshaws, and pedestrians in camera pixel space.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "• Ground Plane Snapping:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "  Bottom edge of 2D bounding boxes projected onto 3D road plane for spatial fusion.", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+            { text: "Pillar 1: Optical Ground Truth\n", options: { fontSize: 13, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
+            { text: "Vision-to-3D Road Inversion\n\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_SUBTLE, fontFace: "Segoe UI" } },
+            { text: "• Dense Semantic Detection:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "  YOLOv8x/v11 detects dynamic vehicles (cars, motorcycles, auto-rickshaws, pedestrians) + road contact patches.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "• Road Boundary Segmentation:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "  Segments drivable corridor, curbs, guardrails, and roadside clutter (signposts, trees, barriers).\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "• Inverse Pinhole Raycasting:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "  Projects bounding box road contacts onto ground plane (Z_road = 0) in closed form, calculating exact metric 3D positions (Xc, Yc, Zc).\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "• Replaces ₹35L RTK-DGPS:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "  Zero incremental hardware cost; establishes ground truth for all surrounding traffic in uncontrolled public driving.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "• Output: vision_gt.json:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "  Microsecond synchronized 3D bounding boxes latched to session_timeline.csv.", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
         ], {
-            x: 1.00, y: colY + 0.20, w: colW - 0.40, h: colH - 0.40,
+            x: 1.00, y: colY + 0.15, w: colW - 0.40, h: colH - 0.30,
             valign: "top", margin: 0, wrap: true
         });
 
-        // Pillar 2: Multimodal Radar-Camera EKF Tracker
+        // Pillar 2: Spatial Point-Cloud Correlation & Anomaly Mining
         addCard(slide, 4.84, colY, colW, colH, COLOR_PURPLE, "F8FAFC");
         slide.addText([
-            { text: "Pillar 2: Multimodal EKF Fusion\n\n", options: { fontSize: 13, bold: true, color: COLOR_PURPLE, fontFace: "Segoe UI" } },
-            { text: "• Extended Kalman Filter (EKF):\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "  Fuse radar range and Doppler range-rate with camera 2D azimuth and elevation angles.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "• Sensor Complementarity:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "  Radar excels at depth & speed (immune to rain/glare); Vision excels at lateral position & classification.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "• Track Persistence & Gating:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "  Mahalanobis distance gating to prevent ghost association and maintain persistent track IDs.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "• Ego-Motion Compensation:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "  LSM6DSL yaw rate and IMU velocity dynamically subtracted from radar Doppler vectors.", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+            { text: "Pillar 2: Point-Cloud Correlation\n", options: { fontSize: 13, bold: true, color: COLOR_PURPLE, fontFace: "Segoe UI" } },
+            { text: "Clutter vs. Target Discrepancy Mining\n\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_SUBTLE, fontFace: "Segoe UI" } },
+            { text: "• 6-DOF Spatial Alignment:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "  Uses calibrated [R|T] and K to project 3.125M radar point clouds and EKF tracks into camera pixel space.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "• Noise vs. Vehicle Discrimination:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "  Correlates radar returns with optical objects to determine if reflections are genuine vehicles, multipath ghosts, or roadside clutter.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "• Self-Supervised Disagreement Rules:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "  • Rule 1 (Phantom Ghost): Radar target present & Camera void (multipath ground bounce under trucks/plates).\n", options: { fontSize: 8.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "  • Rule 2 (Radar Blindness): Camera target present & Radar void (low-RCS plastic scooters, pedestrians).\n\n", options: { fontSize: 8.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "• Human-in-the-Loop Active Learning:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "  Extracts automated 5-second video triage clips (.mp4) for 1-click human verification of discrepant edge cases.", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
         ], {
-            x: 5.04, y: colY + 0.20, w: colW - 0.40, h: colH - 0.40,
+            x: 5.04, y: colY + 0.15, w: colW - 0.40, h: colH - 0.30,
             valign: "top", margin: 0, wrap: true
         });
 
-        // Pillar 3: Active Safety Warning Engine (FCW / BSD)
+        // Pillar 3: Superior Fused Multimodal Model (Camera + Radar)
         addCard(slide, 8.88, colY, colW, colH, COLOR_SUCCESS, "F8FAFC");
         slide.addText([
-            { text: "Pillar 3: Active Safety Warnings\n\n", options: { fontSize: 13, bold: true, color: COLOR_SUCCESS, fontFace: "Segoe UI" } },
-            { text: "• Forward Collision Warning (FCW):\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "  Compute Time-to-Collision (TTC = Range / -RangeRate). Trigger audio-visual alerts when TTC < 2.5s.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "• Blind Spot Detection (BSD):\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "  Radar boundary monitoring in adjacent lane zones (lateral 1.5m to 4.5m, setback -5m to +2m).\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "• Cockpit HUD Warning Overlays:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "  Red visual warning halos and audible vehicle speaker chimes on high-priority collision vectors.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "• Event Tagging & Highlight Export:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "  Automatically tag near-miss events in MCAP and session_timeline.csv for fleet safety analysis.", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+            { text: "Pillar 3: Fused Multimodal Model\n", options: { fontSize: 13, bold: true, color: COLOR_SUCCESS, fontFace: "Segoe UI" } },
+            { text: "Surpassing Camera-Only Limits\n\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_SUBTLE, fontFace: "Segoe UI" } },
+            { text: "• Cross-Modal Sensor Synergy:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "  Trains a multimodal network fusing radar Doppler velocity and metric depth with camera high-resolution visual semantics.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "• Surpasses Camera-Only Baseline:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "  • Maintains tracking during heavy monsoon rain, thick fog, direct sun glare, and pitch darkness.\n", options: { fontSize: 8.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "  • Resolves camera long-range pitch errors (±18m error at >60m resolved by direct radar range).\n\n", options: { fontSize: 8.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "• Automated Reference Laboratory:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "  The trained model serves as the automated ground truth validator, eliminating hundreds of manual video review hours.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "• CLEAR MOT & ISO 15623 Benchmarking:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "  Automated calculation of MOTA, MOTP, IDF1, and active safety pass/fail compliance scorecards.", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
         ], {
-            x: 9.08, y: colY + 0.20, w: colW - 0.40, h: colH - 0.40,
+            x: 9.08, y: colY + 0.15, w: colW - 0.40, h: colH - 0.30,
             valign: "top", margin: 0, wrap: true
         });
     }
 
     // =========================================================================
-    // SLIDE 11: Executive Conclusion & Next Steps
+    // SLIDE 11: Milestone Handover: Phases 1 & 2 Complete, Phase 3 Launch
     // =========================================================================
     {
         const slide = pres.addSlide();
-        addSlideHeader(slide, "Project Handover", "Consolidated Milestones & Immediate Action Items", "Summary of Week 2 deliverables and execution plan for Week 3", 11);
+        addSlideHeader(slide, "Project Handover & Roadmap", "Milestone Handover: Phases 1 & 2 Complete, Phase 3 Launch", "Consolidating on-device perception breakthroughs and launching the validation pipeline", 11);
 
         const colW = 5.65;
         const colY = 1.75;
         const colH = 5.15;
 
-        // Left Column: Key Accomplishments Summary
+        // Left Column: Sprint 2 Accomplishments (Phases 1 & 2 Complete)
         addCard(slide, 0.80, colY, colW, colH, COLOR_SUCCESS, "F8FAFC");
         slide.addText([
-            { text: "Sprint 2 Key Accomplishments\n\n", options: { fontSize: 13, bold: true, color: COLOR_SUCCESS, fontFace: "Segoe UI" } },
-            { text: "1. 6-DOF Spatial Calibration Complete:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Full [R|T] extrinsics and Camera2 K matrix operational.\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "   • Reverse Touch Solver snaps pitch/yaw in <60 seconds.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "2. RViz-Inspired Radar Overlays:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • 12-segment road contact footprints and vertical stems solve depth ambiguity.\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "   • Staggered distance range rings render seamlessly in live viewfinder.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "3. 100 Hz LSM6DSL Kinematics:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Gravity-free linear acceleration and magnetic-immune 6-DOF orientation.\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "   • Sub-2ms inter-frame jitter verified via monotonic hardware clock.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "4. High-Throughput Desktop Toolchain:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Zero-dependency web dashboard (:8088) with real-time SSE progress.\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "   • Zero-cost MCAP video demuxing at >11,500 FPS (~3.4s, 0% GPU load).\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "5. Production Engineering Hardening:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Bugs #11 to #15 diagnosed and permanently eliminated; 24/24 unit tests passing.", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
+            { text: "Sprint 2 Deliverables: 100% Complete\n", options: { fontSize: 13, bold: true, color: COLOR_SUCCESS, fontFace: "Segoe UI" } },
+            { text: "On-Device Perception, Kinematics & Toolchain Foundation\n\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_SUBTLE, fontFace: "Segoe UI" } },
+            { text: "1. Phase 1: 6-DOF Spatial Calibration Complete (✅):\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "   • Full [R|T] extrinsics and Camera2 K intrinsics operational.\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "   • Reverse Touch Solver (O(1)) snaps pitch/yaw in <60 seconds without calibration rigs.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "2. Phase 2: Live Viewfinder Overlays Complete (✅):\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "   • RViz-inspired hybrid radar lollipops with 12-segment road contact footprints and vertical stems.\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "   • Painter's algorithm depth-sorting (sortByDescending) & staggered range rings (10m–120m).\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "3. 100 Hz LSM6DSL Vehicle Kinematics (✅):\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "   • Gravity-free linear acceleration & magnetic-immune 6-DOF orientation with sub-2ms jitter.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "4. High-Throughput Desktop Toolchain (✅):\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "   • Zero-dependency web dashboard (:8088) with real-time SSE progress streaming.\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "   • Zero-cost MCAP demuxing at >11,500 FPS with embedded RoadSense_Cockpit_Layout.json.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "5. Production Engineering Hardening (✅):\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "   • Bugs #11 to #15 diagnosed and permanently eliminated; 24/24 JVM unit tests passing clean.", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } }
         ], {
-            x: 1.00, y: colY + 0.20, w: colW - 0.40, h: colH - 0.40,
+            x: 1.00, y: colY + 0.15, w: colW - 0.40, h: colH - 0.30,
             valign: "top", margin: 0, wrap: true
         });
 
-        // Right Column: Immediate Action Items & Deployment Checklist
+        // Right Column: Phase 3 Immediate Action Items & Sprint Plan
         addCard(slide, 6.88, colY, colW, colH, COLOR_PRIMARY, "F8FAFC");
         slide.addText([
-            { text: "Immediate Action Items & Week 3 Sprint\n\n", options: { fontSize: 13, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
-            { text: "1. Vehicle Test Track Verification:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Validate 6-DOF Reverse Touch Solver across 5 varied vehicle mounting heights and windshield rake angles on the Bajaj test track.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "2. Extended Drive Cycle Thermal Validation:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Execute continuous 60-minute logging runs under high ambient heat (38°C+) to benchmark sustained 100 Hz IMU jitter and Camera2 thermals.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "3. TFLite Edge Perception Pipeline:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Integrate quantized YOLOv8-nano model on Android NNAPI/GPU delegate for 30 FPS vehicle and pedestrian bounding box detection.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "4. Multimodal EKF Tracker Development:\n", options: { fontSize: 10.5, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
-            { text: "   • Implement Kotlin Extended Kalman Filter fusing radar Doppler velocity with vision bounding box centroids.\n\n", options: { fontSize: 9.5, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
-            { text: "Questions & Technical Discussion", options: { fontSize: 12, bold: true, color: COLOR_SUCCESS, fontFace: "Segoe UI" } }
+            { text: "Phase 3 Sprint Action Plan\n", options: { fontSize: 13, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI" } },
+            { text: "Automated ML Validation & Dataset Engine\n\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_SUBTLE, fontFace: "Segoe UI" } },
+            { text: "1. Offline Optical 3D Raycaster Engine (vision_gt.json):\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "   • Deploy YOLOv8x/v11 on recorded drive sessions to extract 2D vehicle bounding boxes and road plane contact patches (Z_road = 0).\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "2. Radar Point-Cloud & Clutter Correlator:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "   • Correlate radar reflections against optical objects to separate valid vehicle tracks from noise bursts and roadside clutter.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "3. Autonomous Discrepancy Mining Pipeline:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "   • Implement Rules 1–3 to automatically flag phantom radar ghosts and low-RCS blindness into 5-second video triage clips.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "4. Active Learning Web Triage Interface:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "   • Stand up a 1-click review module on the local Web Dashboard (localhost:8088) for rapid human verification of mined edge cases.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "5. Train Multimodal Benchmark Fusion Model:\n", options: { fontSize: 10, bold: true, color: COLOR_TEXT_MAIN, fontFace: "Segoe UI" } },
+            { text: "   • Train the fused radar-vision network to automate fleet validation and generate automated CLEAR MOT scorecards.\n\n", options: { fontSize: 9, color: COLOR_TEXT_MUTED, fontFace: "Segoe UI" } },
+            { text: "Questions & Technical Discussion", options: { fontSize: 11, bold: true, color: COLOR_SUCCESS, fontFace: "Segoe UI" } }
         ], {
-            x: 7.08, y: colY + 0.20, w: colW - 0.40, h: colH - 0.40,
+            x: 7.08, y: colY + 0.15, w: colW - 0.40, h: colH - 0.30,
             valign: "top", margin: 0, wrap: true
         });
     }
