@@ -242,7 +242,7 @@ def get_gpu_status():
 class DashboardRequestHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         # Suppress noisy SSE poll logs
-        if "GET /api/stream" in args[0]:
+        if args and isinstance(args[0], str) and "GET /api/stream" in args[0]:
             return
         super().log_message(format, *args)
 
@@ -258,6 +258,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
 
         if path in ["/", "/index.html"]:
             self.serve_file(INDEX_HTML, "text/html; charset=utf-8")
+        elif path == "/favicon.ico":
+            self.send_response(204)
+            self.end_headers()
         elif path == "/api/status":
             self.serve_json({
                 "adb": get_adb_status(),
