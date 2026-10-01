@@ -99,6 +99,8 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
    * The user will perform all APK builds and installations directly. Agents must NOT attempt to execute `adb install` or `pm install` on target hardware. Agents focus on code edits, specifications, architectures, and JVM unit testing.
 6. **Implementation Plans & Architecture Artifacts Mirroring:**  
    * Whenever an implementation plan, architectural feasibility report, or walkthrough artifact is created or updated in the internal brain artifact directory, agents MUST mirror a copy directly into `intel/Implementations/<plan_name>.md` (or `intel/` for general architecture reports). This guarantees the USER has direct workspace access to all design documents without needing to check hidden `.gemini` folders.
+7. **Presentation Equations Standard:**  
+   * NEVER attempt to embed or generate mathematical equations as SVGs or bitmap images in presentation slides. The user manually inserts equations using native PowerPoint equation boxes (`Alt + =` / OMML) for vector perfection and font consistency. Agents are responsible for generating slide layouts, card structures, clean reserved spacing, and providing copy-pasteable LaTeX strings in handover notes (`intel/presentations/decks/*_Handover_Notes.md`).
 
 ---
 
