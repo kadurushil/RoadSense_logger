@@ -1342,25 +1342,45 @@ def convert_session_to_mcap(
                 entity.timestamp.nanos = nano
                 entity.lifetime.nanos = 150_000_000 # 150 ms fallback persistence
 
-                for idx, t in enumerate(tracks):
-                    # ADAS Target Identification matching RoadSense live UI & fusion engine
-                    is_fcw = False
-                    if fcw and fcw_stage > 0:
+                # Multi-tiered FCW Target Matching
+                matched_fcw_idx = None
+                if fcw and fcw_stage > 0:
+                    # Tier 1: ID / Cluster / Slot / Modulo 256 match
+                    for idx, t in enumerate(tracks):
                         if fcw_tid > 0 and (t["tid"] == fcw_tid or t.get("cid") == fcw_tid or (idx + 1) == fcw_tid or (t["tid"] % 256) == fcw_tid):
-                            is_fcw = True
-                        elif fcw_ty > 0.0:
-                            dist_fcw = math.hypot(t.get("x_sensor", -t["y_left"]) - fcw_tx, t.get("y_sensor", t["x_fwd"]) - fcw_ty)
-                            if dist_fcw < 4.0:
-                                is_fcw = True
+                            matched_fcw_idx = idx
+                            break
+                    # Tier 2: Distance matching (Longitudinal distance within 4.0m or 2D Euclidean distance < 5.0m)
+                    if matched_fcw_idx is None and fcw_ty > 0.5:
+                        for idx, t in enumerate(tracks):
+                            if abs(t["x_fwd"] - fcw_ty) < 4.0 or math.hypot(t.get("x_sensor", -t["y_left"]) - fcw_tx, t.get("y_sensor", t["x_fwd"]) - fcw_ty) < 5.0:
+                                matched_fcw_idx = idx
+                                break
+                    # Tier 3: High-Risk Forward Corridor matching
+                    if matched_fcw_idx is None:
+                        candidates = [(idx, t) for idx, t in enumerate(tracks) if t["risk"] >= 2 and abs(t["y_left"]) <= 4.5 and t["x_fwd"] <= 50.0]
+                        if not candidates:
+                            candidates = [(idx, t) for idx, t in enumerate(tracks) if t["risk"] >= 1 and t["vx_fwd"] < -1.0 and abs(t["y_left"]) <= 4.5]
+                        if candidates:
+                            candidates.sort(key=lambda item: (-item[1]["risk"], item[1]["x_fwd"]))
+                            matched_fcw_idx = candidates[0][0]
 
-                    is_acc = False
-                    if acc and not is_fcw:
+                # Multi-tiered ACC Target Matching
+                matched_acc_idx = None
+                if acc and (acc_poi > 0 or acc_ty > 0.5):
+                    for idx, t in enumerate(tracks):
                         if acc_poi > 0 and (t["tid"] == acc_poi or t.get("cid") == acc_poi or (idx + 1) == acc_poi or (t["tid"] % 256) == acc_poi):
-                            is_acc = True
-                        elif acc_ty > 0.0:
-                            dist_acc = math.hypot(t.get("x_sensor", -t["y_left"]) - acc_tx, t.get("y_sensor", t["x_fwd"]) - acc_ty)
-                            if dist_acc < 4.0:
-                                is_acc = True
+                            matched_acc_idx = idx
+                            break
+                    if matched_acc_idx is None and acc_ty > 0.5:
+                        for idx, t in enumerate(tracks):
+                            if abs(t["x_fwd"] - acc_ty) < 4.0 or math.hypot(t.get("x_sensor", -t["y_left"]) - acc_tx, t.get("y_sensor", t["x_fwd"]) - acc_ty) < 5.0:
+                                matched_acc_idx = idx
+                                break
+
+                for idx, t in enumerate(tracks):
+                    is_fcw = (idx == matched_fcw_idx)
+                    is_acc = (idx == matched_acc_idx)
 
                     # 3D Bounding Box
                     cube = entity.cubes.add()
@@ -1380,7 +1400,14 @@ def convert_session_to_mcap(
                     cube.size.z = t["height"]
 
                     # Unified Color Palette matching RoadSense App (RadarBevPlot & ViewfinderRadarOverlay)
-                    if is_fcw:
+                    if is_fcw and is_acc:
+                        # Combined FCW + ACC Target (Magenta / Purple)
+                        cube.color.r = 0.83; cube.color.g = 0.0; cube.color.b = 0.98; cube.color.a = 0.90
+                        arrow_r, arrow_g, arrow_b = 0.85, 0.10, 1.0
+                        label_prefix = f"[FCW S{fcw_stage}+ACC] "
+                        label_suffix = f" | TTC {fcw_ttc:.1f}s" if fcw_ttc > 0 else ""
+                        txt_r, txt_g, txt_b = 0.95, 0.40, 1.0
+                    elif is_fcw:
                         # Vivid Crimson Red (FCW Alert Target)
                         cube.color.r = 1.0; cube.color.g = 0.09; cube.color.b = 0.27; cube.color.a = 0.88
                         arrow_r, arrow_g, arrow_b = 1.0, 0.12, 0.25
@@ -1394,34 +1421,13 @@ def convert_session_to_mcap(
                         label_prefix = "[ACC LEAD] "
                         label_suffix = ""
                         txt_r, txt_g, txt_b = 0.35, 0.95, 1.0
-                    elif t["risk"] >= 3:
-                        # High Risk Red
-                        cube.color.r = 1.0; cube.color.g = 0.10; cube.color.b = 0.10; cube.color.a = 0.80
-                        arrow_r, arrow_g, arrow_b = 1.0, 0.20, 0.20
-                        label_prefix = ""
-                        label_suffix = " [RISK 3]"
-                        txt_r, txt_g, txt_b = 1.0, 0.60, 0.60
-                    elif t["risk"] == 2:
-                        # Medium Risk Orange
-                        cube.color.r = 1.0; cube.color.g = 0.55; cube.color.b = 0.0; cube.color.a = 0.80
-                        arrow_r, arrow_g, arrow_b = 1.0, 0.60, 0.0
-                        label_prefix = ""
-                        label_suffix = " [RISK 2]"
-                        txt_r, txt_g, txt_b = 1.0, 0.80, 0.50
-                    elif t["risk"] == 1:
-                        # Low Risk Amber
-                        cube.color.r = 1.0; cube.color.g = 0.75; cube.color.b = 0.0; cube.color.a = 0.75
-                        arrow_r, arrow_g, arrow_b = 1.0, 0.80, 0.0
-                        label_prefix = ""
-                        label_suffix = ""
-                        txt_r, txt_g, txt_b = 1.0, 0.95, 0.70
                     else:
-                        # Default Active Track: Golden Amber
-                        cube.color.r = 1.0; cube.color.g = 0.70; cube.color.b = 0.0; cube.color.a = 0.70
-                        arrow_r, arrow_g, arrow_b = 0.10, 0.90, 1.0
+                        # Standard Active Track: Golden Yellow / Amber (Uniform across all non-ADAS tracks)
+                        cube.color.r = 1.0; cube.color.g = 0.75; cube.color.b = 0.0; cube.color.a = 0.75
+                        arrow_r, arrow_g, arrow_b = 1.0, 0.85, 0.10
                         label_prefix = ""
-                        label_suffix = ""
-                        txt_r, txt_g, txt_b = 1.0, 1.0, 1.0
+                        label_suffix = f" [RISK {t['risk']}]" if t["risk"] > 0 else ""
+                        txt_r, txt_g, txt_b = 1.0, 0.95, 0.70
 
                     # Velocity Vector Arrow
                     speed_mag = math.hypot(t["vx_fwd"], t["vy_left"])
@@ -1453,6 +1459,30 @@ def convert_session_to_mcap(
                     txt.font_size = 0.50 if (is_fcw or is_acc) else 0.42
                     txt.billboard = True
                     txt.color.r = txt_r; txt.color.g = txt_g; txt.color.b = txt_b; txt.color.a = 1.0
+
+                # 6.2.1 Fallback Dedicated FCW Target (if active FCW alert had no associated track in table)
+                if fcw and fcw_stage > 0 and matched_fcw_idx is None and fcw_ty > 0.5:
+                    fx_fwd = fcw_ty
+                    fy_left = -fcw_tx
+                    cube = entity.cubes.add()
+                    cube.pose.position.x = fx_fwd
+                    cube.pose.position.y = fy_left
+                    cube.pose.position.z = calib_params["radarHeightM"]
+                    cube.pose.orientation.w = 1.0
+                    cube.size.x = 2.5
+                    cube.size.y = 1.8
+                    cube.size.z = 1.5
+                    cube.color.r = 1.0; cube.color.g = 0.09; cube.color.b = 0.27; cube.color.a = 0.90
+
+                    txt = entity.texts.add()
+                    txt.pose.position.x = fx_fwd
+                    txt.pose.position.y = fy_left
+                    txt.pose.position.z = calib_params["radarHeightM"] + 1.3
+                    ttc_str = f" | TTC {fcw_ttc:.1f}s" if fcw_ttc > 0 else ""
+                    txt.text = f"[FCW S{fcw_stage} HAZARD]{ttc_str}"
+                    txt.font_size = 0.55
+                    txt.billboard = True
+                    txt.color.r = 1.0; txt.color.g = 0.35; txt.color.b = 0.35; txt.color.a = 1.0
 
                 writer.write_message("/radar/tracks", su_msg, log_time=utc_ns)
                 count_msg("/radar/tracks")
