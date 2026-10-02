@@ -213,12 +213,13 @@ Fixed **56-byte payload** unpacked via `<fffffffffffIBBbBB3s`:
 Fixed **24-byte payload** containing 3 contiguous 8-byte bit-exact CAN messages:
 
 #### 1. Bytes 0–7: Forward Collision Warning (FCW - CAN ID `0x320`)
-* Byte 0: Bits 0–1 = `FCW_Stage_St_enum` (`0: None`, `1: Visual`, `2: Audible`), Bits 2–7 + Byte 1 = `FCW_TrackID_Act_ID`
-* Byte 2: `FCW_TTC_Act_sec` (scale: 0.1 s)
-* Byte 3: `FCW_TargetY_Act_m` (scale: 0.5 m)
-* Byte 4: `FCW_TargetX_Act_m` (scale: 0.2 m, offset: -25.6 m)
-* Byte 5: `FCW_TargetVy_mps` (scale: 0.5 m/s, offset: -64.0 m/s)
-* Byte 6: `FCW_TargetVx_mps` (scale: 0.2 m/s, offset: -25.6 m/s)
+* Byte 0: `FCW_Stage_St_enum` (`0: None`, `1: Visual`, `2: Audible`)
+* Bytes 1–2: `FCW_TrackID_Act_ID` (16-bit uint16 big endian: `(b1 << 8) | b2`)
+* Byte 3: `FCW_TTC_Act_sec` (scale: 0.1 s)
+* Byte 4: `FCW_TargetY_Act_m` (scale: 0.5 m)
+* Byte 5: `FCW_TargetX_Act_m` (scale: 0.2 m, offset: -25.6 m)
+* Byte 6: `FCW_TargetVy_mps` (scale: 0.5 m/s, offset: -64.0 m/s)
+* Byte 7: `FCW_TargetVx_mps` (scale: 0.2 m/s, offset: -25.6 m/s)
 
 #### 2. Bytes 8–15: Blind Spot Detection (BSD - CAN ID `0x328` / `0x321`)
 * Byte 8: `RADAR_BSD_Left_Active_St_B` ($0 = \text{Inactive}, 1 = \text{Active}$)

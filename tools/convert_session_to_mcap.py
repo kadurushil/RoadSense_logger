@@ -507,14 +507,14 @@ def parse_radar_stream(radar_bin_path):
                 bsd_bytes = tlv_data[8:16]
                 acc_bytes = tlv_data[16:24]
 
-                b0, b1, b2, b3, b4, b5, b6, _ = struct.unpack_from("BBBBBBBB", fcw_bytes, 0)
+                b0, b1, b2, b3, b4, b5, b6, b7 = struct.unpack_from("BBBBBBBB", fcw_bytes, 0)
                 fcw_stage = b0 & 0x03
-                fcw_track_id = ((b0 >> 2) << 8) | b1
-                fcw_ttc = b2 * 0.1
-                fcw_target_y = b3 * 0.5
-                fcw_target_x = b4 * 0.2 - 25.6
-                fcw_target_vy = b5 * 0.5 - 64.0
-                fcw_target_vx = b6 * 0.2 - 25.6
+                fcw_track_id = (b1 << 8) | b2
+                fcw_ttc = b3 * 0.1
+                fcw_target_y = b4 * 0.5
+                fcw_target_x = b5 * 0.2 - 25.6
+                fcw_target_vy = b6 * 0.5 - 64.0
+                fcw_target_vx = b7 * 0.2 - 25.6
 
                 bsd0, bsd1, bsd2, bsd3, _, _, _, _ = struct.unpack_from("BBBBBBBB", bsd_bytes, 0)
 
