@@ -422,6 +422,11 @@ object SpatialProjectionEngine {
         val roadZ = -abs(params.radarHeightM.takeIf { it > 0.1f } ?: 0.95f)
         val lollipops = mutableListOf<ProjectedRadarLollipop>()
 
+        val fcwAlert = radarFrame.canOutputs?.fcw
+        val accTarget = radarFrame.canOutputs?.acc
+        val fcwTrackId = if ((fcwAlert?.trackId ?: 0) > 0) fcwAlert?.trackId else null
+        val accPoiId = if ((accTarget?.poiId ?: 0) > 0) accTarget?.poiId else null
+
         // 1. Process Active Tracked Targets (TLV Type 3)
         val trackedPositions = mutableListOf<Pair<Float, Float>>()
         for (track in radarFrame.tracks) {
@@ -430,6 +435,10 @@ object SpatialProjectionEngine {
             if (y <= 0.5f) continue
 
             trackedPositions.add(Pair(x, y))
+
+            val isFcw = (fcwTrackId != null && track.tid == fcwTrackId)
+            val isAcc = (accPoiId != null && track.tid == accPoiId)
+            val fcwStage = if (isFcw) (fcwAlert?.stage ?: 0) else 0
 
             // Ground base anchor (road surface)
             val basePt = project2DRadarToScreen(x, y, params, intrinsics, viewWidth, viewHeight, roadZ) ?: continue
@@ -444,7 +453,13 @@ object SpatialProjectionEngine {
             val footprint = calculateGroundFootprintEllipse(x, y, rx, ry, params, intrinsics, viewWidth, viewHeight, 12)
 
             val range = sqrt(x * x + y * y)
-            val label = "ID:${track.tid} • ${range.toInt()}m"
+            val adasTag = when {
+                isFcw && isAcc -> " [FCW+ACC]"
+                isFcw -> " [FCW]"
+                isAcc -> " [ACC]"
+                else -> ""
+            }
+            val label = "ID:${track.tid}$adasTag • ${range.toInt()}m"
 
             lollipops.add(
                 ProjectedRadarLollipop(
@@ -457,7 +472,10 @@ object SpatialProjectionEngine {
                     trackId = track.tid,
                     dopplerMps = track.vy,
                     snrDb = 35f,
-                    label = label
+                    label = label,
+                    isFcwTarget = isFcw,
+                    isAccTarget = isAcc,
+                    fcwStage = fcwStage
                 )
             )
         }
@@ -586,5 +604,8 @@ data class ProjectedRadarLollipop(
     val trackId: Int?,
     val dopplerMps: Float,
     val snrDb: Float,
-    val label: String
+    val label: String,
+    val isFcwTarget: Boolean = false,
+    val isAccTarget: Boolean = false,
+    val fcwStage: Int = 0
 )

@@ -328,7 +328,7 @@ fun RadarBevPlot(
                         }
                     }
 
-                    // 8. Draw Active Tracked Targets (TLV Type 3) as Red Circle with Yellow Velocity Pointer Triangle on circumference & leader line
+                    // 8. Draw Active Tracked Targets (TLV Type 3) with dedicated ADAS highlighting (FCW Alert Target & ACC POI)
                     val trackLabelPaint = Paint().apply {
                         color = android.graphics.Color.WHITE
                         textSize = 24f
@@ -337,35 +337,82 @@ fun RadarBevPlot(
                         isFakeBoldText = true
                     }
 
+                    val fcwAlert = frame?.canOutputs?.fcw
+                    val accTarget = frame?.canOutputs?.acc
+                    val fcwTrackId = if ((fcwAlert?.trackId ?: 0) > 0) fcwAlert?.trackId else null
+                    val accPoiId = if ((accTarget?.poiId ?: 0) > 0) accTarget?.poiId else null
+
                     frame?.tracks?.forEach { track ->
                         val tx = originX + track.x * scale
                         val ty = originY - track.y * scale
 
                         if (ty in 0f..originY && tx in 0f..canvasWidth) {
-                            val trackRadius = 14f
+                            val isFcw = (fcwTrackId != null && track.tid == fcwTrackId)
+                            val isAcc = (accPoiId != null && track.tid == accPoiId)
 
-                            // 1. Red circle for the tracked target
+                            val trackColor = when {
+                                isFcw -> Color(0xFFFF1744) // FCW Alert Target (Vivid Crimson Red)
+                                isAcc -> Color(0xFF00E5FF) // ACC POI Lead Vehicle (Electric Cyan)
+                                else -> Color(0xFFFFB300)  // Active Tracked Target (Golden Amber)
+                            }
+
+                            val trackRadius = if (isFcw || isAcc) 16f else 14f
+
+                            // Outer pulsating/glow halo for ADAS priority targets
+                            if (isFcw) {
+                                drawCircle(
+                                    color = Color(0xFFFF1744).copy(alpha = 0.25f),
+                                    center = Offset(tx, ty),
+                                    radius = trackRadius + 7f
+                                )
+                                drawCircle(
+                                    color = Color(0xFFFF1744).copy(alpha = 0.65f),
+                                    center = Offset(tx, ty),
+                                    radius = trackRadius + 3.5f,
+                                    style = Stroke(width = 1.8f)
+                                )
+                            } else if (isAcc) {
+                                drawCircle(
+                                    color = Color(0xFF00E5FF).copy(alpha = 0.22f),
+                                    center = Offset(tx, ty),
+                                    radius = trackRadius + 6f
+                                )
+                                drawCircle(
+                                    color = Color(0xFF00E5FF).copy(alpha = 0.60f),
+                                    center = Offset(tx, ty),
+                                    radius = trackRadius + 3f,
+                                    style = Stroke(width = 1.5f)
+                                )
+                            }
+
+                            // 1. Target body circle
                             drawCircle(
-                                color = Color(0x33FF5252),
+                                color = trackColor.copy(alpha = 0.25f),
                                 center = Offset(tx, ty),
                                 radius = trackRadius
                             )
                             drawCircle(
-                                color = Color(0xFFFF5252),
+                                color = trackColor,
                                 center = Offset(tx, ty),
                                 radius = trackRadius,
-                                style = Stroke(width = 2.0f)
+                                style = Stroke(width = if (isFcw || isAcc) 2.5f else 2.0f)
                             )
                             drawCircle(
-                                color = Color(0xFFFF5252),
+                                color = trackColor,
                                 center = Offset(tx, ty),
-                                radius = 3.0f
+                                radius = 3.5f
                             )
 
                             // 2. Velocity vector & direction triangle on circumference
                             val vxPx = track.vx * scale * 0.75f
                             val vyPx = -track.vy * scale * 0.75f // Forward is -Y on screen canvas
                             val vSpeed = hypot(vxPx, vyPx)
+
+                            val vectorColor = when {
+                                isFcw -> Color(0xFFFF5252)
+                                isAcc -> Color(0xFF80D8FF)
+                                else -> Color(0xFFFFD54F)
+                            }
 
                             if (vSpeed > 0.8f) {
                                 val theta = atan2(vyPx, vxPx)
@@ -378,8 +425,8 @@ fun RadarBevPlot(
                                 val circX = tx + ux * trackRadius
                                 val circY = ty + uy * trackRadius
 
-                                // Small Yellow pointer triangle on circumference pointing in velocity direction
-                                val triLen = 6f
+                                // Small pointer triangle on circumference pointing in velocity direction
+                                val triLen = 6.5f
                                 val triWidth = 4f
                                 val tipX = circX + ux * triLen
                                 val tipY = circY + uy * triLen
@@ -394,29 +441,42 @@ fun RadarBevPlot(
                                     lineTo(b2X, b2Y)
                                     close()
                                 }
-                                drawPath(path = triPath, color = Color(0xFFFFD54F))
+                                drawPath(path = triPath, color = vectorColor)
 
                                 // When velocity is large, vector extends out of the circle proportional to speed
                                 if (vSpeed > trackRadius) {
                                     val endX = tx + vxPx
                                     val endY = ty + vyPx
                                     drawLine(
-                                        color = Color(0xFFFFD54F),
+                                        color = vectorColor,
                                         start = Offset(tipX, tipY),
                                         end = Offset(endX, endY),
                                         strokeWidth = 2.0f
                                     )
                                     drawCircle(
-                                        color = Color(0xFFFFD54F),
+                                        color = vectorColor,
                                         radius = 3.0f,
                                         center = Offset(endX, endY)
                                     )
                                 }
                             }
 
-                            // 3. Target ID Label "#TID" above the circle
+                            // 3. Target ID and ADAS Tag Label above the circle
+                            val adasTag = when {
+                                isFcw && isAcc -> " [FCW+ACC]"
+                                isFcw -> " [FCW]"
+                                isAcc -> " [ACC]"
+                                else -> ""
+                            }
+                            val labelText = "#${track.tid}$adasTag"
+                            trackLabelPaint.color = when {
+                                isFcw -> android.graphics.Color.argb(255, 255, 82, 82)
+                                isAcc -> android.graphics.Color.argb(255, 128, 216, 255)
+                                else -> android.graphics.Color.WHITE
+                            }
+
                             drawContext.canvas.nativeCanvas.drawText(
-                                "#${track.tid}",
+                                labelText,
                                 tx,
                                 ty - trackRadius - 6f,
                                 trackLabelPaint
@@ -428,7 +488,7 @@ fun RadarBevPlot(
 
             Spacer(modifier = Modifier.height(if (isLandscape) 4.dp else 8.dp))
 
-            // Filter Toggles & Velocity Legend
+            // Filter Toggles & Target/Velocity Legend
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -473,14 +533,16 @@ fun RadarBevPlot(
                     }
                 }
 
-                // Legend
+                // Legend: ADAS Targets & Point Cloud
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(text = "● Appr", color = Color(0xFFFF5252), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.SemiBold)
-                    Text(text = "● Rec", color = Color(0xFF40C4FF), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.SemiBold)
-                    Text(text = "● Stat", color = Color(0xFF69F0AE), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.SemiBold)
+                    Text(text = "■ FCW", color = Color(0xFFFF1744), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.Bold)
+                    Text(text = "■ ACC", color = Color(0xFF00E5FF), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.Bold)
+                    Text(text = "■ Trk", color = Color(0xFFFFB300), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.Bold)
+                    Text(text = "● Appr", color = Color(0xFFFF5252), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.Medium)
+                    Text(text = "● Rec", color = Color(0xFF40C4FF), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.Medium)
                 }
             }
         }

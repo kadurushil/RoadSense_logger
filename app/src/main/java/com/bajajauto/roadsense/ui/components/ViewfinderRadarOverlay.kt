@@ -142,16 +142,20 @@ fun ViewfinderRadarOverlay(
             }
 
             for (lollipop in lollipops) {
-                // Color coding based on tracking and Doppler velocity:
-                // Closing in: Red (doppler < -0.5 m/s)
-                // Opening gap: Green (doppler > 0.5 m/s)
-                // Tracked obstacle: Amber (when |doppler| <= 0.5 m/s)
-                // Stationary point / clutter: Cyan
+                // Color coding based on ADAS role, tracking, and Doppler velocity:
+                // FCW Alert target: Vivid Alert Red (0xFFFF1744)
+                // ACC POI Lead Vehicle: Electric Cyan (0xFF00E5FF)
+                // Tracked obstacle: Golden Amber (0xFFFFD54F)
+                // Closing in point: Red (doppler < -0.5 m/s)
+                // Opening gap point: Green (doppler > 0.5 m/s)
+                // Stationary ground point / clutter: Light Cyan (0xFF40C4FF)
                 val targetColor = when {
+                    lollipop.isFcwTarget -> Color(0xFFFF1744) // FCW Alert Target (Vivid Crimson Red)
+                    lollipop.isAccTarget -> Color(0xFF00E5FF) // ACC POI Lead Vehicle (Electric Cyan)
+                    lollipop.isTracked -> Color(0xFFFFD54F)   // Active tracked obstacle (Golden Amber)
                     lollipop.dopplerMps < -0.5f -> Color(0xFFFF5252) // Closing in / hazard
                     lollipop.dopplerMps > 0.5f -> Color(0xFF69F0AE)  // Opening gap
-                    lollipop.isTracked -> Color(0xFFFFD54F)           // Active tracked vehicle / obstacle
-                    else -> Color(0xFF40C4FF)                         // Stationary ground point
+                    else -> Color(0xFF40C4FF)                 // Stationary ground point
                 }
 
                 // Distance-based alpha fall-off: distant objects fade gently to avoid visual clutter
@@ -162,13 +166,17 @@ fun ViewfinderRadarOverlay(
 
                 // Perspective scale factor based on forward depth
                 val pScale = (15.0f / lollipop.depthM.coerceAtLeast(3f))
-                val stemWidth = if (lollipop.isTracked) {
+                val stemWidth = if (lollipop.isFcwTarget || lollipop.isAccTarget) {
+                    (3.0.dp.toPx() * pScale).coerceIn(2.0.dp.toPx(), 5.dp.toPx())
+                } else if (lollipop.isTracked) {
                     (2.5.dp.toPx() * pScale).coerceIn(1.5.dp.toPx(), 4.dp.toPx())
                 } else {
                     (1.2.dp.toPx() * pScale).coerceIn(0.8.dp.toPx(), 2.dp.toPx())
                 }
 
-                val headRadius = if (lollipop.isTracked) {
+                val headRadius = if (lollipop.isFcwTarget || lollipop.isAccTarget) {
+                    (7.dp.toPx() * pScale).coerceIn(5.dp.toPx(), 14.dp.toPx())
+                } else if (lollipop.isTracked) {
                     (6.dp.toPx() * pScale).coerceIn(4.dp.toPx(), 12.dp.toPx())
                 } else {
                     (3.dp.toPx() * pScale).coerceIn(1.5.dp.toPx(), 5.dp.toPx())
@@ -185,23 +193,36 @@ fun ViewfinderRadarOverlay(
                         close()
                     }
 
+                    val footprintAlpha = when {
+                        lollipop.isFcwTarget -> 0.35f
+                        lollipop.isAccTarget -> 0.30f
+                        lollipop.isTracked -> 0.25f
+                        else -> 0.12f
+                    }
+                    val strokeAlpha = when {
+                        lollipop.isFcwTarget -> 0.95f
+                        lollipop.isAccTarget -> 0.90f
+                        lollipop.isTracked -> 0.85f
+                        else -> 0.45f
+                    }
+
                     // Translucent asphalt footprint fill
                     drawPath(
                         path = footPath,
-                        color = targetColor.copy(alpha = alpha * (if (lollipop.isTracked) 0.25f else 0.12f))
+                        color = targetColor.copy(alpha = alpha * footprintAlpha)
                     )
                     // Glowing perimeter border
                     drawPath(
                         path = footPath,
-                        color = targetColor.copy(alpha = alpha * (if (lollipop.isTracked) 0.85f else 0.45f)),
-                        style = Stroke(width = if (lollipop.isTracked) 2.dp.toPx() else 1.2.dp.toPx())
+                        color = targetColor.copy(alpha = alpha * strokeAlpha),
+                        style = Stroke(width = if (lollipop.isFcwTarget || lollipop.isAccTarget) 2.5.dp.toPx() else if (lollipop.isTracked) 2.dp.toPx() else 1.2.dp.toPx())
                     )
                 }
 
                 // Ground contact anchor dot
                 drawCircle(
                     color = targetColor.copy(alpha = alpha * 0.9f),
-                    radius = if (lollipop.isTracked) 2.5.dp.toPx() else 1.5.dp.toPx(),
+                    radius = if (lollipop.isFcwTarget || lollipop.isAccTarget) 3.5.dp.toPx() else if (lollipop.isTracked) 2.5.dp.toPx() else 1.5.dp.toPx(),
                     center = Offset(lollipop.basePt.xPx, lollipop.basePt.yPx)
                 )
 
@@ -219,11 +240,31 @@ fun ViewfinderRadarOverlay(
                 }
 
                 // C. Lollipop Head with outer halo and specular center
+                val outerHaloRadius = when {
+                    lollipop.isFcwTarget -> headRadius * 2.0f
+                    lollipop.isAccTarget -> headRadius * 1.8f
+                    else -> headRadius * 1.5f
+                }
                 drawCircle(
                     color = targetColor.copy(alpha = alpha * 0.35f),
-                    radius = headRadius * 1.5f,
+                    radius = outerHaloRadius,
                     center = Offset(lollipop.headPt.xPx, lollipop.headPt.yPx)
                 )
+                if (lollipop.isFcwTarget) {
+                    drawCircle(
+                        color = Color(0xFFFF1744).copy(alpha = alpha * 0.7f),
+                        radius = headRadius * 1.4f,
+                        center = Offset(lollipop.headPt.xPx, lollipop.headPt.yPx),
+                        style = Stroke(width = 1.5.dp.toPx())
+                    )
+                } else if (lollipop.isAccTarget) {
+                    drawCircle(
+                        color = Color(0xFF00E5FF).copy(alpha = alpha * 0.6f),
+                        radius = headRadius * 1.3f,
+                        center = Offset(lollipop.headPt.xPx, lollipop.headPt.yPx),
+                        style = Stroke(width = 1.2.dp.toPx())
+                    )
+                }
                 drawCircle(
                     color = targetColor.copy(alpha = alpha),
                     radius = headRadius,
@@ -246,18 +287,24 @@ fun ViewfinderRadarOverlay(
                     val badgeLeft = (lollipop.headPt.xPx - badgeWidth / 2f).coerceIn(4f * density, w - badgeWidth - 4f * density)
                     val badgeTop = (lollipop.headPt.yPx - headRadius - badgeHeight - 3f * density).coerceAtLeast(4f * density)
 
+                    val bgTint = when {
+                        lollipop.isFcwTarget -> Color(0xFF2E0007).copy(alpha = 0.85f * alpha)
+                        lollipop.isAccTarget -> Color(0xFF001E2B).copy(alpha = 0.85f * alpha)
+                        else -> Color.Black.copy(alpha = 0.75f * alpha)
+                    }
+
                     drawRoundRect(
-                        color = Color.Black.copy(alpha = 0.75f * alpha),
+                        color = bgTint,
                         topLeft = Offset(badgeLeft, badgeTop),
                         size = Size(badgeWidth, badgeHeight),
                         cornerRadius = CornerRadius(4f * density, 4f * density)
                     )
                     drawRoundRect(
-                        color = targetColor.copy(alpha = 0.8f * alpha),
+                        color = targetColor.copy(alpha = 0.9f * alpha),
                         topLeft = Offset(badgeLeft, badgeTop),
                         size = Size(badgeWidth, badgeHeight),
                         cornerRadius = CornerRadius(4f * density, 4f * density),
-                        style = Stroke(width = 1f * density)
+                        style = Stroke(width = if (lollipop.isFcwTarget || lollipop.isAccTarget) 1.5f * density else 1f * density)
                     )
                     drawContext.canvas.nativeCanvas.drawText(
                         trackLabel,

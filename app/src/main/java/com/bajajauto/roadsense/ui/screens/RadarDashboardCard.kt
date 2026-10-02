@@ -315,6 +315,62 @@ private fun RadarTargetHudCard(
                 }
             }
 
+            // ADAS Safety Alerts & Tracking Status Bar (TLV Type 6)
+            val canOutputs = latestFrame?.canOutputs
+            val fcwAlert = canOutputs?.fcw
+            val accTarget = canOutputs?.acc
+            val fcwTrackId = if ((fcwAlert?.trackId ?: 0) > 0) fcwAlert?.trackId else null
+            val accPoiId = if ((accTarget?.poiId ?: 0) > 0) accTarget?.poiId else null
+
+            if (canOutputs != null && (fcwTrackId != null || accPoiId != null)) {
+                Surface(
+                    color = Color(0xFF0F141C),
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, if ((fcwAlert?.stage ?: 0) > 0) Color(0xFFFF1744).copy(alpha = 0.6f) else Color(0xFF263238)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (fcwTrackId != null) {
+                            val stageName = when (fcwAlert?.stage) {
+                                2 -> "AUDIBLE"
+                                1 -> "VISUAL"
+                                else -> "ARMED"
+                            }
+                            Text(
+                                text = "FCW: Target #$fcwTrackId ($stageName • ${"%.1f".format(fcwAlert?.ttcSec ?: 0f)}s)",
+                                color = if ((fcwAlert?.stage ?: 0) > 0) Color(0xFFFF1744) else Color(0xFFFF8A80),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        } else {
+                            Text(
+                                text = "FCW: Clear",
+                                color = Color(0xFF78909C),
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+
+                        if (accPoiId != null) {
+                            Text(
+                                text = "ACC POI: #$accPoiId (${"%.1f".format(accTarget?.targetY ?: 0f)}m)",
+                                color = Color(0xFF00E5FF),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+            }
+
             // Line-of-Sight Priority Targets in Vehicle Forward Corridor (x: ±10m, y: 0-100m)
             val losTracks = latestFrame?.tracks?.filter { trk ->
                 trk.x in -10.0f..10.0f && trk.y in 0.0f..100.0f
@@ -329,17 +385,26 @@ private fun RadarTargetHudCard(
 
             if (losTracks.isNotEmpty()) {
                 losTracks.forEach { trk ->
+                    val isFcw = (fcwTrackId != null && trk.tid == fcwTrackId)
+                    val isAcc = (accPoiId != null && trk.tid == accPoiId)
                     val speedKmh = trk.vy * 3.6f
                     val isApproaching = trk.vy < -0.3f
                     val isReceding = trk.vy > 0.3f
-                    val statusText = if (isApproaching) "APPROACHING" else if (isReceding) "RECEDING" else "STATIONARY"
-                    val statusColor = if (isApproaching) Color(0xFFFF5252) else if (isReceding) Color(0xFF40C4FF) else Color(0xFF69F0AE)
+                    val statusText = if (isFcw && (fcwAlert?.stage ?: 0) > 0) "FCW HAZARD" else if (isApproaching) "APPROACHING" else if (isReceding) "RECEDING" else "STATIONARY"
+                    val statusColor = if (isFcw) Color(0xFFFF1744) else if (isApproaching) Color(0xFFFF5252) else if (isReceding) Color(0xFF40C4FF) else Color(0xFF69F0AE)
                     val lanePosition = if (kotlin.math.abs(trk.x) <= 1.8f) "Direct Lane" else if (trk.x < 0) "Left Corridor" else "Right Corridor"
+
+                    val cardBorder = when {
+                        isFcw -> BorderStroke(1.2.dp, Color(0xFFFF1744))
+                        isAcc -> BorderStroke(1.2.dp, Color(0xFF00E5FF))
+                        isApproaching -> BorderStroke(1.dp, Color(0xFFFF5252).copy(alpha = 0.6f))
+                        else -> BorderStroke(1.dp, Color(0xFF37474F))
+                    }
 
                     Surface(
                         color = Color(0xFF181D26),
                         shape = RoundedCornerShape(6.dp),
-                        border = BorderStroke(1.dp, if (isApproaching) Color(0xFFFF5252).copy(alpha = 0.6f) else Color(0xFF37474F)),
+                        border = cardBorder,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(8.dp)) {
@@ -351,11 +416,46 @@ private fun RadarTargetHudCard(
                                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         text = "🎯 Target #${trk.tid}",
-                                        color = Color(0xFFFFD54F),
+                                        color = when {
+                                            isFcw -> Color(0xFFFF1744)
+                                            isAcc -> Color(0xFF00E5FF)
+                                            else -> Color(0xFFFFD54F)
+                                        },
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Monospace
                                     )
+
+                                    if (isFcw) {
+                                        Surface(
+                                            color = Color(0xFFFF1744).copy(alpha = 0.25f),
+                                            shape = RoundedCornerShape(3.dp)
+                                        ) {
+                                            Text(
+                                                text = "FCW",
+                                                color = Color(0xFFFF5252),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+
+                                    if (isAcc) {
+                                        Surface(
+                                            color = Color(0xFF00E5FF).copy(alpha = 0.25f),
+                                            shape = RoundedCornerShape(3.dp)
+                                        ) {
+                                            Text(
+                                                text = "ACC POI",
+                                                color = Color(0xFF80D8FF),
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    }
+
                                     Surface(
                                         color = statusColor.copy(alpha = 0.2f),
                                         shape = RoundedCornerShape(3.dp)

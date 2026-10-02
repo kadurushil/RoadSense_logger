@@ -3,6 +3,10 @@ package com.bajajauto.roadsense.fusion
 import com.bajajauto.roadsense.fusion.engine.CameraIntrinsics
 import com.bajajauto.roadsense.fusion.engine.SpatialProjectionEngine
 import com.bajajauto.roadsense.fusion.model.CalibrationParameters
+import com.bajajauto.roadsense.models.RadarAccTarget
+import com.bajajauto.roadsense.models.RadarBsdAlert
+import com.bajajauto.roadsense.models.RadarCanOutputs
+import com.bajajauto.roadsense.models.RadarFcwAlert
 import com.bajajauto.roadsense.models.RadarFrame
 import com.bajajauto.roadsense.models.RadarHeader
 import com.bajajauto.roadsense.models.RadarPoint
@@ -321,7 +325,8 @@ class SpatialProjectionEngineTest {
 
     private fun createTestRadarFrame(
         points: List<RadarPoint> = emptyList(),
-        tracks: List<RadarTrack> = emptyList()
+        tracks: List<RadarTrack> = emptyList(),
+        canOutputs: RadarCanOutputs? = null
     ): RadarFrame {
         val dummyHeader = RadarHeader(
             version = 0L,
@@ -338,6 +343,7 @@ class SpatialProjectionEngineTest {
             points = points,
             tracks = tracks,
             clusters = emptyList(),
+            canOutputs = canOutputs,
             rawPacket = RawRadarPacket(dummyHeader, byteArrayOf())
         )
     }
@@ -409,5 +415,91 @@ class SpatialProjectionEngineTest {
         assertTrue("Second item must be deeper than third", lollipops[1].depthM >= lollipops[2].depthM)
         assertEquals("Farthest target drawn first", 2, lollipops[0].trackId)
         assertEquals("Nearest target drawn last", 1, lollipops[2].trackId)
+    }
+
+    @Test
+    fun testCalculateRadarLollipopsWithFcwAndAccTargetsHighlighting() {
+        val canOutputs = RadarCanOutputs(
+            fcw = RadarFcwAlert(stage = 2, trackId = 10, ttcSec = 1.8f, targetY = 15f, targetX = 0f, targetVy = -5f, targetVx = 0f),
+            bsd = RadarBsdAlert(leftActive = false, rightActive = false, warningLevel = 0, approachTtcSec = 25.5f),
+            acc = RadarAccTarget(poiId = 20, targetY = 35f, targetX = 0f, targetVy = -2f, ttiSec = 3.0f, vSafeMps = 15f, aRefMps2 = 0f)
+        )
+
+        val frame = createTestRadarFrame(
+            tracks = listOf(
+                RadarTrack(tid = 10, x = 0f, y = 15f, vx = 0f, vy = -5f, xSize = 1.8f, ySize = 4.0f),
+                RadarTrack(tid = 20, x = 0f, y = 35f, vx = 0f, vy = -2f, xSize = 1.8f, ySize = 4.0f),
+                RadarTrack(tid = 30, x = 2f, y = 25f, vx = 0f, vy = 0f, xSize = 1.5f, ySize = 1.5f)
+            ),
+            canOutputs = canOutputs
+        )
+
+        val params = CalibrationParameters(radarHeightM = 0.95f)
+        val lollipops = SpatialProjectionEngine.calculateRadarLollipops(
+            radarFrame = frame,
+            params = params,
+            intrinsics = testIntrinsics,
+            viewWidth = viewW,
+            viewHeight = viewH
+        )
+
+        assertEquals(3, lollipops.size)
+
+        val fcwLollipop = lollipops.find { it.trackId == 10 }
+        val accLollipop = lollipops.find { it.trackId == 20 }
+        val regularLollipop = lollipops.find { it.trackId == 30 }
+
+        assertNotNull(fcwLollipop)
+        assertNotNull(accLollipop)
+        assertNotNull(regularLollipop)
+
+        // FCW validation
+        assertTrue("Track #10 must be flagged as FCW target", fcwLollipop!!.isFcwTarget)
+        assertFalse("Track #10 is not ACC target", fcwLollipop.isAccTarget)
+        assertEquals(2, fcwLollipop.fcwStage)
+        assertTrue("FCW label must contain [FCW] tag", fcwLollipop.label.contains("[FCW]"))
+
+        // ACC validation
+        assertFalse("Track #20 is not FCW target", accLollipop!!.isFcwTarget)
+        assertTrue("Track #20 must be flagged as ACC target", accLollipop.isAccTarget)
+        assertTrue("ACC label must contain [ACC] tag", accLollipop.label.contains("[ACC]"))
+
+        // Regular track validation
+        assertFalse("Track #30 is not FCW target", regularLollipop!!.isFcwTarget)
+        assertFalse("Track #30 is not ACC target", regularLollipop.isAccTarget)
+        assertFalse("Regular track label should not contain ADAS tag", regularLollipop.label.contains("[FCW]"))
+        assertFalse("Regular track label should not contain ADAS tag", regularLollipop.label.contains("[ACC]"))
+    }
+
+    @Test
+    fun testCalculateRadarLollipopsWithCombinedFcwAndAccTarget() {
+        val canOutputs = RadarCanOutputs(
+            fcw = RadarFcwAlert(stage = 1, trackId = 15, ttcSec = 2.2f, targetY = 20f, targetX = 0f, targetVy = -4f, targetVx = 0f),
+            bsd = RadarBsdAlert(leftActive = false, rightActive = false, warningLevel = 0, approachTtcSec = 25.5f),
+            acc = RadarAccTarget(poiId = 15, targetY = 20f, targetX = 0f, targetVy = -4f, ttiSec = 2.5f, vSafeMps = 12f, aRefMps2 = 0f)
+        )
+
+        val frame = createTestRadarFrame(
+            tracks = listOf(
+                RadarTrack(tid = 15, x = 0f, y = 20f, vx = 0f, vy = -4f, xSize = 1.8f, ySize = 4.0f)
+            ),
+            canOutputs = canOutputs
+        )
+
+        val params = CalibrationParameters(radarHeightM = 0.95f)
+        val lollipops = SpatialProjectionEngine.calculateRadarLollipops(
+            radarFrame = frame,
+            params = params,
+            intrinsics = testIntrinsics,
+            viewWidth = viewW,
+            viewHeight = viewH
+        )
+
+        assertEquals(1, lollipops.size)
+        val target = lollipops[0]
+        assertTrue("Track #15 must be flagged as FCW target", target.isFcwTarget)
+        assertTrue("Track #15 must be flagged as ACC target", target.isAccTarget)
+        assertEquals(1, target.fcwStage)
+        assertTrue("Combined target label must contain [FCW+ACC] tag", target.label.contains("[FCW+ACC]"))
     }
 }

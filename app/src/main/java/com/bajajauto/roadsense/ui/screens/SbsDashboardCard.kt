@@ -33,6 +33,7 @@ import com.bajajauto.roadsense.camera.CameraResolution
 import com.bajajauto.roadsense.models.RadarFrame
 import com.bajajauto.roadsense.ui.RadarViewModel
 import com.bajajauto.roadsense.ui.components.RadarBevPlot
+import com.bajajauto.roadsense.ui.components.ViewfinderRadarOverlay
 
 /**
  * Side-by-Side (SBS) Synchronized Feed Dashboard Card:
@@ -122,6 +123,14 @@ private fun SbsCameraFeedPane(
     val isPreviewMutedByUser by viewModel.isCameraPreviewMuted.collectAsState()
     val cameraFps by viewModel.cameraFps.collectAsState()
 
+    val calibrationParams by viewModel.calibrationParams.collectAsState()
+    val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
+    val isRadarOverlayEnabled by viewModel.isRadarOverlayEnabled.collectAsState()
+    val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
+    val latestFrame by viewModel.latestFrame.collectAsState()
+
+    var previewWidth by remember { mutableIntStateOf(1920) }
+    var previewHeight by remember { mutableIntStateOf(1080) }
     var hasCameraPermission by remember { mutableStateOf(viewModel.hasCameraPermission()) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -177,6 +186,20 @@ private fun SbsCameraFeedPane(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // HUD Overlay Toggle Chip
+                    Surface(
+                        selected = isRadarOverlayEnabled,
+                        onClick = { viewModel.toggleRadarOverlay() },
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (isRadarOverlayEnabled) Color(0xFF1B5E20).copy(alpha = 0.5f) else Color(0xFF1E2530),
+                        contentColor = if (isRadarOverlayEnabled) Color(0xFF81C784) else Color(0xFF90A4AE),
+                        modifier = Modifier.height(20.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 5.dp)) {
+                            Text("HUD", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
                     // Mute / Pause Preview Toggle
                     IconButton(
                         onClick = { viewModel.setCameraPreviewMuted(!isPreviewMutedByUser) },
@@ -250,58 +273,85 @@ private fun SbsCameraFeedPane(
                 contentAlignment = Alignment.Center
             ) {
                 if (shouldRenderPreview) {
-                    AndroidView(
-                        factory = { ctx ->
-                            TextureView(ctx).apply {
-                                surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                                    override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                                        viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
-                                        viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                                    }
-
-                                    override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-                                        viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                                    }
-
-                                    override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                                        viewModel.cameraEngine.detachPreviewSurface(surface)
-                                        return true
-                                    }
-
-                                    override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-                                }
-                            }
-                        },
-                        update = { textureView ->
-                            if (textureView.isAvailable) {
-                                val st = textureView.surfaceTexture
-                                if (shouldRenderPreview && st != null && (engineState is CameraEngineState.Closed || !viewModel.cameraEngine.isSurfaceAttached(st))) {
-                                    viewModel.cameraEngine.attachPreviewSurface(st, textureView.width, textureView.height)
-                                }
-                                viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
-                            }
-                        },
+                    val cameraAspect = if (selectedRes == CameraResolution.RES_480P) 4f / 3f else 16f / 9f
+                    Box(
                         modifier = Modifier
-                            .aspectRatio(if (selectedRes == CameraResolution.RES_480P) 4f / 3f else 16f / 9f)
-                            .clip(RoundedCornerShape(8.dp))
-                    )
+                            .aspectRatio(cameraAspect)
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AndroidView(
+                            factory = { ctx ->
+                                TextureView(ctx).apply {
+                                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+                                        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
+                                            previewWidth = width
+                                            previewHeight = height
+                                            viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
+                                            viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
+                                            viewModel.updateCameraIntrinsics(width, height)
+                                        }
 
-                    // Overlay Camera Lens Label
-                    selectedCamera?.let { cam ->
-                        Surface(
-                            color = Color.Black.copy(alpha = 0.6f),
-                            shape = RoundedCornerShape(4.dp),
-                            modifier = Modifier
-                                .align(Alignment.BottomStart)
-                                .padding(6.dp)
-                        ) {
-                            Text(
-                                text = cam.displayName,
-                                color = Color.White,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
+                                            previewWidth = width
+                                            previewHeight = height
+                                            viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
+                                            viewModel.updateCameraIntrinsics(width, height)
+                                        }
+
+                                        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
+                                            viewModel.cameraEngine.detachPreviewSurface(surface)
+                                            return true
+                                        }
+
+                                        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
+                                    }
+                                }
+                            },
+                            update = { textureView ->
+                                if (textureView.isAvailable) {
+                                    previewWidth = textureView.width
+                                    previewHeight = textureView.height
+                                    val st = textureView.surfaceTexture
+                                    if (shouldRenderPreview && st != null && (engineState is CameraEngineState.Closed || !viewModel.cameraEngine.isSurfaceAttached(st))) {
+                                        viewModel.cameraEngine.attachPreviewSurface(st, textureView.width, textureView.height)
+                                    }
+                                    viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
+                                    viewModel.updateCameraIntrinsics(textureView.width, textureView.height)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+
+                        if (isRadarOverlayEnabled) {
+                            ViewfinderRadarOverlay(
+                                radarFrame = latestFrame,
+                                calibrationParams = calibrationParams,
+                                intrinsics = activeIntrinsics,
+                                viewWidth = previewWidth,
+                                viewHeight = previewHeight,
+                                showRangeArcs = isRadarArcsEnabled,
+                                modifier = Modifier.fillMaxSize()
                             )
+                        }
+
+                        // Overlay Camera Lens Label
+                        selectedCamera?.let { cam ->
+                            Surface(
+                                color = Color.Black.copy(alpha = 0.6f),
+                                shape = RoundedCornerShape(4.dp),
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(6.dp)
+                            ) {
+                                Text(
+                                    text = cam.displayName,
+                                    color = Color.White,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
                         }
                     }
                 } else {
