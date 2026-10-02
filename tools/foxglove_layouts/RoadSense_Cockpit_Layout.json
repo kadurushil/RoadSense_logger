@@ -115,6 +115,24 @@
           "enabled": false,
           "color": "#ffcc00",
           "label": "IMU Yaw Rate Gz (rad/s)"
+        },
+        {
+          "value": "/radar/adas.fcw.stage",
+          "enabled": false,
+          "color": "#ff1744",
+          "label": "FCW Alert Stage (0-3)"
+        },
+        {
+          "value": "/radar/adas.fcw.ttc_sec",
+          "enabled": false,
+          "color": "#ff5252",
+          "label": "FCW TTC (s)"
+        },
+        {
+          "value": "/radar/adas.acc.tti_sec",
+          "enabled": false,
+          "color": "#00e5ff",
+          "label": "ACC TTI (s)"
         }
       ],
       "minYValue": 0,

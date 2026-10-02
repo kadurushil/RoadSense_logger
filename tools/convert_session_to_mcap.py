@@ -7,8 +7,9 @@ self-contained, Zstandard-compressed Foxglove MCAP (.mcap) file.
 
 Supported Channels & Modalities:
   - /radar/points        : foxglove.PointCloud (3D Doppler-colored point cloud, radar_link)
-  - /radar/tracks        : foxglove.SceneUpdate (3D oriented cuboids, velocity vectors, labels)
+  - /radar/tracks        : foxglove.SceneUpdate (3D oriented cuboids, velocity vectors, ADAS-highlighted labels)
   - /radar/diagnostics   : roadsense.RadarDiagnostics (TLV 4 tracker stats, ego dynamics, road boundaries)
+  - /radar/adas          : roadsense.RadarAdas (TLV 6 FCW alert stage/TTC, ACC POI, BSD warning)
   - /camera/video        : foxglove.CompressedVideo (H.264 Annex B bitstream, camera_optical)
   - /camera/calib        : foxglove.CameraCalibration (Pinhole intrinsics K, D, R, P)
   - /gnss/fix            : foxglove.LocationFix (GPS satellite track, speed, bearing)
@@ -362,7 +363,8 @@ def parse_radar_stream(radar_bin_path):
             "points": [],
             "tracks": [],
             "diags": None,
-            "can_inputs": None
+            "can_inputs": None,
+            "can_outputs": None
         }
 
         tlv_offset = TI_HEADER_SIZE
@@ -417,6 +419,7 @@ def parse_radar_stream(radar_bin_path):
                     count = min(num_objs, payload_size // stride) if num_objs > 0 else (payload_size // stride)
                     for i in range(count):
                         toff = 4 + i * stride
+                        cid_val = 0
                         if stride >= 28:
                             x_raw, y_raw, vx_raw, vy_raw, maj_raw, min_raw, ori_raw, tid, status, cid, tti_raw, risk, is_stat, ttc_cat, conf, res = struct.unpack_from(
                                 "<hhhhhhhHHHhBBBBH", tlv_data, toff
@@ -430,6 +433,7 @@ def parse_radar_stream(radar_bin_path):
                             ori_deg = ori_raw * 0.1
                             tti_sec = (tti_raw * 0.01) if tti_raw >= 0 else 100.0
                             risk_val = int(risk)
+                            cid_val = int(cid)
                         elif stride >= 20:
                             x_raw, y_raw, vx_raw, vy_raw, maj_raw, min_raw, ori_raw, tid, status, res = struct.unpack_from(
                                 "<hhhhhhhHHH", tlv_data, toff
@@ -449,7 +453,10 @@ def parse_radar_stream(radar_bin_path):
 
                         frame_data["tracks"].append({
                             "tid": int(tid),
+                            "cid": cid_val,
                             "status": int(status),
+                            "x_sensor": safe_float(x_val),   # TI radar lateral X (m)
+                            "y_sensor": safe_float(y_val),   # TI radar forward Y (m)
                             "x_fwd": safe_float(y_val),      # Forward distance in vehicle frame (m)
                             "y_left": safe_float(-x_val),    # Left lateral offset in vehicle frame (m)
                             "vx_fwd": safe_float(vy_val),    # Forward velocity (m/s)
@@ -492,6 +499,59 @@ def parse_radar_stream(radar_bin_path):
                     "accel_x_mps2": safe_float(c[4]),
                     "accel_y_mps2": safe_float(c[5]),
                     "accel_avg_mps2": safe_float(c[6])
+                }
+
+            # TLV 6: Vehicle Safety ADAS CAN Outputs (24 Bytes: FCW, BSD, ACC)
+            elif tlv_type == 6 and len(tlv_data) >= 24:
+                fcw_bytes = tlv_data[0:8]
+                bsd_bytes = tlv_data[8:16]
+                acc_bytes = tlv_data[16:24]
+
+                b0, b1, b2, b3, b4, b5, b6, _ = struct.unpack_from("BBBBBBBB", fcw_bytes, 0)
+                fcw_stage = b0 & 0x03
+                fcw_track_id = ((b0 >> 2) << 8) | b1
+                fcw_ttc = b2 * 0.1
+                fcw_target_y = b3 * 0.5
+                fcw_target_x = b4 * 0.2 - 25.6
+                fcw_target_vy = b5 * 0.5 - 64.0
+                fcw_target_vx = b6 * 0.2 - 25.6
+
+                bsd0, bsd1, bsd2, bsd3, _, _, _, _ = struct.unpack_from("BBBBBBBB", bsd_bytes, 0)
+
+                acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7 = struct.unpack_from("BBBBBBBB", acc_bytes, 0)
+                acc_poi_id = (acc0 << 8) | acc1
+                acc_target_y = acc2 * 0.5
+                acc_target_x = acc3 * 0.2 - 25.6
+                acc_target_vy = acc4 * 0.5 - 64.0
+                acc_tti = acc5 * 0.1
+                acc_v_safe = acc6 * 0.1
+                acc_a_ref = acc7 * 0.02 - 2.56
+
+                frame_data["can_outputs"] = {
+                    "fcw": {
+                        "stage": int(fcw_stage),
+                        "track_id": int(fcw_track_id),
+                        "ttc_sec": safe_float(fcw_ttc),
+                        "target_y": safe_float(fcw_target_y),
+                        "target_x": safe_float(fcw_target_x),
+                        "target_vy": safe_float(fcw_target_vy),
+                        "target_vx": safe_float(fcw_target_vx)
+                    },
+                    "acc": {
+                        "poi_id": int(acc_poi_id),
+                        "target_y": safe_float(acc_target_y),
+                        "target_x": safe_float(acc_target_x),
+                        "target_vy": safe_float(acc_target_vy),
+                        "tti_sec": safe_float(acc_tti),
+                        "v_safe_mps": safe_float(acc_v_safe),
+                        "a_ref_mps2": safe_float(acc_a_ref)
+                    },
+                    "bsd": {
+                        "left_active": bool(bsd0 != 0),
+                        "right_active": bool(bsd1 != 0),
+                        "warning_level": int(bsd2),
+                        "approach_ttc_sec": safe_float(bsd3 * 0.1 if bsd3 != 255 else 25.5)
+                    }
                 }
 
         yield frame_data
@@ -984,6 +1044,54 @@ def convert_session_to_mcap(
             schema_id=diags_schema_id
         )
 
+        adas_schema_id = writer._writer.register_schema(
+            name="roadsense.RadarAdas",
+            encoding="jsonschema",
+            data=json.dumps({
+                "type": "object",
+                "properties": {
+                    "fcw": {
+                        "type": "object",
+                        "properties": {
+                            "stage": {"type": "integer"},
+                            "track_id": {"type": "integer"},
+                            "ttc_sec": {"type": "number"},
+                            "target_y": {"type": "number"},
+                            "target_x": {"type": "number"},
+                            "target_vy": {"type": "number"},
+                            "target_vx": {"type": "number"}
+                        }
+                    },
+                    "acc": {
+                        "type": "object",
+                        "properties": {
+                            "poi_id": {"type": "integer"},
+                            "target_y": {"type": "number"},
+                            "target_x": {"type": "number"},
+                            "target_vy": {"type": "number"},
+                            "tti_sec": {"type": "number"},
+                            "v_safe_mps": {"type": "number"},
+                            "a_ref_mps2": {"type": "number"}
+                        }
+                    },
+                    "bsd": {
+                        "type": "object",
+                        "properties": {
+                            "left_active": {"type": "boolean"},
+                            "right_active": {"type": "boolean"},
+                            "warning_level": {"type": "integer"},
+                            "approach_ttc_sec": {"type": "number"}
+                        }
+                    }
+                }
+            }).encode("utf-8")
+        )
+        adas_chan_id = writer._writer.register_channel(
+            topic="/radar/adas",
+            message_encoding="json",
+            schema_id=adas_schema_id
+        )
+
         imu_schema_id = writer._writer.register_schema(
             name="roadsense.Imu",
             encoding="jsonschema",
@@ -1207,10 +1315,25 @@ def convert_session_to_mcap(
                     writer.write_message("/radar/points", pc_msg, log_time=utc_ns)
                     count_msg("/radar/points")
 
-                # 6.2 3D Scene Update (EKF Tracks)
+                # 6.2 3D Scene Update (EKF Tracks with ADAS Alert Highlighting)
                 # Use static entity ID so Foxglove replaces the previous frame's entity
                 # rather than rendering overlapping ghost tracks from consecutive frames.
                 tracks = r_frame["tracks"]
+                can_out = r_frame.get("can_outputs")
+                fcw = can_out.get("fcw") if can_out else None
+                acc = can_out.get("acc") if can_out else None
+
+                fcw_stage = fcw.get("stage", 0) if fcw else 0
+                fcw_tid = fcw.get("track_id", 0) if fcw else 0
+                fcw_tx = fcw.get("target_x", 0.0) if fcw else 0.0
+                fcw_ty = fcw.get("target_y", 0.0) if fcw else 0.0
+                fcw_ttc = fcw.get("ttc_sec", 0.0) if fcw else 0.0
+
+                acc_poi = acc.get("poi_id", 0) if acc else 0
+                acc_tx = acc.get("target_x", 0.0) if acc else 0.0
+                acc_ty = acc.get("target_y", 0.0) if acc else 0.0
+                acc_tti = acc.get("tti_sec", 0.0) if acc else 0.0
+
                 su_msg = SceneUpdate()
                 entity = su_msg.entities.add()
                 entity.id = "radar_tracks"
@@ -1219,7 +1342,26 @@ def convert_session_to_mcap(
                 entity.timestamp.nanos = nano
                 entity.lifetime.nanos = 150_000_000 # 150 ms fallback persistence
 
-                for t in tracks:
+                for idx, t in enumerate(tracks):
+                    # ADAS Target Identification matching RoadSense live UI & fusion engine
+                    is_fcw = False
+                    if fcw and fcw_stage > 0:
+                        if fcw_tid > 0 and (t["tid"] == fcw_tid or t.get("cid") == fcw_tid or (idx + 1) == fcw_tid or (t["tid"] % 256) == fcw_tid):
+                            is_fcw = True
+                        elif fcw_ty > 0.0:
+                            dist_fcw = math.hypot(t.get("x_sensor", -t["y_left"]) - fcw_tx, t.get("y_sensor", t["x_fwd"]) - fcw_ty)
+                            if dist_fcw < 4.0:
+                                is_fcw = True
+
+                    is_acc = False
+                    if acc and not is_fcw:
+                        if acc_poi > 0 and (t["tid"] == acc_poi or t.get("cid") == acc_poi or (idx + 1) == acc_poi or (t["tid"] % 256) == acc_poi):
+                            is_acc = True
+                        elif acc_ty > 0.0:
+                            dist_acc = math.hypot(t.get("x_sensor", -t["y_left"]) - acc_tx, t.get("y_sensor", t["x_fwd"]) - acc_ty)
+                            if dist_acc < 4.0:
+                                is_acc = True
+
                     # 3D Bounding Box
                     cube = entity.cubes.add()
                     cube.pose.position.x = t["x_fwd"]
@@ -1237,15 +1379,49 @@ def convert_session_to_mcap(
                     cube.size.y = t["width"]
                     cube.size.z = t["height"]
 
-                    # Color by risk / alert level
-                    if t["risk"] >= 3:
-                        cube.color.r = 1.0; cube.color.g = 0.1; cube.color.b = 0.1; cube.color.a = 0.75 # Red (High Risk)
+                    # Unified Color Palette matching RoadSense App (RadarBevPlot & ViewfinderRadarOverlay)
+                    if is_fcw:
+                        # Vivid Crimson Red (FCW Alert Target)
+                        cube.color.r = 1.0; cube.color.g = 0.09; cube.color.b = 0.27; cube.color.a = 0.88
+                        arrow_r, arrow_g, arrow_b = 1.0, 0.12, 0.25
+                        label_prefix = f"[FCW S{fcw_stage}] "
+                        label_suffix = f" | TTC {fcw_ttc:.1f}s" if fcw_ttc > 0 else ""
+                        txt_r, txt_g, txt_b = 1.0, 0.35, 0.35
+                    elif is_acc:
+                        # Electric Cyan (ACC POI Lead Vehicle)
+                        cube.color.r = 0.0; cube.color.g = 0.90; cube.color.b = 1.0; cube.color.a = 0.85
+                        arrow_r, arrow_g, arrow_b = 0.0, 0.95, 1.0
+                        label_prefix = "[ACC LEAD] "
+                        label_suffix = ""
+                        txt_r, txt_g, txt_b = 0.35, 0.95, 1.0
+                    elif t["risk"] >= 3:
+                        # High Risk Red
+                        cube.color.r = 1.0; cube.color.g = 0.10; cube.color.b = 0.10; cube.color.a = 0.80
+                        arrow_r, arrow_g, arrow_b = 1.0, 0.20, 0.20
+                        label_prefix = ""
+                        label_suffix = " [RISK 3]"
+                        txt_r, txt_g, txt_b = 1.0, 0.60, 0.60
                     elif t["risk"] == 2:
-                        cube.color.r = 1.0; cube.color.g = 0.6; cube.color.b = 0.0; cube.color.a = 0.75 # Orange (Warning)
+                        # Medium Risk Orange
+                        cube.color.r = 1.0; cube.color.g = 0.55; cube.color.b = 0.0; cube.color.a = 0.80
+                        arrow_r, arrow_g, arrow_b = 1.0, 0.60, 0.0
+                        label_prefix = ""
+                        label_suffix = " [RISK 2]"
+                        txt_r, txt_g, txt_b = 1.0, 0.80, 0.50
                     elif t["risk"] == 1:
-                        cube.color.r = 1.0; cube.color.g = 0.9; cube.color.b = 0.0; cube.color.a = 0.75 # Yellow (Caution)
+                        # Low Risk Amber
+                        cube.color.r = 1.0; cube.color.g = 0.75; cube.color.b = 0.0; cube.color.a = 0.75
+                        arrow_r, arrow_g, arrow_b = 1.0, 0.80, 0.0
+                        label_prefix = ""
+                        label_suffix = ""
+                        txt_r, txt_g, txt_b = 1.0, 0.95, 0.70
                     else:
-                        cube.color.r = 0.2; cube.color.g = 0.8; cube.color.b = 0.3; cube.color.a = 0.65 # Green (Normal)
+                        # Default Active Track: Golden Amber
+                        cube.color.r = 1.0; cube.color.g = 0.70; cube.color.b = 0.0; cube.color.a = 0.70
+                        arrow_r, arrow_g, arrow_b = 0.10, 0.90, 1.0
+                        label_prefix = ""
+                        label_suffix = ""
+                        txt_r, txt_g, txt_b = 1.0, 1.0, 1.0
 
                     # Velocity Vector Arrow
                     speed_mag = math.hypot(t["vx_fwd"], t["vy_left"])
@@ -1263,20 +1439,20 @@ def convert_session_to_mcap(
                         arrow.pose.orientation.w = aqw
 
                         arrow.shaft_length = min(speed_mag * 0.5, 5.0)
-                        arrow.shaft_diameter = 0.12
-                        arrow.head_length = 0.35
-                        arrow.head_diameter = 0.25
-                        arrow.color.r = 0.1; arrow.color.g = 0.9; arrow.color.b = 1.0; arrow.color.a = 0.9
+                        arrow.shaft_diameter = 0.15 if (is_fcw or is_acc) else 0.12
+                        arrow.head_length = 0.40 if (is_fcw or is_acc) else 0.35
+                        arrow.head_diameter = 0.30 if (is_fcw or is_acc) else 0.25
+                        arrow.color.r = arrow_r; arrow.color.g = arrow_g; arrow.color.b = arrow_b; arrow.color.a = 0.95
 
                     # Floating Label
                     txt = entity.texts.add()
                     txt.pose.position.x = t["x_fwd"]
                     txt.pose.position.y = t["y_left"]
-                    txt.pose.position.z = calib_params["radarHeightM"] + 1.2
-                    txt.text = f"ID #{t['tid']} | {t['vx_fwd']:.1f} m/s | TTI {t['tti']:.1f}s"
-                    txt.font_size = 0.45
+                    txt.pose.position.z = calib_params["radarHeightM"] + (1.3 if (is_fcw or is_acc) else 1.2)
+                    txt.text = f"{label_prefix}ID #{t['tid']} | {t['vx_fwd']:.1f} m/s | TTI {t['tti']:.1f}s{label_suffix}"
+                    txt.font_size = 0.50 if (is_fcw or is_acc) else 0.42
                     txt.billboard = True
-                    txt.color.r = 1.0; txt.color.g = 1.0; txt.color.b = 1.0; txt.color.a = 1.0
+                    txt.color.r = txt_r; txt.color.g = txt_g; txt.color.b = txt_b; txt.color.a = 1.0
 
                 writer.write_message("/radar/tracks", su_msg, log_time=utc_ns)
                 count_msg("/radar/tracks")
@@ -1300,6 +1476,16 @@ def convert_session_to_mcap(
                         publish_time=utc_ns
                     )
                     count_msg("/radar/diagnostics")
+
+                # 6.5 Vehicle Safety ADAS Outputs (TLV 6: FCW, BSD, ACC)
+                if r_frame.get("can_outputs"):
+                    writer._writer.add_message(
+                        channel_id=adas_chan_id,
+                        log_time=utc_ns,
+                        data=json.dumps(r_frame["can_outputs"]).encode("utf-8"),
+                        publish_time=utc_ns
+                    )
+                    count_msg("/radar/adas")
 
         # Ingest GNSS Satellite Fixes
         if os.path.isfile(gnss_csv):
