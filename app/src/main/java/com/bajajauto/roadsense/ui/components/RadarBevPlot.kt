@@ -342,13 +342,15 @@ fun RadarBevPlot(
                     val fcwTrackId = if ((fcwAlert?.trackId ?: 0) > 0) fcwAlert?.trackId else null
                     val accPoiId = if ((accTarget?.poiId ?: 0) > 0) accTarget?.poiId else null
 
-                    frame?.tracks?.forEach { track ->
+                    frame?.tracks?.forEachIndexed { index, track ->
                         val tx = originX + track.x * scale
                         val ty = originY - track.y * scale
 
                         if (ty in 0f..originY && tx in 0f..canvasWidth) {
-                            val isFcw = (fcwTrackId != null && track.tid == fcwTrackId)
-                            val isAcc = (accPoiId != null && track.tid == accPoiId)
+                            val isFcw = (fcwTrackId != null && (track.tid == fcwTrackId || track.clusterId == fcwTrackId || (index + 1) == fcwTrackId)) ||
+                                    (fcwAlert != null && fcwAlert.stage > 0 && fcwAlert.targetY > 0f && kotlin.math.hypot(track.x - fcwAlert.targetX, track.y - fcwAlert.targetY) < 4.0f)
+                            val isAcc = (accPoiId != null && (track.tid == accPoiId || track.clusterId == accPoiId || (index + 1) == accPoiId)) ||
+                                    (accTarget != null && accTarget.targetY > 0f && kotlin.math.hypot(track.x - accTarget.targetX, track.y - accTarget.targetY) < 4.0f)
 
                             val trackColor = when {
                                 isFcw -> Color(0xFFFF1744) // FCW Alert Target (Vivid Crimson Red)

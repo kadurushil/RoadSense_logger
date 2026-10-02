@@ -429,15 +429,17 @@ object SpatialProjectionEngine {
 
         // 1. Process Active Tracked Targets (TLV Type 3)
         val trackedPositions = mutableListOf<Pair<Float, Float>>()
-        for (track in radarFrame.tracks) {
+        for ((index, track) in radarFrame.tracks.withIndex()) {
             val x = track.x
             val y = track.y
             if (y <= 0.5f) continue
 
             trackedPositions.add(Pair(x, y))
 
-            val isFcw = (fcwTrackId != null && track.tid == fcwTrackId)
-            val isAcc = (accPoiId != null && track.tid == accPoiId)
+            val isFcw = (fcwTrackId != null && (track.tid == fcwTrackId || track.clusterId == fcwTrackId || (index + 1) == fcwTrackId)) ||
+                    (fcwAlert != null && fcwAlert.stage > 0 && fcwAlert.targetY > 0f && kotlin.math.hypot(track.x - fcwAlert.targetX, track.y - fcwAlert.targetY) < 4.0f)
+            val isAcc = (accPoiId != null && (track.tid == accPoiId || track.clusterId == accPoiId || (index + 1) == accPoiId)) ||
+                    (accTarget != null && accTarget.targetY > 0f && kotlin.math.hypot(track.x - accTarget.targetX, track.y - accTarget.targetY) < 4.0f)
             val fcwStage = if (isFcw) (fcwAlert?.stage ?: 0) else 0
 
             // Ground base anchor (road surface)

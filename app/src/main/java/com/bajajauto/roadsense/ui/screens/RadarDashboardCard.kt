@@ -322,7 +322,8 @@ private fun RadarTargetHudCard(
             val fcwTrackId = if ((fcwAlert?.trackId ?: 0) > 0) fcwAlert?.trackId else null
             val accPoiId = if ((accTarget?.poiId ?: 0) > 0) accTarget?.poiId else null
 
-            if (canOutputs != null && (fcwTrackId != null || accPoiId != null)) {
+            val isFcwActive = (fcwAlert?.stage ?: 0) > 0 || fcwTrackId != null
+            if (canOutputs != null && (isFcwActive || accPoiId != null)) {
                 Surface(
                     color = Color(0xFF0F141C),
                     shape = RoundedCornerShape(6.dp),
@@ -336,14 +337,15 @@ private fun RadarTargetHudCard(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (fcwTrackId != null) {
+                        if (isFcwActive) {
                             val stageName = when (fcwAlert?.stage) {
                                 2 -> "AUDIBLE"
                                 1 -> "VISUAL"
                                 else -> "ARMED"
                             }
+                            val targetLabel = if (fcwTrackId != null) "#$fcwTrackId" else "Active"
                             Text(
-                                text = "FCW: Target #$fcwTrackId ($stageName • ${"%.1f".format(fcwAlert?.ttcSec ?: 0f)}s)",
+                                text = "FCW: Target $targetLabel ($stageName • ${"%.1f".format(fcwAlert?.ttcSec ?: 0f)}s)",
                                 color = if ((fcwAlert?.stage ?: 0) > 0) Color(0xFFFF1744) else Color(0xFFFF8A80),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,

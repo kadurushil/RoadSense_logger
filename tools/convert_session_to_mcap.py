@@ -248,30 +248,68 @@ def compute_camera_optical_tf(pitch_deg, yaw_deg, roll_deg, setback, lateral, he
 def extract_video_orientation_degrees(mp4_path):
     """
     Parses MPEG-4 tkhd (Track Header) matrix to determine the video display rotation (0, 90, 180, 270).
-    Zero dependencies, reads only the container header atoms in O(1) time.
+    Uses direct ISO box atom-traversal to jump to the 'moov' atom in O(1) time regardless of file size,
+    with a 10MB tail-window fallback for malformed/interleaved containers.
     """
     if not os.path.isfile(mp4_path):
         return 0
     try:
+        file_size = os.path.getsize(mp4_path)
         with open(mp4_path, 'rb') as f:
-            f.seek(0, 2)
-            size = f.tell()
-            for offset in [0, max(0, size - 300000)]:
+            # 1. Fast Box-Traversal directly to 'moov' atom
+            offset = 0
+            while offset < file_size:
                 f.seek(offset)
-                data = f.read(300000)
-                idx = data.find(b'tkhd')
-                if idx != -1 and idx + 80 <= len(data):
-                    matrix_data = data[idx+44:idx+44+36]
-                    m = struct.unpack('>9i', matrix_data)
-                    a, b, u, c, d, v, x, y, w = [round(val / 65536.0, 2) for val in m]
-                    if a == -1.0 and d == -1.0:
-                        return 180
-                    elif b == 1.0 and c == -1.0:
-                        return 90
-                    elif b == -1.0 and c == 1.0:
-                        return 270
-                    elif a == 1.0 and d == 1.0:
-                        return 0
+                hdr = f.read(8)
+                if len(hdr) < 8:
+                    break
+                box_size, box_type = struct.unpack('>I4s', hdr)
+                if box_size == 1:  # 64-bit extended size
+                    hdr64 = f.read(8)
+                    if len(hdr64) < 8:
+                        break
+                    box_size = struct.unpack('>Q', hdr64)[0]
+                elif box_size == 0:  # Box extends to EOF
+                    box_size = file_size - offset
+
+                if box_type == b'moov':
+                    # Found moov atom: read header data (up to 4MB)
+                    f.seek(offset)
+                    moov_data = f.read(min(box_size, 4 * 1024 * 1024))
+                    tkhd_idx = moov_data.find(b'tkhd')
+                    if tkhd_idx != -1 and tkhd_idx + 80 <= len(moov_data):
+                        matrix_data = moov_data[tkhd_idx+44:tkhd_idx+44+36]
+                        m = struct.unpack('>9i', matrix_data)
+                        a, b, u, c, d, v, x, y, w = [round(val / 65536.0, 2) for val in m]
+                        if a == -1.0 and d == -1.0:
+                            return 180
+                        elif b == 1.0 and c == -1.0:
+                            return 90
+                        elif b == -1.0 and c == 1.0:
+                            return 270
+                        elif a == 1.0 and d == 1.0:
+                            return 0
+                    break
+
+                offset += box_size
+
+            # 2. Fallback: Search last 10MB of file
+            search_len = min(file_size, 10 * 1024 * 1024)
+            f.seek(max(0, file_size - search_len))
+            data = f.read(search_len)
+            idx = data.find(b'tkhd')
+            if idx != -1 and idx + 80 <= len(data):
+                matrix_data = data[idx+44:idx+44+36]
+                m = struct.unpack('>9i', matrix_data)
+                a, b, u, c, d, v, x, y, w = [round(val / 65536.0, 2) for val in m]
+                if a == -1.0 and d == -1.0:
+                    return 180
+                elif b == 1.0 and c == -1.0:
+                    return 90
+                elif b == -1.0 and c == 1.0:
+                    return 270
+                elif a == 1.0 and d == 1.0:
+                    return 0
     except Exception:
         pass
     return 0
