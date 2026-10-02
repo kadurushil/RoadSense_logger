@@ -31,6 +31,9 @@
         },
         "frame:camera_optical": {
           "visible": true
+        },
+        "frame:velodyne_frame": {
+          "visible": false
         }
       },
       "topics": {

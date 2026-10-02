@@ -821,10 +821,21 @@ def parse_flight_recorder_logs(session_log_path, start_wall_ms, start_iso_str=No
                 continue
 
 
-def convert_session_to_mcap(session_dir, output_path=None, include_video=True, flip_video=False, hwaccel="auto"):
+def convert_session_to_mcap(
+    session_dir,
+    output_path=None,
+    include_video=True,
+    flip_video=False,
+    hwaccel="auto",
+    urdf_root="velodyne_frame",
+    urdf_x=-1.40,
+    urdf_y=0.00,
+    urdf_z=0.00
+):
     """
     Main conversion entrypoint. Ingests all session data and compiles a unified Foxglove MCAP.
     If flip_video is True, physically rotates video frames 180° during conversion using hardware acceleration when available.
+    Bridges vehicle URDF models via base_link -> velodyne_frame (and common aliases), aligning the car's bonnet with radar (0,0,0).
     """
     session_dir = os.path.abspath(session_dir)
     session_name = os.path.basename(session_dir.rstrip("\\/"))
@@ -1092,6 +1103,38 @@ def convert_session_to_mcap(session_dir, output_path=None, include_video=True, f
         tf_cam.rotation.y = cam_quat[1]
         tf_cam.rotation.z = cam_quat[2]
         tf_cam.rotation.w = cam_quat[3]
+
+        # Transform 3: base_link -> velodyne_frame (URDF Root Bridge)
+        # Bridges the vehicle URDF root frame to the RoadSense coordinate tree.
+        # Places the car body such that radar (0,0,0) aligns with the car's front bumper / bonnet.
+        effective_urdf_root = calib_params.get("urdfRootFrame", urdf_root)
+        effective_urdf_x = float(calib_params.get("urdfOffsetX", urdf_x))
+        effective_urdf_y = float(calib_params.get("urdfOffsetY", urdf_y))
+        effective_urdf_z = float(calib_params.get("urdfOffsetZ", urdf_z))
+
+        tf_urdf = tf_msg.transforms.add()
+        tf_urdf.timestamp.seconds = base_sec
+        tf_urdf.timestamp.nanos = base_nano
+        tf_urdf.parent_frame_id = "base_link"
+        tf_urdf.child_frame_id = effective_urdf_root
+        tf_urdf.translation.x = effective_urdf_x
+        tf_urdf.translation.y = effective_urdf_y
+        tf_urdf.translation.z = effective_urdf_z
+        tf_urdf.rotation.w = 1.0
+
+        # Transform 4..N: Standard Automotive URDF Aliases (base_footprint, chassis, car_link, vehicle_frame)
+        standard_aliases = ["velodyne_frame", "base_footprint", "chassis", "car_link", "vehicle_frame", "ego_vehicle"]
+        for alias_frame in standard_aliases:
+            if alias_frame != effective_urdf_root:
+                tf_alias = tf_msg.transforms.add()
+                tf_alias.timestamp.seconds = base_sec
+                tf_alias.timestamp.nanos = base_nano
+                tf_alias.parent_frame_id = "base_link"
+                tf_alias.child_frame_id = alias_frame
+                tf_alias.translation.x = effective_urdf_x
+                tf_alias.translation.y = effective_urdf_y
+                tf_alias.translation.z = effective_urdf_z
+                tf_alias.rotation.w = 1.0
 
         writer.write_message("/tf", tf_msg, log_time=start_wall_ms * 1_000_000)
         count_msg("/tf")
@@ -1411,6 +1454,10 @@ def main():
     parser.add_argument("--no-video", action="store_true", help="Exclude video stream for ultra-compact MCAP")
     parser.add_argument("--flip-video", action="store_true", help="Physically rotate video 180° during conversion so raw stream is upright everywhere")
     parser.add_argument("--hwaccel", choices=["auto", "nvenc", "cpu"], default="auto", help="Hardware acceleration mode for video re-encoding (default: auto)")
+    parser.add_argument("--urdf-root", default="velodyne_frame", help="Root frame ID of vehicle URDF to bridge to base_link (default: velodyne_frame)")
+    parser.add_argument("--urdf-x", type=float, default=-1.40, help="X translation in meters from base_link (radar bonnet) to URDF root (default: -1.40)")
+    parser.add_argument("--urdf-y", type=float, default=0.00, help="Y translation in meters from base_link to URDF root (default: 0.00)")
+    parser.add_argument("--urdf-z", type=float, default=0.00, help="Z translation in meters from base_link to URDF root (default: 0.00)")
 
     args = parser.parse_args()
     if not os.path.isdir(args.session_dir):
@@ -1422,7 +1469,11 @@ def main():
         output_path=args.output,
         include_video=not args.no_video,
         flip_video=args.flip_video,
-        hwaccel=args.hwaccel
+        hwaccel=args.hwaccel,
+        urdf_root=args.urdf_root,
+        urdf_x=args.urdf_x,
+        urdf_y=args.urdf_y,
+        urdf_z=args.urdf_z
     )
 
 
