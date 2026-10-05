@@ -498,16 +498,16 @@ class RadarTlvDecoderTest {
         buf.putInt(6) // Type: CAN Outputs
         buf.putInt(24) // Length: 24 bytes
 
-        // FCW (8 bytes): stage=2 (b0=2), trackId=105 (b1=105), ttc=2.5s (b2=25), targetY=20m (b3=40),
-        // targetX=0m (b4=128), targetVy=0m/s (b5=128), targetVx=0m/s (b6=128), reserved=0 (b7=0)
+        // FCW (8 bytes): stage=2 (b0=2), trackId=105 (b1=0, b2=105), ttc=2.5s (b3=25), targetY=20m (b4=40),
+        // targetX=0m (b5=128), targetVy=0m/s (b6=128), targetVx=0m/s (b7=128)
         buf.put(2.toByte())
+        buf.put(0.toByte())
         buf.put(105.toByte())
         buf.put(25.toByte())
         buf.put(40.toByte())
         buf.put(128.toByte())
         buf.put(128.toByte())
         buf.put(128.toByte())
-        buf.put(0.toByte())
 
         // BSD (8 bytes): leftActive=1, rightActive=0, warningLevel=2, approachTtc=1.8s (b3=18), reserved 4 bytes
         buf.put(1.toByte())

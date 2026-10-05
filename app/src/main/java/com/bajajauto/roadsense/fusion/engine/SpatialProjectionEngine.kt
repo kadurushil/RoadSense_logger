@@ -427,6 +427,51 @@ object SpatialProjectionEngine {
         val fcwTrackId = if ((fcwAlert?.trackId ?: 0) > 0) fcwAlert?.trackId else null
         val accPoiId = if ((accTarget?.poiId ?: 0) > 0) accTarget?.poiId else null
 
+        // Multi-tiered FCW Target Matching
+        var matchedFcwIndex: Int? = null
+        if (fcwAlert != null && fcwAlert.stage > 0) {
+            // Tier 1: ID / Cluster / Slot / Modulo 256 match
+            matchedFcwIndex = radarFrame.tracks.indexOfFirst { track ->
+                fcwTrackId != null && (track.tid == fcwTrackId || track.clusterId == fcwTrackId || (track.tid % 256) == fcwTrackId)
+            }.takeIf { it >= 0 }
+
+            // Tier 2: Distance matching (Longitudinal distance within 4.0m or 2D Euclidean distance < 5.0m)
+            if (matchedFcwIndex == null && fcwAlert.targetY > 0.5f) {
+                matchedFcwIndex = radarFrame.tracks.indexOfFirst { track ->
+                    abs(track.y - fcwAlert.targetY) < 4.0f || hypot(track.x - fcwAlert.targetX, track.y - fcwAlert.targetY) < 5.0f
+                }.takeIf { it >= 0 }
+            }
+
+            // Tier 3: High-Risk Forward Corridor matching
+            if (matchedFcwIndex == null) {
+                val candidates = radarFrame.tracks.mapIndexed { idx, track -> Pair(idx, track) }
+                    .filter { (_, track) -> track.risk >= 2 && abs(track.x) <= 4.5f && track.y <= 50.0f }
+                    .ifEmpty {
+                        radarFrame.tracks.mapIndexed { idx, track -> Pair(idx, track) }
+                            .filter { (_, track) -> track.risk >= 1 && track.vy < -1.0f && abs(track.x) <= 4.5f }
+                    }
+                if (candidates.isNotEmpty()) {
+                    matchedFcwIndex = candidates.minByOrNull { (_, track) -> -track.risk * 100f + track.y }?.first
+                }
+            }
+        }
+
+        // Multi-tiered ACC Target Matching
+        var matchedAccIndex: Int? = null
+        if (accTarget != null && (accPoiId != null || accTarget.targetY > 0.5f)) {
+            // Tier 1: ID / Cluster / Slot match
+            matchedAccIndex = radarFrame.tracks.indexOfFirst { track ->
+                accPoiId != null && (track.tid == accPoiId || track.clusterId == accPoiId || (track.tid % 256) == accPoiId)
+            }.takeIf { it >= 0 }
+
+            // Tier 2: Distance matching
+            if (matchedAccIndex == null && accTarget.targetY > 0.5f) {
+                matchedAccIndex = radarFrame.tracks.indexOfFirst { track ->
+                    abs(track.y - accTarget.targetY) < 4.0f || hypot(track.x - accTarget.targetX, track.y - accTarget.targetY) < 5.0f
+                }.takeIf { it >= 0 }
+            }
+        }
+
         // 1. Process Active Tracked Targets (TLV Type 3)
         val trackedPositions = mutableListOf<Pair<Float, Float>>()
         for ((index, track) in radarFrame.tracks.withIndex()) {
@@ -436,10 +481,8 @@ object SpatialProjectionEngine {
 
             trackedPositions.add(Pair(x, y))
 
-            val isFcw = (fcwTrackId != null && (track.tid == fcwTrackId || track.clusterId == fcwTrackId || (index + 1) == fcwTrackId)) ||
-                    (fcwAlert != null && fcwAlert.stage > 0 && fcwAlert.targetY > 0f && kotlin.math.hypot(track.x - fcwAlert.targetX, track.y - fcwAlert.targetY) < 4.0f)
-            val isAcc = (accPoiId != null && (track.tid == accPoiId || track.clusterId == accPoiId || (index + 1) == accPoiId)) ||
-                    (accTarget != null && accTarget.targetY > 0f && kotlin.math.hypot(track.x - accTarget.targetX, track.y - accTarget.targetY) < 4.0f)
+            val isFcw = (index == matchedFcwIndex)
+            val isAcc = (index == matchedAccIndex)
             val fcwStage = if (isFcw) (fcwAlert?.stage ?: 0) else 0
 
             // Ground base anchor (road surface)
@@ -480,6 +523,36 @@ object SpatialProjectionEngine {
                     fcwStage = fcwStage
                 )
             )
+        }
+
+        // 1.5 Fallback Dedicated FCW Target Synthesis (if no track matched but radar firmware arised active FCW alert)
+        if (fcwAlert != null && fcwAlert.stage > 0 && matchedFcwIndex == null && fcwAlert.targetY > 0.5f) {
+            val fx = fcwAlert.targetX
+            val fy = fcwAlert.targetY
+            val basePt = project2DRadarToScreen(fx, fy, params, intrinsics, viewWidth, viewHeight, roadZ)
+            val headPt = project2DRadarToScreen(fx, fy, params, intrinsics, viewWidth, viewHeight, roadZ + 0.80f)
+            if (basePt != null && headPt != null) {
+                val footprint = calculateGroundFootprintEllipse(fx, fy, 0.90f, 1.20f, params, intrinsics, viewWidth, viewHeight, 12)
+                val range = sqrt(fx * fx + fy * fy)
+                lollipops.add(
+                    ProjectedRadarLollipop(
+                        basePt = basePt,
+                        headPt = headPt,
+                        footprint = footprint,
+                        depthM = basePt.depthM,
+                        rangeM = range,
+                        isTracked = true,
+                        trackId = fcwTrackId,
+                        dopplerMps = fcwAlert.targetVy,
+                        snrDb = 40f,
+                        label = "[FCW S${fcwAlert.stage}] • ${range.toInt()}m",
+                        isFcwTarget = true,
+                        isAccTarget = false,
+                        fcwStage = fcwAlert.stage
+                    )
+                )
+                trackedPositions.add(Pair(fx, fy))
+            }
         }
 
         // 2. Process Radar Points (TLV Type 1)

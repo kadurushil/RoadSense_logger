@@ -342,15 +342,54 @@ fun RadarBevPlot(
                     val fcwTrackId = if ((fcwAlert?.trackId ?: 0) > 0) fcwAlert?.trackId else null
                     val accPoiId = if ((accTarget?.poiId ?: 0) > 0) accTarget?.poiId else null
 
-                    frame?.tracks?.forEachIndexed { index, track ->
+                    // Multi-tiered FCW Target Matching
+                    val tracksList = frame?.tracks ?: emptyList()
+                    var matchedFcwIndex: Int? = null
+                    if (fcwAlert != null && fcwAlert.stage > 0) {
+                        matchedFcwIndex = tracksList.indexOfFirst { track ->
+                            fcwTrackId != null && (track.tid == fcwTrackId || track.clusterId == fcwTrackId || (track.tid % 256) == fcwTrackId)
+                        }.takeIf { it >= 0 }
+
+                        if (matchedFcwIndex == null && fcwAlert.targetY > 0.5f) {
+                            matchedFcwIndex = tracksList.indexOfFirst { track ->
+                                kotlin.math.abs(track.y - fcwAlert.targetY) < 4.0f || kotlin.math.hypot(track.x - fcwAlert.targetX, track.y - fcwAlert.targetY) < 5.0f
+                            }.takeIf { it >= 0 }
+                        }
+
+                        if (matchedFcwIndex == null) {
+                            val candidates = tracksList.mapIndexed { idx, track -> Pair(idx, track) }
+                                .filter { (_, track) -> track.risk >= 2 && kotlin.math.abs(track.x) <= 4.5f && track.y <= 50.0f }
+                                .ifEmpty {
+                                    tracksList.mapIndexed { idx, track -> Pair(idx, track) }
+                                        .filter { (_, track) -> track.risk >= 1 && track.vy < -1.0f && kotlin.math.abs(track.x) <= 4.5f }
+                                }
+                            if (candidates.isNotEmpty()) {
+                                matchedFcwIndex = candidates.minByOrNull { (_, track) -> -track.risk * 100f + track.y }?.first
+                            }
+                        }
+                    }
+
+                    // Multi-tiered ACC Target Matching
+                    var matchedAccIndex: Int? = null
+                    if (accTarget != null && (accPoiId != null || accTarget.targetY > 0.5f)) {
+                        matchedAccIndex = tracksList.indexOfFirst { track ->
+                            accPoiId != null && (track.tid == accPoiId || track.clusterId == accPoiId || (track.tid % 256) == accPoiId)
+                        }.takeIf { it >= 0 }
+
+                        if (matchedAccIndex == null && accTarget.targetY > 0.5f) {
+                            matchedAccIndex = tracksList.indexOfFirst { track ->
+                                kotlin.math.abs(track.y - accTarget.targetY) < 4.0f || kotlin.math.hypot(track.x - accTarget.targetX, track.y - accTarget.targetY) < 5.0f
+                            }.takeIf { it >= 0 }
+                        }
+                    }
+
+                    tracksList.forEachIndexed { index, track ->
                         val tx = originX + track.x * scale
                         val ty = originY - track.y * scale
 
                         if (ty in 0f..originY && tx in 0f..canvasWidth) {
-                            val isFcw = (fcwTrackId != null && (track.tid == fcwTrackId || track.clusterId == fcwTrackId || (index + 1) == fcwTrackId)) ||
-                                    (fcwAlert != null && fcwAlert.stage > 0 && fcwAlert.targetY > 0f && kotlin.math.hypot(track.x - fcwAlert.targetX, track.y - fcwAlert.targetY) < 4.0f)
-                            val isAcc = (accPoiId != null && (track.tid == accPoiId || track.clusterId == accPoiId || (index + 1) == accPoiId)) ||
-                                    (accTarget != null && accTarget.targetY > 0f && kotlin.math.hypot(track.x - accTarget.targetX, track.y - accTarget.targetY) < 4.0f)
+                            val isFcw = (index == matchedFcwIndex)
+                            val isAcc = (index == matchedAccIndex)
 
                             val trackColor = when {
                                 isFcw -> Color(0xFFFF1744) // FCW Alert Target (Vivid Crimson Red)
@@ -484,6 +523,49 @@ fun RadarBevPlot(
                                 trackLabelPaint
                             )
                         }
+                    }
+
+                    // 8.5 Draw Fallback FCW Target if firmware has active alert but track list didn't associate
+                    if (fcwAlert != null && fcwAlert.stage > 0 && matchedFcwIndex == null && fcwAlert.targetY > 0.5f) {
+                        val ftx = originX + fcwAlert.targetX * scale
+                        val fty = originY - fcwAlert.targetY * scale
+                        if (fty in 0f..originY && ftx in 0f..canvasWidth) {
+                            val fRadius = 16f
+                            drawCircle(color = Color(0xFFFF1744).copy(alpha = 0.25f), center = Offset(ftx, fty), radius = fRadius + 8f)
+                            drawCircle(color = Color(0xFFFF1744).copy(alpha = 0.70f), center = Offset(ftx, fty), radius = fRadius + 4f, style = Stroke(width = 2f))
+                            drawCircle(color = Color(0xFFFF1744), center = Offset(ftx, fty), radius = fRadius, style = Stroke(width = 2.5f))
+                            drawCircle(color = Color(0xFFFF1744), center = Offset(ftx, fty), radius = 4f)
+
+                            trackLabelPaint.color = android.graphics.Color.argb(255, 255, 82, 82)
+                            drawContext.canvas.nativeCanvas.drawText(
+                                "[FCW S${fcwAlert.stage}]",
+                                ftx,
+                                fty - fRadius - 6f,
+                                trackLabelPaint
+                            )
+                        }
+                    }
+
+                    // 8.6 Draw Top-of-Canvas FCW Warning Banner if FCW is active
+                    if (fcwAlert != null && fcwAlert.stage > 0) {
+                        val stageText = if (fcwAlert.stage == 2) "FCW HAZARD: AUDIBLE ALERT" else "FCW: VISUAL WARNING"
+                        val ttcText = if (fcwAlert.ttcSec > 0f) " • TTC ${"%.1f".format(fcwAlert.ttcSec)}s" else ""
+                        val distText = if (fcwAlert.targetY > 0f) " • ${"%.1f".format(fcwAlert.targetY)}m" else ""
+                        val bannerText = "$stageText$ttcText$distText"
+
+                        val bannerPaint = Paint().apply {
+                            color = android.graphics.Color.argb(240, 255, 23, 68)
+                            textSize = 26f
+                            isAntiAlias = true
+                            textAlign = Paint.Align.CENTER
+                            isFakeBoldText = true
+                        }
+                        drawContext.canvas.nativeCanvas.drawText(
+                            bannerText,
+                            originX,
+                            24f,
+                            bannerPaint
+                        )
                     }
                 }
             }

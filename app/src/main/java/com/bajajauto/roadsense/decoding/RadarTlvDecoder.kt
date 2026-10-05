@@ -583,14 +583,15 @@ class RadarTlvDecoder {
         val b4 = fcwBytes[4].toInt() and 0xFF
         val b5 = fcwBytes[5].toInt() and 0xFF
         val b6 = fcwBytes[6].toInt() and 0xFF
+        val b7 = fcwBytes[7].toInt() and 0xFF
 
         val fcwStage = b0 and 0x03
-        val fcwTrackId = ((b0 ushr 2) shl 8) or b1
-        val fcwTtc = b2 * 0.1f
-        val fcwTargetY = b3 * 0.5f
-        val fcwTargetX = b4 * 0.2f - 25.6f
-        val fcwTargetVy = b5 * 0.5f - 64.0f
-        val fcwTargetVx = b6 * 0.2f - 25.6f
+        val fcwTrackId = (b1 shl 8) or b2
+        val fcwTtc = b3 * 0.1f
+        val fcwTargetY = b4 * 0.5f
+        val fcwTargetX = b5 * 0.2f - 25.6f
+        val fcwTargetVy = b6 * 0.5f - 64.0f
+        val fcwTargetVx = b7 * 0.2f - 25.6f
 
         val fcw = RadarFcwAlert(
             stage = fcwStage,

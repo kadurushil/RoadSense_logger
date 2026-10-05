@@ -502,4 +502,68 @@ class SpatialProjectionEngineTest {
         assertEquals(1, target.fcwStage)
         assertTrue("Combined target label must contain [FCW+ACC] tag", target.label.contains("[FCW+ACC]"))
     }
+
+    @Test
+    fun testCalculateRadarLollipopsWithDistanceMatchedFcwTarget() {
+        // Simulates real-world TI radar telemetry where FCW alert transmits internal slot ID (e.g. 7)
+        // while EKF tracker transmits cumulative global lifetime TID (e.g. 2029) at matching distance y=16.0m
+        val canOutputs = RadarCanOutputs(
+            fcw = RadarFcwAlert(stage = 2, trackId = 7, ttcSec = 1.2f, targetY = 16.0f, targetX = -1.0f, targetVy = -8f, targetVx = 0f),
+            bsd = RadarBsdAlert(leftActive = false, rightActive = false, warningLevel = 0, approachTtcSec = 25.5f),
+            acc = RadarAccTarget(poiId = 0, targetY = 0f, targetX = 0f, targetVy = 0f, ttiSec = 0f, vSafeMps = 0f, aRefMps2 = 0f)
+        )
+
+        val frame = createTestRadarFrame(
+            tracks = listOf(
+                RadarTrack(tid = 2029, x = -1.2f, y = 16.2f, vx = 0f, vy = -8f, xSize = 1.8f, ySize = 4.0f, risk = 3),
+                RadarTrack(tid = 1845, x = 1.5f, y = 45.0f, vx = 0f, vy = -2f, xSize = 1.8f, ySize = 4.0f, risk = 0)
+            ),
+            canOutputs = canOutputs
+        )
+
+        val params = CalibrationParameters(radarHeightM = 0.95f)
+        val lollipops = SpatialProjectionEngine.calculateRadarLollipops(
+            radarFrame = frame,
+            params = params,
+            intrinsics = testIntrinsics,
+            viewWidth = viewW,
+            viewHeight = viewH
+        )
+
+        assertEquals(2, lollipops.size)
+        val fcwTarget = lollipops.find { it.trackId == 2029 }
+        assertNotNull(fcwTarget)
+        assertTrue("Track #2029 matched via distance must be flagged as FCW target", fcwTarget!!.isFcwTarget)
+        assertEquals(2, fcwTarget.fcwStage)
+    }
+
+    @Test
+    fun testCalculateRadarLollipopsWithFallbackFcwTargetWhenTracksEmpty() {
+        val canOutputs = RadarCanOutputs(
+            fcw = RadarFcwAlert(stage = 2, trackId = 8, ttcSec = 0.8f, targetY = 12.0f, targetX = 0f, targetVy = -10f, targetVx = 0f),
+            bsd = RadarBsdAlert(leftActive = false, rightActive = false, warningLevel = 0, approachTtcSec = 25.5f),
+            acc = RadarAccTarget(poiId = 0, targetY = 0f, targetX = 0f, targetVy = 0f, ttiSec = 0f, vSafeMps = 0f, aRefMps2 = 0f)
+        )
+
+        // Tracks array is empty (e.g. tracker slot dropped during collision hazard)
+        val frame = createTestRadarFrame(
+            tracks = emptyList(),
+            canOutputs = canOutputs
+        )
+
+        val params = CalibrationParameters(radarHeightM = 0.95f)
+        val lollipops = SpatialProjectionEngine.calculateRadarLollipops(
+            radarFrame = frame,
+            params = params,
+            intrinsics = testIntrinsics,
+            viewWidth = viewW,
+            viewHeight = viewH
+        )
+
+        assertEquals(1, lollipops.size)
+        val fallbackTarget = lollipops[0]
+        assertTrue("Fallback target must be flagged as FCW target", fallbackTarget.isFcwTarget)
+        assertEquals(2, fallbackTarget.fcwStage)
+        assertTrue("Fallback target label must contain [FCW S2] tag", fallbackTarget.label.contains("[FCW S2]"))
+    }
 }

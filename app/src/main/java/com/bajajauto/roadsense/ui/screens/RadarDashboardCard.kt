@@ -322,30 +322,48 @@ private fun RadarTargetHudCard(
             val fcwTrackId = if ((fcwAlert?.trackId ?: 0) > 0) fcwAlert?.trackId else null
             val accPoiId = if ((accTarget?.poiId ?: 0) > 0) accTarget?.poiId else null
 
+            // Multi-tiered FCW & ACC resolution
+            val matchedFcwTid: Int? = if (fcwAlert != null && fcwAlert.stage > 0) {
+                latestFrame?.tracks?.firstOrNull { track ->
+                    fcwTrackId != null && (track.tid == fcwTrackId || track.clusterId == fcwTrackId || (track.tid % 256) == fcwTrackId)
+                }?.tid ?: latestFrame?.tracks?.firstOrNull { track ->
+                    fcwAlert.targetY > 0.5f && (kotlin.math.abs(track.y - fcwAlert.targetY) < 4.0f || kotlin.math.hypot(track.x - fcwAlert.targetX, track.y - fcwAlert.targetY) < 5.0f)
+                }?.tid ?: latestFrame?.tracks?.filter { it.risk >= 2 && kotlin.math.abs(it.x) <= 4.5f }?.minByOrNull { it.y }?.tid
+            } else null
+
+            val matchedAccTid: Int? = if (accTarget != null && (accPoiId != null || accTarget.targetY > 0.5f)) {
+                latestFrame?.tracks?.firstOrNull { track ->
+                    accPoiId != null && (track.tid == accPoiId || track.clusterId == accPoiId || (track.tid % 256) == accPoiId)
+                }?.tid ?: latestFrame?.tracks?.firstOrNull { track ->
+                    accTarget.targetY > 0.5f && (kotlin.math.abs(track.y - accTarget.targetY) < 4.0f || kotlin.math.hypot(track.x - accTarget.targetX, track.y - accTarget.targetY) < 5.0f)
+                }?.tid
+            } else null
+
             val isFcwActive = (fcwAlert?.stage ?: 0) > 0 || fcwTrackId != null
-            if (canOutputs != null && (isFcwActive || accPoiId != null)) {
+            if (canOutputs != null && (isFcwActive || accPoiId != null || (accTarget?.targetY ?: 0f) > 0f)) {
                 Surface(
                     color = Color(0xFF0F141C),
                     shape = RoundedCornerShape(6.dp),
-                    border = BorderStroke(1.dp, if ((fcwAlert?.stage ?: 0) > 0) Color(0xFFFF1744).copy(alpha = 0.6f) else Color(0xFF263238)),
+                    border = BorderStroke(1.dp, if ((fcwAlert?.stage ?: 0) > 0) Color(0xFFFF1744).copy(alpha = 0.8f) else Color(0xFF263238)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (isFcwActive) {
                             val stageName = when (fcwAlert?.stage) {
-                                2 -> "AUDIBLE"
-                                1 -> "VISUAL"
+                                2 -> "AUDIBLE ALERT"
+                                1 -> "VISUAL WARNING"
                                 else -> "ARMED"
                             }
-                            val targetLabel = if (fcwTrackId != null) "#$fcwTrackId" else "Active"
+                            val targetLabel = if (matchedFcwTid != null) "#$matchedFcwTid" else if (fcwTrackId != null) "#$fcwTrackId" else "Ahead"
+                            val distText = if ((fcwAlert?.targetY ?: 0f) > 0f) " • ${"%.1f".format(fcwAlert?.targetY)}m" else ""
                             Text(
-                                text = "FCW: Target $targetLabel ($stageName • ${"%.1f".format(fcwAlert?.ttcSec ?: 0f)}s)",
+                                text = "FCW: $targetLabel ($stageName • TTC ${"%.1f".format(fcwAlert?.ttcSec ?: 0f)}s$distText)",
                                 color = if ((fcwAlert?.stage ?: 0) > 0) Color(0xFFFF1744) else Color(0xFFFF8A80),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
@@ -360,9 +378,10 @@ private fun RadarTargetHudCard(
                             )
                         }
 
-                        if (accPoiId != null) {
+                        if (accPoiId != null || (accTarget?.targetY ?: 0f) > 0f) {
+                            val accLabel = if (matchedAccTid != null) "#$matchedAccTid" else if (accPoiId != null) "#$accPoiId" else "Lead"
                             Text(
-                                text = "ACC POI: #$accPoiId (${"%.1f".format(accTarget?.targetY ?: 0f)}m)",
+                                text = "ACC POI: $accLabel (${"%.1f".format(accTarget?.targetY ?: 0f)}m)",
                                 color = Color(0xFF00E5FF),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
@@ -387,8 +406,8 @@ private fun RadarTargetHudCard(
 
             if (losTracks.isNotEmpty()) {
                 losTracks.forEach { trk ->
-                    val isFcw = (fcwTrackId != null && trk.tid == fcwTrackId)
-                    val isAcc = (accPoiId != null && trk.tid == accPoiId)
+                    val isFcw = (matchedFcwTid != null && trk.tid == matchedFcwTid)
+                    val isAcc = (matchedAccTid != null && trk.tid == matchedAccTid)
                     val speedKmh = trk.vy * 3.6f
                     val isApproaching = trk.vy < -0.3f
                     val isReceding = trk.vy > 0.3f
