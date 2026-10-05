@@ -974,12 +974,13 @@ Select an operation on the left and click Run.
       span.innerHTML = ansiToHtml(line);
       term.appendChild(span);
 
-      // Inline preview for diagnostic plot artifacts
+      // Inline preview for diagnostic plot artifacts (deduplicated per run)
       if (line.includes('sync_audit_report.png') && (line.includes('saved') || line.includes('Plot:'))) {
         const match = line.match(/(logs[\\\/]session_[^\\\/]+[\\\/]sync_audit_report\.png)/);
-        if (match) {
+        if (match && !term.querySelector(`img[src^="/${match[1].replace(/\\/g, '/')}"]`)) {
           const relPath = match[1].replace(/\\/g, '/');
           const previewDiv = document.createElement('div');
+          previewDiv.className = 'sync-plot-card';
           previewDiv.style.margin = '10px 0 16px 0';
           previewDiv.style.padding = '10px';
           previewDiv.style.background = '#151821';

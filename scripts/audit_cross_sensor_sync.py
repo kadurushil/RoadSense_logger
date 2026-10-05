@@ -521,7 +521,6 @@ def audit_timeline(sess_dir, make_plot=True, show_gui=False):
         if plot_path and os.path.exists(plot_path):
             sz = os.path.getsize(plot_path)
             print(f"  {colorize_status('PASS')}: 5-Panel diagnostic chart saved to: {plot_path} ({sz:,} bytes)")
-            print(f"  [+] Synchronization diagnostic plot saved: {plot_path}")
 
     print("\n" + "=" * 80)
     print("TIMELINE AUDIT COMPLETE")
