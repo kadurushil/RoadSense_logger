@@ -888,6 +888,62 @@ Select an operation on the left and click Run.
     }
 
     // --- Logging & Colorizing ---
+    function ansiToHtml(text) {
+      let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      
+      const colors = {
+        '30': '#1e293b', '31': '#f87171', '32': '#4ade80', '33': '#fbbf24', '34': '#60a5fa', '35': '#c084fc', '36': '#38bdf8', '37': '#f1f5f9',
+        '90': '#64748b', '91': '#f87171', '92': '#4ade80', '93': '#fbbf24', '94': '#60a5fa', '95': '#c084fc', '96': '#38bdf8', '97': '#ffffff'
+      };
+
+      const ansiRegex = /\x1b\[([0-9;]+)m/g;
+      let inSpan = false;
+
+      html = html.replace(ansiRegex, (match, codes) => {
+        const parts = codes.split(';');
+        let styles = [];
+        let isReset = false;
+
+        for (const code of parts) {
+          if (code === '0') {
+            isReset = true;
+          } else if (code === '1') {
+            styles.push('font-weight: bold');
+          } else if (colors[code]) {
+            styles.push(`color: ${colors[code]}`);
+          }
+        }
+
+        if (isReset) {
+          const res = inSpan ? '</span>' : '';
+          inSpan = false;
+          if (styles.length > 0) {
+            inSpan = true;
+            return res + `<span style="${styles.join('; ')}">`;
+          }
+          return res;
+        } else if (styles.length > 0) {
+          const prefix = inSpan ? '</span>' : '';
+          inSpan = true;
+          return prefix + `<span style="${styles.join('; ')}">`;
+        }
+        return '';
+      });
+
+      if (inSpan) {
+        html += '</span>';
+      }
+
+      // Also highlight keywords if no explicit ANSI codes were in the source line
+      if (!text.includes('\x1b[')) {
+        html = html.replace(/\b(PASS|HEALTHY|INTACT|CLEAN|STAGED|EXCELLENT)\b/g, '<span style="color: #4ade80; font-weight: bold;">$1</span>');
+        html = html.replace(/\b(WARN|WARNING|ACCEPTABLE)\b/g, '<span style="color: #fbbf24; font-weight: bold;">$1</span>');
+        html = html.replace(/\b(FAIL|CRITICAL|ERROR)\b/g, '<span style="color: #f87171; font-weight: bold;">$1</span>');
+      }
+
+      return html;
+    }
+
     function appendLogLine(line) {
       if (line.startsWith('[PROGRESS]')) {
         try {
@@ -907,7 +963,7 @@ Select an operation on the left and click Run.
         span.className += ' log-success';
       } else if (line.startsWith('[-]')) {
         span.className += ' log-warning';
-      } else if (line.startsWith('[!]') || line.toLowerCase().includes('error') || line.toLowerCase().includes('traceback')) {
+      } else if (line.startsWith('[!]') || line.toLowerCase().includes('traceback')) {
         span.className += ' log-error';
       } else if (line.startsWith('===') || line.startsWith('---')) {
         span.className += ' log-header';
@@ -915,8 +971,32 @@ Select an operation on the left and click Run.
         span.className += ' log-info';
       }
 
-      span.textContent = line + '\n';
+      span.innerHTML = ansiToHtml(line);
       term.appendChild(span);
+
+      // Inline preview for diagnostic plot artifacts
+      if (line.includes('sync_audit_report.png') && (line.includes('saved') || line.includes('Plot:'))) {
+        const match = line.match(/(logs[\\\/]session_[^\\\/]+[\\\/]sync_audit_report\.png)/);
+        if (match) {
+          const relPath = match[1].replace(/\\/g, '/');
+          const previewDiv = document.createElement('div');
+          previewDiv.style.margin = '10px 0 16px 0';
+          previewDiv.style.padding = '10px';
+          previewDiv.style.background = '#151821';
+          previewDiv.style.border = '1px solid #334155';
+          previewDiv.style.borderRadius = '6px';
+          previewDiv.innerHTML = `
+            <div style="font-weight: 600; color: #38bdf8; margin-bottom: 8px; font-size: 12px; display: flex; justify-content: space-between; align-items: center;">
+              <span>📊 Cross-Sensor Synchronization Diagnostic Chart</span>
+              <a href="/${relPath}" target="_blank" style="color: #4ade80; text-decoration: none; font-size: 11px; padding: 3px 10px; background: rgba(74, 222, 128, 0.1); border-radius: 4px; border: 1px solid rgba(74, 222, 128, 0.25);">↗ Open Full Image</a>
+            </div>
+            <a href="/${relPath}" target="_blank">
+              <img src="/${relPath}?t=${Date.now()}" style="max-width: 100%; border-radius: 4px; display: block; border: 1px solid #1e293b;" alt="Sync Audit Chart"/>
+            </a>
+          `;
+          term.appendChild(previewDiv);
+        }
+      }
 
       if (document.getElementById('autoScrollCheck').checked) {
         term.scrollTop = term.scrollHeight;

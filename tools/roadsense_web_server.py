@@ -276,6 +276,15 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self.serve_json(get_local_sessions())
         elif path == "/api/stream":
             self.serve_sse_stream()
+        elif path.startswith("/logs/"):
+            rel = path[6:]  # strip /logs/
+            target = os.path.normpath(os.path.join(LOGS_DIR, rel))
+            if target.startswith(LOGS_DIR) and os.path.isfile(target):
+                ext = os.path.splitext(target)[1].lower()
+                mime = "image/png" if ext == ".png" else ("image/jpeg" if ext in [".jpg", ".jpeg"] else "application/octet-stream")
+                self.serve_file(target, mime)
+            else:
+                self.send_error(404, "File not found in logs/")
         else:
             self.send_error(404, "File not found")
 
