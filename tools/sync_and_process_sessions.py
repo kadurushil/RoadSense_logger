@@ -465,8 +465,9 @@ def parse_radar_frames_bin(radar_bin_path):
                             y_val = y_raw * inv_q
                             vx_val = vx_raw * inv_q
                             vy_val = vy_raw * inv_q
-                            maj_val = xs_raw * inv_q
-                            min_val = ys_raw * inv_q
+                            # xs_raw is cluster lateral extent (width), ys_raw is longitudinal cluster extent (length)
+                            maj_val = (ys_raw * inv_q) * 0.5
+                            min_val = (xs_raw * inv_q) * 0.5
                             ori_deg = 0.0
                             status = 3
                             tti_sec = 100.0
@@ -481,8 +482,8 @@ def parse_radar_frames_bin(radar_bin_path):
                             y_val = y_raw * inv_q
                             vx_val = vx_raw * inv_q
                             vy_val = vy_raw * inv_q
-                            maj_val = xs_raw * inv_q
-                            min_val = ys_raw * inv_q
+                            maj_val = (ys_raw * inv_q) * 0.5
+                            min_val = (xs_raw * inv_q) * 0.5
                             ori_deg = 0.0
                             tid = i + 1
                             status = 3
@@ -502,6 +503,8 @@ def parse_radar_frames_bin(radar_bin_path):
                             "y": safe_float(y_val),
                             "vx": safe_float(vx_val),
                             "vy": safe_float(vy_val),
+                            "majorSize": safe_float(maj_val),
+                            "minorSize": safe_float(min_val),
                             "xSize": safe_float(maj_val),
                             "ySize": safe_float(min_val),
                             "orientation": safe_float(ori_deg),
@@ -562,19 +565,19 @@ def parse_radar_frames_bin(radar_bin_path):
                 bsd = tlv_data[8:16]
                 acc = tlv_data[16:24]
                 fcw_stage = fcw[0] & 0x03
-                fcw_trk_id = ((fcw[0] >> 2) & 0x3F) | (fcw[1] << 6)
-                fcw_ttc = fcw[2] * 0.1
-                fcw_ty = fcw[3] * 0.5
-                fcw_tx = fcw[4] * 0.2 - 25.6
-                fcw_tvy = fcw[5] * 0.5 - 64.0
-                fcw_tvx = fcw[6] * 0.2 - 25.6
+                fcw_trk_id = (fcw[1] << 8) | fcw[2]
+                fcw_ttc = fcw[3] * 0.1
+                fcw_ty = fcw[4] * 0.5
+                fcw_tx = fcw[5] * 0.2 - 25.6
+                fcw_tvy = fcw[6] * 0.5 - 64.0
+                fcw_tvx = fcw[7] * 0.2 - 25.6
 
                 bsd_l = bool(bsd[0] & 1)
                 bsd_r = bool(bsd[1] & 1)
                 lca = bsd[2]
-                app_ttc = bsd[3] * 0.1
+                app_ttc = bsd[3] * 0.1 if bsd[3] != 255 else 25.5
 
-                acc_id = struct.unpack_from("<H", acc, 0)[0]
+                acc_id = (acc[0] << 8) | acc[1]
                 acc_dist = acc[2] * 0.5
                 acc_rel_v = acc[4] * 0.5 - 64.0
                 acc_tti = acc[5] * 0.1
@@ -806,15 +809,21 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
             y = trk["y"]
             vx = trk["vx"]
             vy = trk["vy"]
-            x_size = trk["xSize"]
-            y_size = trk["ySize"]
+            maj_rad = trk.get("majorSize", trk["xSize"])
+            min_rad = trk.get("minorSize", trk["ySize"])
             orientation = trk.get("orientation", 0.0)
             risk = trk.get("risk", 0)
             tti = trk.get("tti", 100.0)
             is_stat = trk.get("isStationary", False)
 
-            object_extent_radii = [safe_float(y_size / 2.0 if y_size > 0 else 1.0),
-                                   safe_float(x_size / 2.0 if x_size > 0 else 0.5)]
+            # In custom MRR firmware, majorSize (semi-major axis) and minorSize (semi-minor axis)
+            # are already 2-sigma radii (r_major, r_minor).
+            # The web visualizer (drawObjectDimensions in drawUtils.js) expects [R_major, R_minor]
+            # along and transverse to orientation, and multiplies by 2 to draw the full bounding box.
+            object_extent_radii = [
+                safe_float(maj_rad if maj_rad > 0 else 2.0),
+                safe_float(min_rad if min_rad > 0 else 0.9)
+            ]
 
             fsm_state = trk["status"]
             if fsm_state not in [1, 2, 3, 4]:

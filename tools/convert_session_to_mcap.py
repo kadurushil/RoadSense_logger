@@ -446,11 +446,16 @@ def parse_radar_stream(radar_bin_path):
                                 "<hhhhhhH", tlv_data, toff
                             )
                             x_val, y_val, vx_val, vy_val = x_raw * inv_q, y_raw * inv_q, vx_raw * inv_q, vy_raw * inv_q
-                            maj_val, min_val, ori_deg, status, tti_sec, risk_val = xs_raw * inv_q, ys_raw * inv_q, 0.0, 3, 100.0, 0
+                            # xs_raw is cluster lateral extent (width), ys_raw is longitudinal cluster extent (length)
+                            maj_val, min_val, ori_deg, status, tti_sec, risk_val = (ys_raw * inv_q) * 0.5, (xs_raw * inv_q) * 0.5, 0.0, 3, 100.0, 0
 
                         if status == 0 or status == 5 or (x_val == 0.0 and y_val == 0.0 and vx_val == 0.0 and vy_val == 0.0):
                             continue
 
+                        # In custom MRR firmware, maj_val is majorSize (semi-major axis radius, R_major)
+                        # and min_val is minorSize (semi-minor axis radius, R_minor).
+                        # Full bounding box length along vehicle heading is 2 * R_major.
+                        # Full bounding box width transverse to vehicle heading is 2 * R_minor.
                         frame_data["tracks"].append({
                             "tid": int(tid),
                             "cid": cid_val,
@@ -461,8 +466,10 @@ def parse_radar_stream(radar_bin_path):
                             "y_left": safe_float(-x_val),    # Left lateral offset in vehicle frame (m)
                             "vx_fwd": safe_float(vy_val),    # Forward velocity (m/s)
                             "vy_left": safe_float(-vx_val),  # Lateral velocity (m/s)
-                            "length": max(safe_float(min_val), 1.2), # Length along vehicle longitudinal axis
-                            "width": max(safe_float(maj_val), 0.8),  # Width along vehicle lateral axis
+                            "major_size": safe_float(maj_val),
+                            "minor_size": safe_float(min_val),
+                            "length": max(safe_float(maj_val * 2.0), 1.5), # Full length along vehicle longitudinal axis (2 * R_major)
+                            "width": max(safe_float(min_val * 2.0), 0.8),  # Full width along vehicle lateral axis (2 * R_minor)
                             "height": 1.5,
                             "heading_deg": safe_float(ori_deg),
                             "tti": safe_float(tti_sec),
@@ -1480,7 +1487,9 @@ def convert_session_to_mcap(
                     cube.pose.position.y = t["y_left"]
                     cube.pose.position.z = calib_params["radarHeightM"]
                     
-                    heading_rad = math.radians(t["heading_deg"])
+                    # Radar frame: +Y forward, +X right (clockwise positive).
+                    # ROS base_link frame: +X forward, +Y left (counter-clockwise positive yaw).
+                    heading_rad = math.radians(-t["heading_deg"])
                     qx, qy, qz, qw = euler_to_quaternion(0.0, 0.0, heading_rad)
                     cube.pose.orientation.x = qx
                     cube.pose.orientation.y = qy
