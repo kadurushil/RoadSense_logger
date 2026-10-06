@@ -881,6 +881,121 @@ def parse_flight_recorder_logs(session_log_path, start_wall_ms, start_iso_str=No
                 continue
 
 
+def resolve_session_calibration(session_dir):
+    """
+    Resolves the 6-DOF camera-radar mounting calibration using a 4-tier hierarchy:
+    1. Priority 1 (Session Snapshot): session_dir/radar_camera_calib.json
+    2. Priority 2 (Smart Log Parsing): Parse session_debug.log for latest Saved/Restored baseline calibration
+    3. Priority 3 (Global Backup): logs/calibration/radar_camera_calib.json or phone backup
+    4. Priority 4 (Hardcoded Default): Safe vehicular geometry with explicit warning
+
+    Returns (calib_params: dict, calib_file_path: str or None, source_tier: str)
+    """
+    calib_params = {
+        "pitchDeg": 7.0,
+        "yawDeg": -1.0,
+        "rollDeg": 0.0,
+        "setbackM": 0.30,
+        "heightOffsetM": 0.50,
+        "lateralOffsetM": 0.00,
+        "radarHeightM": 0.95,
+        "targetDistanceM": 10.0,
+        "targetWidthM": 1.30,
+        "profileName": "Default Vehicular Baseline"
+    }
+
+    session_calib_path = os.path.join(session_dir, "radar_camera_calib.json")
+
+    # Priority 1: Check session directory snapshot
+    if os.path.isfile(session_calib_path):
+        try:
+            with open(session_calib_path, "r", encoding="utf-8") as f:
+                cdata = json.load(f)
+                calib_params.update(cdata)
+                print(f"[+] [Priority 1: Session Snapshot] Loaded calibration from {os.path.basename(session_calib_path)}:")
+                print(f"    -> Pitch={calib_params['pitchDeg']}°, Yaw={calib_params['yawDeg']}°, Roll={calib_params.get('rollDeg', 0.0)}°, Profile='{calib_params.get('profileName', 'Unknown')}'")
+                return calib_params, session_calib_path, "Priority 1: Session Snapshot"
+        except Exception as e:
+            print(f"[-] Failed reading session calibration snapshot: {e}")
+
+    # Priority 2: Smart Log Extraction from session_debug.log (Flight Recorder)
+    session_log_path = os.path.join(session_dir, "session_debug.log")
+    parsed_pitch = None
+    parsed_yaw = None
+    if os.path.isfile(session_log_path):
+        import re
+        calib_regex = re.compile(r"(?:Saved baseline calibration|Restored saved baseline calibration):\s*Pitch=([-\d.]+)°,\s*Yaw=([-\d.]+)°")
+        try:
+            with open(session_log_path, "r", encoding="utf-8", errors="ignore") as lf:
+                for line in lf:
+                    m = calib_regex.search(line)
+                    if m:
+                        parsed_pitch = float(m.group(1))
+                        parsed_yaw = float(m.group(2))
+        except Exception as e:
+            print(f"[-] Error scanning session_debug.log for calibration: {e}")
+
+    if parsed_pitch is not None and parsed_yaw is not None:
+        # Seed non-angular mounting offsets from Priority 3 global backup if available
+        global_calib_candidates = [
+            os.path.join(os.path.dirname(session_dir), "calibration", "radar_camera_calib.json"),
+            os.path.join(os.path.dirname(os.path.dirname(session_dir)), "logs", "calibration", "radar_camera_calib.json"),
+            os.path.join(os.path.dirname(session_dir), "..", "files", "calibration", "radar_camera_calib.json")
+        ]
+        for g_candidate in global_calib_candidates:
+            if os.path.isfile(g_candidate):
+                try:
+                    with open(g_candidate, "r", encoding="utf-8") as gf:
+                        calib_params.update(json.load(gf))
+                        break
+                except Exception:
+                    pass
+
+        calib_params["pitchDeg"] = parsed_pitch
+        calib_params["yawDeg"] = parsed_yaw
+        calib_params["profileName"] = "Flight-Recorder Recovered Profile"
+
+        # Synthesize and write session_dir/radar_camera_calib.json so downstream tools have it
+        try:
+            with open(session_calib_path, "w", encoding="utf-8") as wf:
+                json.dump(calib_params, wf, indent=2)
+            print(f"[+] [Priority 2: Flight Recorder Log] Recovered calibration from session_debug.log:")
+            print(f"    -> Pitch={calib_params['pitchDeg']}°, Yaw={calib_params['yawDeg']}° (Synthesized {os.path.basename(session_calib_path)})")
+            return calib_params, session_calib_path, "Priority 2: Flight Recorder Log Extraction"
+        except Exception as e:
+            print(f"[-] Could not write synthesized calibration file: {e}")
+            return calib_params, None, "Priority 2: Flight Recorder Log Extraction"
+
+    # Priority 3: Device Global Backup in logs/calibration/radar_camera_calib.json
+    global_calib_candidates = [
+        os.path.join(os.path.dirname(session_dir), "calibration", "radar_camera_calib.json"),
+        os.path.join(os.path.dirname(os.path.dirname(session_dir)), "logs", "calibration", "radar_camera_calib.json"),
+        os.path.join(os.path.dirname(session_dir), "..", "files", "calibration", "radar_camera_calib.json")
+    ]
+    for g_path in global_calib_candidates:
+        if os.path.isfile(g_path):
+            try:
+                with open(g_path, "r", encoding="utf-8") as gf:
+                    cdata = json.load(gf)
+                    calib_params.update(cdata)
+                # Save a copy into the session folder
+                try:
+                    with open(session_calib_path, "w", encoding="utf-8") as wf:
+                        json.dump(calib_params, wf, indent=2)
+                except Exception:
+                    pass
+                print(f"[+] [Priority 3: Global Phone Backup] Loaded calibration from {g_path}:")
+                print(f"    -> Pitch={calib_params['pitchDeg']}°, Yaw={calib_params['yawDeg']}°, Profile='{calib_params.get('profileName', 'Global Backup')}'")
+                return calib_params, session_calib_path, "Priority 3: Global Phone Backup"
+            except Exception as e:
+                print(f"[-] Failed reading global calibration backup from {g_path}: {e}")
+
+    # Priority 4: Fallback Defaults
+    print("[!] [Priority 4: Hardcoded Fallback] WARNING: No session snapshot, log entry, or global calibration found!")
+    print(f"    -> Using default geometry: Pitch={calib_params['pitchDeg']}°, Yaw={calib_params['yawDeg']}°, Height={calib_params['radarHeightM']}m")
+    return calib_params, None, "Priority 4: Hardcoded Fallback"
+
+
 def convert_session_to_mcap(
     session_dir,
     output_path=None,
@@ -933,31 +1048,8 @@ def convert_session_to_mcap(
     # Nanosecond conversion factor between monotonic clock and UTC wall clock
     time_offset_ns = (start_wall_ms * 1_000_000) - start_mono_ns
 
-    # 2. Load Extrinsic Calibration (or fallback defaults)
-    calib_file = os.path.join(session_dir, "radar_camera_calib.json")
-    if not os.path.isfile(calib_file):
-        # Check global app directory
-        alt_calib = os.path.join(os.path.dirname(session_dir), "..", "files", "calibration", "radar_camera_calib.json")
-        if os.path.isfile(alt_calib):
-            calib_file = alt_calib
-
-    calib_params = {
-        "pitchDeg": 7.0,
-        "yawDeg": -1.0,
-        "rollDeg": 0.0,
-        "setbackM": 0.30,
-        "heightOffsetM": 0.50,
-        "lateralOffsetM": 0.00,
-        "radarHeightM": 0.95
-    }
-    if os.path.isfile(calib_file):
-        try:
-            with open(calib_file, "r", encoding="utf-8") as f:
-                cdata = json.load(f)
-                calib_params.update(cdata)
-                print(f"[+] Loaded calibration: Pitch={calib_params['pitchDeg']}°, Yaw={calib_params['yawDeg']}°, Height={calib_params['radarHeightM']}m")
-        except Exception as e:
-            print(f"[-] Using default calibration: {e}")
+    # 2. Load Extrinsic Calibration using 4-tier Resolution Hierarchy
+    calib_params, calib_file, calib_tier = resolve_session_calibration(session_dir)
 
     # 3. Locate Modality Stream Files
     radar_bin = os.path.join(session_dir, "radar", "radar_frames.bin")
@@ -1609,7 +1701,7 @@ def convert_session_to_mcap(
                 )
             print("    - Embedded attachment: session_metadata.json")
 
-        if os.path.isfile(calib_file):
+        if calib_file and os.path.isfile(calib_file):
             with open(calib_file, "rb") as cf:
                 writer._writer.add_attachment(
                     create_time=start_wall_ms * 1_000_000,

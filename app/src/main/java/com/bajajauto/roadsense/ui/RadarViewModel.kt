@@ -462,6 +462,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         }
         val session = sessionRecorder.startSession()
         if (session != null) {
+            sessionManager.saveSessionCalibration(session, _calibrationParams.value)
             gnssSessionRecorder.startRecording(session)
             val videoFile = cameraSessionRecorder.startRecording(session, cameraEngine.selectedResolution.value)
             if (videoFile != null) {
@@ -478,6 +479,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stopSessionRecording(): SessionInfo? {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped STOP session recording")
+        sessionRecorder.currentSession?.let { activeSession ->
+            sessionManager.saveSessionCalibration(activeSession, _calibrationParams.value)
+        }
         canedgeIngestionManager.onSessionStopped()
         cameraEngine.stopVideoRecording()
         cameraSessionRecorder.stopRecording()
@@ -682,6 +686,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         _savedBaselineParams.value = consolidated
         viewModelScope.launch {
             calibrationStorage.saveCalibration(consolidated)
+            sessionRecorder.currentSession?.let { activeSession ->
+                sessionManager.saveSessionCalibration(activeSession, consolidated)
+            }
         }
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "Saved baseline calibration: Pitch=${consolidated.pitchDeg}°, Yaw=${consolidated.yawDeg}°")
     }

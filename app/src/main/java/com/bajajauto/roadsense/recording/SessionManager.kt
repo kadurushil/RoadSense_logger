@@ -3,6 +3,8 @@ package com.bajajauto.roadsense.recording
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import com.bajajauto.roadsense.fusion.model.CalibrationParameters
+import com.bajajauto.roadsense.logging.AppLogger
 import java.io.File
 import java.io.FileWriter
 import java.text.SimpleDateFormat
@@ -19,6 +21,7 @@ class SessionManager(private val context: Context) {
         private const val TAG = "SessionManager"
         const val SESSIONS_DIR_NAME = "sessions"
         const val METADATA_FILE_NAME = "session_metadata.json"
+        const val CALIBRATION_FILE_NAME = "radar_camera_calib.json"
     }
 
     private val timelineWriter = SessionTimelineWriter()
@@ -76,6 +79,18 @@ class SessionManager(private val context: Context) {
         com.bajajauto.roadsense.logging.AppLogger.attachSession(sessionDir)
         com.bajajauto.roadsense.logging.AppLogger.i(TAG, "Created session directory: ${sessionDir.absolutePath}")
 
+        // Copy global calibration snapshot if available
+        try {
+            val globalCalibFile = File(File(context.getExternalFilesDir(null) ?: context.filesDir, "calibration"), CALIBRATION_FILE_NAME)
+            if (globalCalibFile.exists() && globalCalibFile.length() > 0L) {
+                val sessionCalibFile = File(sessionDir, CALIBRATION_FILE_NAME)
+                globalCalibFile.copyTo(sessionCalibFile, overwrite = true)
+                AppLogger.i(TAG, "Initialized session with active calibration snapshot from ${globalCalibFile.name}")
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Could not copy active calibration snapshot: ${e.message}")
+        }
+
         // Write initial session metadata
         writeMetadata(sessionInfo)
         return sessionInfo
@@ -130,6 +145,19 @@ class SessionManager(private val context: Context) {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to write session metadata to ${sessionInfo.sessionDir.name}", e)
+        }
+    }
+
+    /**
+     * Serializes or updates calibration snapshot in radar_camera_calib.json.
+     */
+    fun saveSessionCalibration(sessionInfo: SessionInfo, params: CalibrationParameters) {
+        try {
+            val calibFile = File(sessionInfo.sessionDir, CALIBRATION_FILE_NAME)
+            calibFile.writeText(params.toJson().toString(2), Charsets.UTF_8)
+            AppLogger.i(TAG, "Saved active calibration snapshot to ${calibFile.name} (Pitch=${params.effectivePitchDeg}°, Yaw=${params.effectiveYawDeg}°)")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to write session calibration to ${sessionInfo.sessionDir.name}", e)
         }
     }
 

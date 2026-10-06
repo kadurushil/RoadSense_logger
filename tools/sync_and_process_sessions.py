@@ -34,6 +34,7 @@ from datetime import datetime
 DEFAULT_LOGS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
 DEVICE_SESSION_DIR = "/sdcard/Android/data/com.bajajauto.roadsense/files/sessions/"
 DEVICE_APP_LOGS_DIR = "/sdcard/Android/data/com.bajajauto.roadsense/files/app_logs/"
+DEVICE_CALIB_DIR = "/sdcard/Android/data/com.bajajauto.roadsense/files/calibration/"
 
 # RoadSense binary framing constants
 ROAD_MAGIC = b"ROAD"
@@ -118,6 +119,28 @@ def sync_sessions_from_device(adb_path, local_logs_dir):
             subprocess.run(pull_app_logs_cmd, capture_output=True, text=True)
         except Exception as e:
             print(f"[-] Note: could not pull app_logs: {e}")
+
+        # Pull global active camera-radar calibration profile (calibration/)
+        local_calib_dir = os.path.join(local_logs_dir, "calibration")
+        os.makedirs(local_calib_dir, exist_ok=True)
+        try:
+            print(f"[+] Syncing active device calibration profile from {DEVICE_CALIB_DIR}...")
+            pull_calib_cmd = [adb_path, "-s", device_id, "pull", DEVICE_CALIB_DIR, local_logs_dir]
+            subprocess.run(pull_calib_cmd, capture_output=True, text=True)
+        except Exception as e:
+            print(f"[-] Note: could not pull calibration: {e}")
+
+        # Ensure every session has a calibration JSON: If missing, backfill from global device backup
+        global_calib_file = os.path.join(local_calib_dir, "radar_camera_calib.json")
+        for s_name in remote_sessions:
+            s_dir = os.path.join(local_logs_dir, s_name)
+            s_calib = os.path.join(s_dir, "radar_camera_calib.json")
+            if os.path.isdir(s_dir) and not os.path.isfile(s_calib) and os.path.isfile(global_calib_file):
+                try:
+                    shutil.copy2(global_calib_file, s_calib)
+                    print(f"    - [{s_name}] Backfilled missing calibration from phone local storage backup.")
+                except Exception as e:
+                    print(f"[-] Could not backfill calibration for {s_name}: {e}")
 
         print("[+] Device sync complete!")
         return True
