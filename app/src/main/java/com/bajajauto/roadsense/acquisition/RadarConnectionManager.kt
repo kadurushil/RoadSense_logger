@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import android.os.Process
 import android.util.Log
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
@@ -175,8 +176,19 @@ class RadarConnectionManager(private val context: Context) {
 
             // Setup IO Manager for Data Port
             dataPort?.let { port ->
+                var threadPrioritySet = false
                 dataIoManager = SerialInputOutputManager(port, object : SerialInputOutputManager.Listener {
                     override fun onNewData(data: ByteArray) {
+                        if (!threadPrioritySet) {
+                            try {
+                                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+                                Thread.currentThread().priority = Thread.MAX_PRIORITY - 1
+                                threadPrioritySet = true
+                                Log.i(TAG, "Boosted SerialInputOutputManager thread to THREAD_PRIORITY_URGENT_DISPLAY")
+                            } catch (e: Exception) {
+                                Log.w(TAG, "Could not set SerialInputOutputManager thread priority: ${e.message}")
+                            }
+                        }
                         if (data.isEmpty()) return
 
                         // Direct dispatch to listeners on IO thread (zero dropped bytes)

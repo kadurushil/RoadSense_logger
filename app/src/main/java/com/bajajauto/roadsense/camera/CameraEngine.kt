@@ -11,6 +11,7 @@ import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
 import android.hardware.camera2.params.MeteringRectangle
 import android.media.MediaRecorder
+import android.os.Build
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Process
@@ -200,35 +201,21 @@ class CameraEngine(private val context: Context) {
                 visitedIds.add(id)
             }
 
-            // 2. Probe Camera1 legacy API
-            try {
-                @Suppress("DEPRECATION")
-                val numCamera1 = android.hardware.Camera.getNumberOfCameras()
-                AppLogger.i(TAG, "Camera1 getNumberOfCameras: $numCamera1")
-                for (i in 0 until numCamera1) {
-                    @Suppress("DEPRECATION")
-                    val info = android.hardware.Camera.CameraInfo()
-                    @Suppress("DEPRECATION")
-                    android.hardware.Camera.getCameraInfo(i, info)
-                    AppLogger.i(TAG, "Camera1 info index $i: facing=${info.facing}, orientation=${info.orientation}")
-                }
-            } catch (e: Throwable) {
-                AppLogger.w(TAG, "Camera1 probe failed: ${e.message}")
-            }
-
-            // 3. Probe candidate vendor/physical IDs common on multi-camera devices (e.g. Samsung 2, 50, 52)
-            val candidateIds = listOf("0", "1", "2", "3", "4", "50", "51", "52")
-            for (candidate in candidateIds) {
-                try {
-                    val chars = cameraManager.getCameraCharacteristics(candidate)
-                    val focal = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.firstOrNull() ?: 0f
-                    AppLogger.i(TAG, "Camera2 Candidate $candidate SUCCESS: focal=${focal}mm")
-                    visitedIds.add(candidate)
-                } catch (e: Exception) {
-                    AppLogger.d(TAG, "Camera2 Candidate $candidate REJECTED: ${e.javaClass.simpleName} - ${e.message}")
+            // 2. Discover physical multi-camera IDs if supported by vendor HAL (Android 9+ / API 28+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                for (id in standardIds) {
+                    try {
+                        val chars = cameraManager.getCameraCharacteristics(id)
+                        val physicalIds = chars.physicalCameraIds
+                        if (physicalIds.isNotEmpty()) {
+                            AppLogger.i(TAG, "Logical camera $id exposes physical multi-cameras: ${physicalIds.joinToString()}")
+                            visitedIds.addAll(physicalIds)
+                        }
+                    } catch (_: Exception) {}
                 }
             }
 
+            // 3. Inspect characteristics in a single pass without redundant Binder roundtrips
             for (id in visitedIds) {
                 try {
                     val chars = cameraManager.getCameraCharacteristics(id)
