@@ -24,7 +24,8 @@
 15. [Bug #15: Dual-Orientation Video Inversion & Mathematical Coordinate Frame Alignment in MCAP](#bug-15-dual-orientation-video-inversion--mathematical-coordinate-frame-alignment-in-mcap)
 16. [Bug #16: Large MP4 Metadata Window Overflow & Flipped 3D Camera Frustum in MCAP Conversion](#bug-16-large-mp4-metadata-window-overflow--flipped-3d-camera-frustum-in-mcap-conversion)
 17. [Bug #17: 1-Byte Offset in TLV Type 6 (CAN 0x320) FCW Telemetry Decoding & Track ID Aliasing](#bug-17-1-byte-offset-in-tlv-type-6-can-0x320-fcw-telemetry-decoding--track-id-aliasing)
-18. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
+18. [Bug #18: Foxglove User Script Anonymous Schema Hash (`0bb4508b`) & Rejected Calibration Overlay](#bug-18-foxglove-user-script-anonymous-schema-hash-0bb4508b--rejected-calibration-overlay)
+19. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
 
 ---
 
@@ -664,6 +665,48 @@ On this Samsung Exynos platform, all camera properties were queried via `getprop
 
 ---
 
+## Bug #18: Foxglove User Script Anonymous Schema Hash (`0bb4508b`) & Rejected Calibration Overlay
+
+### Symptoms
+* In Foxglove Studio, an interactive User Script written to adjust camera calibration angles emitted to `/camera/calib_tuned`.
+* The Foxglove Topics sidebar displayed an anonymous hexadecimal hash `0bb4508b (from script)` instead of `foxglove.CameraCalibration (protobuf)`.
+* The topic properties displayed dashes `-- | --` (0.00 Hz, 0 samples received) when scrubbing the video.
+* The Image / Camera View panel reported **"Calibration topic does not exist"** and failed to render 3D radar bounding boxes or point clouds onto the camera feed.
+
+### Root Cause Analysis
+1. **Generic TypeScript Type vs. Strongly-Typed Schema Import:**
+   - Attempting to type user script output with `Message<"foxglove.CameraCalibration">` from `./types.ts` failed schema resolution in Foxglove Studio's Monaco runtime environment.
+   - When Foxglove cannot map a script output directly to a registered Protobuf schema, its internal transpiler generates an ad-hoc, untyped schema identified by a dynamic hash (e.g., `0bb4508b`).
+   - Foxglove's Image Panel strictly verifies the topic's schema against registered names (`foxglove.CameraCalibration` or `sensor_msgs/CameraInfo`). Any topic with an anonymous hash is immediately rejected as non-existent.
+2. **Untyped JavaScript Arrays vs. Protobuf `Float64Array` Buffers:**
+   - In `@foxglove/schemas`, repeated `double` fields (such as camera matrices $K$, $R$, $P$ and distortion vector $D$) are strictly typed as binary `Float64Array` instances, not standard JavaScript number arrays (`number[]`).
+   - Supplying plain literals like `K: [fx, 0, cx, ...]` failed Protobuf schema serialization, forcing Foxglove to discard the formal schema identity.
+3. **Static $t = 0$ Input Starvation:**
+   - Subscribing the user script to `/camera/calib` caused input starvation because `/camera/calib` in MCAP is a static configuration topic emitted only once at session start ($t = 0$).
+   - When users scrubbed playback to active driving segments, the script never received input events, resulting in 0 emitted samples (`-- | --`).
+
+### Solution & Fix
+1. **Import Directly from `@foxglove/schemas`:**
+   Import the explicit `CameraCalibration` TypeScript type from `@foxglove/schemas`:
+   ```typescript
+   import { Input } from "./types.ts";
+   import { CameraCalibration } from "@foxglove/schemas";
+   ```
+2. **Wrap Matrices with `new Float64Array()`:**
+   Explicitly instantiate `Float64Array` buffers for all matrix parameters:
+   ```typescript
+   D: new Float64Array([0.0, 0.0, 0.0, 0.0, 0.0]),
+   K: new Float64Array([fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0]),
+   R: new Float64Array([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+   P: new Float64Array([fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0]),
+   ```
+3. **Subscribe to Video Stream for Continuous 30 Hz Evaluation:**
+   Set `inputs = ["/camera/video"]` and mirror `event.message.timestamp`. This ensures the script evaluates at ~30 Hz on every video frame, delivering continuous real-time calibration updates during playback and scrubbing.
+4. **Interactive Angular Pitch/Yaw Offsets:**
+   Compute $cx$ and $cy$ shifts via trigonometric projections ($cx = baseCx - fx \cdot \tan(\psi_{yaw})$, $cy = baseCy + fy \cdot \tan(\theta_{pitch})$). Modifying `PITCH_OFFSET_DEG` or `YAW_OFFSET_DEG` in Foxglove's script panel updates the 3D projection overlay with zero playback latency.
+
+---
+
 ## Summary of Core Engineering Rules
 
 1. **Never pass high-frequency raw byte streams through `StateFlow`:** Always use direct callbacks or channels to background workers.
@@ -681,4 +724,6 @@ On this Samsung Exynos platform, all camera properties were queried via `getprop
 13. **Prefer mathematical coordinate frame transforms over pixel re-encoding:** Inverted sensor mounts should be corrected via `/tf` optical roll angles and display presentation shaders, preserving lossless zero-copy throughput (>11,000 FPS) and 0% GPU utilization.
 14. **Use ISO box-traversal rather than fixed-size tail buffers for container metadata parsing:** MP4 index atom (`moov`) sizes scale with frame count; fixed-buffer tail scans fail on long recording sessions. Jumping directly to `moov` via box headers ensures $O(1)$ zero-copy parsing regardless of file size.
 15. **Always verify multi-byte CAN bitfield packing against raw hex dumps before assuming packed bit shifts:** Off-by-one byte decoding shifts ripple through all downstream fields, causing severe coordinate miscalculations (e.g., TargetY decoded as TargetX) and track ID aliasing.
+16. **Foxglove Protobuf user scripts require `@foxglove/schemas` and typed `Float64Array` buffers:** Returning plain JavaScript `number[]` arrays or generic `Message<T>` types breaks schema resolution in Foxglove's runtime, producing anonymous hashes (e.g. `0bb4508b`) that are rejected by visualization panels. Always import from `@foxglove/schemas` and instantiate `Float64Array` for matrix vectors.
+
 
