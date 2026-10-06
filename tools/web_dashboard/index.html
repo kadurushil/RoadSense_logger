@@ -896,38 +896,40 @@ Select an operation on the left and click Run.
         '90': '#64748b', '91': '#f87171', '92': '#4ade80', '93': '#fbbf24', '94': '#60a5fa', '95': '#c084fc', '96': '#38bdf8', '97': '#ffffff'
       };
 
-      const ansiRegex = /\x1b\[([0-9;]+)m/g;
+      const ansiClusterRegex = /(?:\x1b\[([0-9;]+)m)+/g;
+      let currentColor = null;
+      let isBold = false;
       let inSpan = false;
 
-      html = html.replace(ansiRegex, (match, codes) => {
-        const parts = codes.split(';');
-        let styles = [];
-        let isReset = false;
-
-        for (const code of parts) {
-          if (code === '0') {
-            isReset = true;
-          } else if (code === '1') {
-            styles.push('font-weight: bold');
-          } else if (colors[code]) {
-            styles.push(`color: ${colors[code]}`);
+      html = html.replace(ansiClusterRegex, (match) => {
+        const codeMatches = match.matchAll(/\x1b\[([0-9;]+)m/g);
+        for (const cm of codeMatches) {
+          const parts = cm[1].split(';');
+          for (const code of parts) {
+            if (code === '0' || code === '') {
+              currentColor = null;
+              isBold = false;
+            } else if (code === '1') {
+              isBold = true;
+            } else if (colors[code]) {
+              currentColor = colors[code];
+            }
           }
         }
 
-        if (isReset) {
-          const res = inSpan ? '</span>' : '';
-          inSpan = false;
-          if (styles.length > 0) {
-            inSpan = true;
-            return res + `<span style="${styles.join('; ')}">`;
-          }
-          return res;
-        } else if (styles.length > 0) {
-          const prefix = inSpan ? '</span>' : '';
+        let result = inSpan ? '</span>' : '';
+        inSpan = false;
+
+        const styles = [];
+        if (currentColor) styles.push(`color: ${currentColor}`);
+        if (isBold) styles.push('font-weight: bold');
+
+        if (styles.length > 0) {
+          result += `<span style="${styles.join('; ')}">`;
           inSpan = true;
-          return prefix + `<span style="${styles.join('; ')}">`;
         }
-        return '';
+
+        return result;
       });
 
       if (inSpan) {
@@ -976,7 +978,7 @@ Select an operation on the left and click Run.
 
       // Inline preview for diagnostic plot artifacts (deduplicated per run)
       if (line.includes('sync_audit_report.png') && (line.includes('saved') || line.includes('Plot:'))) {
-        const match = line.match(/(logs[\\\/]session_[^\\\/]+[\\\/]sync_audit_report\.png)/);
+        const match = line.match(/(logs[\\\/]session_[^\\\/]+[\\\/]sync_audit_report\.png)/i);
         if (match && !term.querySelector(`img[src^="/${match[1].replace(/\\/g, '/')}"]`)) {
           const relPath = match[1].replace(/\\/g, '/');
           const previewDiv = document.createElement('div');

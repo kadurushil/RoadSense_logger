@@ -248,8 +248,11 @@ def audit_session(sess_dir):
                         gaps_50ms += 1
 
                 mean_dt = sum(intervals_ms) / len(intervals_ms) if intervals_ms else 10.0
-                max_dt = max(intervals_ms) if intervals_ms else 10.0
-                min_dt = min(intervals_ms) if intervals_ms else 10.0
+                sorted_intervals = sorted(intervals_ms) if intervals_ms else [10.0]
+                min_dt = sorted_intervals[0]
+                p95_dt = sorted_intervals[int(len(sorted_intervals) * 0.95)]
+                p99_dt = sorted_intervals[int(len(sorted_intervals) * 0.99)]
+                max_dt = sorted_intervals[-1]
                 gap_pct = (gaps_20ms / imu_count) * 100.0
 
                 # Kinematic sanity check (Gravity vector should approximate ~9.8 m/s^2)
@@ -257,7 +260,7 @@ def audit_session(sess_dir):
 
                 print(f"  Total IMU Frames: {imu_count:,} frames logged")
                 print(f"  Effective Rate:   {eff_rate:.2f} Hz (Nominal 100 Hz, Duration: {imu_dur:.2f}s)")
-                print(f"  Sampling Period:  mean={mean_dt:.2f}ms, min={min_dt:.2f}ms, max={max_dt:.2f}ms")
+                print(f"  Sampling Period:  mean={mean_dt:.2f}ms, min={min_dt:.2f}ms, p95={p95_dt:.2f}ms, p99={p99_dt:.2f}ms, max={max_dt:.2f}ms")
                 print(f"  Interval Jitter:  {gaps_20ms} intervals >20ms ({gap_pct:.2f}%), {gaps_50ms} intervals >50ms")
                 print(f"  Gravity Norm:     {mean_norm_a:.2f} m/s^2 (1G calibration sanity)")
 
