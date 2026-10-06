@@ -809,17 +809,15 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
             y = trk["y"]
             vx = trk["vx"]
             vy = trk["vy"]
-            maj_rad = trk.get("majorSize", trk["xSize"])
-            min_rad = trk.get("minorSize", trk["ySize"])
+            maj_rad = float(trk.get("major_size", trk.get("majorSize", trk.get("xSize", 2.0))))
+            min_rad = float(trk.get("minor_size", trk.get("minorSize", trk.get("ySize", 1.2))))
             orientation = trk.get("orientation", 0.0)
             risk = trk.get("risk", 0)
             tti = trk.get("tti", 100.0)
             is_stat = trk.get("isStationary", False)
 
-            # In custom MRR firmware, majorSize (semi-major axis) and minorSize (semi-minor axis)
-            # are already 2-sigma radii (r_major, r_minor).
-            # The web visualizer (drawObjectDimensions in drawUtils.js) expects [R_major, R_minor]
-            # along and transverse to orientation, and multiplies by 2 to draw the full bounding box.
+            # Aligned 100% with Gitea Source of Truth (convert_gtrack_to_track_history_v2.py line 614 & 655):
+            # "objectExtentRadii": [maj, min_dim]
             object_extent_radii = [
                 safe_float(maj_rad if maj_rad > 0 else 2.0),
                 safe_float(min_rad if min_rad > 0 else 0.9)

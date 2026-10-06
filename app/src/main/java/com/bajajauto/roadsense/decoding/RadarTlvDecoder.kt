@@ -374,6 +374,8 @@ class RadarTlvDecoder {
 
             when (trackSize) {
                 28 -> {
+                    // Aligned with Gitea read_and_parse_frame.py (lines 1228, 1248-1249)
+                    // Field 5: majorSize, Field 6: minorSize
                     val majRaw = buffer.short
                     val minRaw = buffer.short
                     val oriRaw = buffer.short
@@ -399,6 +401,7 @@ class RadarTlvDecoder {
                     }
                 }
                 20 -> {
+                    // Aligned with Gitea read_and_parse_frame.py (lines 1286, 1300-1301)
                     // <7h3H: x, y, vx, vy, majorSize, minorSize, orientation, tid, state, reserved
                     val majRaw = buffer.short
                     val minRaw = buffer.short

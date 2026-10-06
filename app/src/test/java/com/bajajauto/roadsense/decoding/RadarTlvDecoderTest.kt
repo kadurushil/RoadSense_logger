@@ -321,14 +321,14 @@ class RadarTlvDecoderTest {
 
         // Track:
         // x=128 (1.0m), y=2560 (20.0m), vx=-64 (-0.5m/s), vy=-1280 (-10.0m/s)
-        // majorSize=512 (4.0m), minorSize=256 (2.0m), orientation=450 (45.0 deg)
+        // Aligned with Gitea read_and_parse_frame.py: Field 5=majorSize (512 / 4.0m), Field 6=minorSize (256 / 2.0m), orientation=450 (45.0 deg)
         // tid=42, state=3, clusterId=7, tti=250 (2.50s), risk=2, isStationary=0, ttcCategory=3, confidence=95%, reserved=0
         buf.putShort(128.toShort())
         buf.putShort(2560.toShort())
         buf.putShort((-64).toShort())
         buf.putShort((-1280).toShort())
-        buf.putShort(512.toShort())
-        buf.putShort(256.toShort())
+        buf.putShort(512.toShort()) // Field 5: majorSize / xSize
+        buf.putShort(256.toShort()) // Field 6: minorSize / ySize
         buf.putShort(450.toShort())
         buf.putShort(42.toShort())
         buf.putShort(3.toShort())

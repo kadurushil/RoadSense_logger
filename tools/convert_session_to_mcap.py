@@ -446,16 +446,18 @@ def parse_radar_stream(radar_bin_path):
                                 "<hhhhhhH", tlv_data, toff
                             )
                             x_val, y_val, vx_val, vy_val = x_raw * inv_q, y_raw * inv_q, vx_raw * inv_q, vy_raw * inv_q
-                            # xs_raw is cluster lateral extent (width), ys_raw is longitudinal cluster extent (length)
+                            # In legacy 14B: xs_raw is cluster lateral extent, ys_raw is longitudinal extent
                             maj_val, min_val, ori_deg, status, tti_sec, risk_val = (ys_raw * inv_q) * 0.5, (xs_raw * inv_q) * 0.5, 0.0, 3, 100.0, 0
 
                         if status == 0 or status == 5 or (x_val == 0.0 and y_val == 0.0 and vx_val == 0.0 and vy_val == 0.0):
                             continue
 
-                        # In custom MRR firmware, maj_val is majorSize (semi-major axis radius, R_major)
-                        # and min_val is minorSize (semi-minor axis radius, R_minor).
-                        # Full bounding box length along vehicle heading is 2 * R_major.
-                        # Full bounding box width transverse to vehicle heading is 2 * R_minor.
+                        # Aligned 100% with Gitea Source of Truth (convert_gtrack_to_track_history_v2.py & read_and_parse_frame.py):
+                        # Field 5 is unpacked as major_size (maj_val)
+                        # Field 6 is unpacked as minor_size (min_val)
+                        # MCAP bounding box dimensions:
+                        # length along vehicle longitudinal axis is 2 * maj_val
+                        # width transverse to vehicle heading is 2 * min_val
                         frame_data["tracks"].append({
                             "tid": int(tid),
                             "cid": cid_val,
@@ -468,8 +470,8 @@ def parse_radar_stream(radar_bin_path):
                             "vy_left": safe_float(-vx_val),  # Lateral velocity (m/s)
                             "major_size": safe_float(maj_val),
                             "minor_size": safe_float(min_val),
-                            "length": max(safe_float(maj_val * 2.0), 1.5), # Full length along vehicle longitudinal axis (2 * R_major)
-                            "width": max(safe_float(min_val * 2.0), 0.8),  # Full width along vehicle lateral axis (2 * R_minor)
+                            "length": max(safe_float(maj_val * 2.0), 1.5), # Full length along vehicle longitudinal axis
+                            "width": max(safe_float(min_val * 2.0), 0.8),  # Full width along vehicle lateral axis
                             "height": 1.5,
                             "heading_deg": safe_float(ori_deg),
                             "tti": safe_float(tti_sec),

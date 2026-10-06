@@ -707,6 +707,108 @@ On this Samsung Exynos platform, all camera properties were queried via `getprop
 
 ---
 
+## Bug #19: TLV Extent Bounding Box Axis Flipping, Radii Doubling & CAN Byte Shift Traps
+
+### Symptoms
+1. **Sideways Vehicle Bounding Boxes in Foxglove & Web Visualizer:** Vehicles (cars and large trucks) appeared with distorted aspect ratios. Cars appeared twice as wide as they were long ($3.14\text{ m}$ wide vs $1.92\text{ m}$ long), while trucks appeared stubby and sideways.
+2. **Ad-hoc Swapping Hacks in Downstream Scripts:** In `convert_session_to_mcap.py`, an earlier attempt to fix the visual orientation swapped `length = min_val` and `width = maj_val` at assignment time, but forgot to double the semi-axis radii ($2\sigma$), leaving dimensions half-sized.
+3. **Mismatched TLV 6 ADAS CAN Telemetry:** In `sync_and_process_sessions.py`, FCW Threat Target coordinates showed impossible negative or 1-byte shifted values compared to the live radar recording, while `RadarTlvDecoder.kt` and `convert_session_to_mcap.py` parsed different offsets.
+
+### Root Cause Analysis
+
+1. **Evolution of TI Firmware Structs (`xSize`/`ySize` vs `majorSize`/`minorSize`):**
+   - In TI's original mmWave SDK C-struct (`dss_data_path.h`), track extents were Cartesian:
+     - Field 5 (`offset 8`): `int16_t xSize` (cluster lateral extent / width)
+     - Field 6 (`offset 10`): `int16_t ySize` (cluster longitudinal extent / depth)
+   - When TI transitioned to an oriented bounding box tracker rotating with vehicle heading $\theta$, the documentation (`1843_customMRR_UART_TLV_SPEC.md`) and Gitea source of truth (`read_and_parse_frame.py`) renamed these fields:
+     - Field 5 (`offset 8`): `majorSize` / `major_size`
+     - Field 6 (`offset 10`): `minorSize` / `minor_size`
+   - Because $X$ usually precedes $Y$ in Cartesian notation, engineers assumed Field 5 was width/minor and Field 6 was length/major. However, the custom MRR firmware packed the **major axis extent** into Field 5 and the **minor axis extent** into Field 6.
+
+2. **The Car Extent Fallacy (Small Passenger Vehicle vs. Large Truck):**
+   - For a standard sedan (e.g. Track #369), the radar point reflection spread over the rear bumper produced a lateral radius of $\approx 0.96\text{ m}$ and a longitudinal depth reflection of $\approx 1.57\text{ m}$.
+   - Because $0.96\text{ m}$ resembles a car's half-width ($1.92\text{ m}$) and $1.57\text{ m}$ resembles a car's half-length ($3.14\text{ m}$), inspecting only a car led developers to suspect the fields were swapped on the wire.
+   - However, empirical extraction of **Track #6923 (a large oncoming truck at $Y \approx 120\text{ m} \to 88\text{ m}$)** proved the truth:
+     - Wire Field 5 (`majorSize`): $3.28\text{ m}$ radius ($\text{total length} \approx 6.56\text{ m} \to 8.08\text{ m}$)
+     - Wire Field 6 (`minorSize`): $3.20\text{ m}$ radius ($\text{total width} \approx 6.40\text{ m}$)
+     - Heading: $\approx 180.0^\circ$ (directly facing host vehicle)
+     - Field 5 is indeed the major axis (longitudinal vehicle length) and Field 6 is the minor axis (transverse vehicle width).
+
+3. **Semi-Axis Radii vs. Full Box Extents:**
+   - The radar tracker outputs **half-axis radii $\sigma$** (semi-major and semi-minor extents).
+   - The legacy 2D web visualizer (`drawUtils.js`) expects radii `[maj_rad, min_rad]` and multiplies by 2 internally.
+   - Foxglove MCAP (`cube.size.x`, `cube.size.y`) expects **total bounding box dimensions**. Setting `size.x = maj_val` resulted in boxes that were half their true physical size.
+
+4. **The TLV 6 Fallback 1-Byte Shift in Gitea:**
+   - In Gitea's `read_and_parse_frame.py`, TLV 6 decoding first attempts DBC decoding with `cantools` against `VCU.dbc`.
+   - `VCU.dbc` specifies standard Motorola (Big-Endian) byte layout:
+     - Byte 0: `FCW_Stage`
+     - Bytes 1–2: `FCW_TrackID` (16-bit)
+     - Byte 3: `FCW_TTC` (0.1s)
+     - Byte 4: `FCW_TargetY` (0.5m)
+     - Byte 5: `FCW_TargetX` (0.2m - 25.6m)
+   - However, lines 1488–1494 in Gitea contained a hardcoded fallback intended for DBC absence that packed `TrackID` into bits of byte 0 and byte 1 (`((b0 >> 2) << 8) | b1`), shifting TTC to byte 2 and Y to byte 3.
+   - When developers copied the fallback code into `sync_and_process_sessions.py`, it broke alignment with the real DSP firmware output and `RadarTlvDecoder.kt`.
+
+### Solution & Canonical Implementation
+
+1. **Wire Unpack (TLV 3, 28-Byte and 20-Byte Strides):**
+   Field 5 is `major_size` / `majorSize`; Field 6 is `minor_size` / `minorSize`:
+   ```python
+   # Python (convert_session_to_mcap.py & sync_and_process_sessions.py)
+   x_raw, y_raw, vx_raw, vy_raw, maj_raw, min_raw, ori_raw, tid, status, ... = struct.unpack_from(
+       "<hhhhhhhHHHhBBBBH", tlv_data, toff
+   )
+   maj_val = maj_raw * inv_q  # Longitudinal semi-major axis radius
+   min_val = min_raw * inv_q  # Lateral semi-minor axis radius
+   ```
+   ```kotlin
+   // Kotlin (RadarTlvDecoder.kt)
+   val majRaw = buffer.short
+   val minRaw = buffer.short
+   val oriRaw = buffer.short
+   majorSize = majRaw * invQ
+   minorSize = minRaw * invQ
+   ```
+
+2. **Downstream Dimensions for Foxglove MCAP:**
+   Always double the radii to get total bounding box extents, and negate the radar clockwise heading into ROS counter-clockwise yaw:
+   ```python
+   cube.size.x = max(safe_float(maj_val * 2.0), 1.5)  # Full length along heading
+   cube.size.y = max(safe_float(min_val * 2.0), 0.8)  # Full width transverse to heading
+   cube.size.z = 1.5                                  # Estimated height
+
+   heading_rad = math.radians(-t["heading_deg"])      # Clockwise radar -> CCW ROS
+   qx, qy, qz, qw = euler_to_quaternion(0.0, 0.0, heading_rad)
+   ```
+
+3. **Downstream Radii for Web Visualizer:**
+   Pass the 2-sigma radii directly to match `convert_gtrack_to_track_history_v2.py`:
+   ```python
+   maj_rad = float(trk.get("major_size", trk.get("majorSize", 2.0)))
+   min_rad = float(trk.get("minor_size", trk.get("minorSize", 1.2)))
+   object_extent_radii = [maj_rad, min_rad]
+   ```
+
+4. **TLV 6 CAN Output Bit Layout:**
+   Always decode byte-exact matching `VCU.dbc` and the DSP firmware:
+   ```python
+   fcw_stage = fcw[0] & 0x03
+   fcw_trk_id = (fcw[1] << 8) | fcw[2]
+   fcw_ttc = fcw[3] * 0.1
+   fcw_ty = fcw[4] * 0.5
+   fcw_tx = fcw[5] * 0.2 - 25.6
+   fcw_tvy = fcw[6] * 0.5 - 64.0
+   fcw_tvx = fcw[7] * 0.2 - 25.6
+
+   acc_id = (acc[0] << 8) | acc[1]
+   acc_dist = acc[2] * 0.5
+   acc_rel_v = acc[4] * 0.5 - 64.0
+   acc_tti = acc[5] * 0.1
+   ```
+
+---
+
 ## Summary of Core Engineering Rules
 
 1. **Never pass high-frequency raw byte streams through `StateFlow`:** Always use direct callbacks or channels to background workers.
@@ -725,5 +827,7 @@ On this Samsung Exynos platform, all camera properties were queried via `getprop
 14. **Use ISO box-traversal rather than fixed-size tail buffers for container metadata parsing:** MP4 index atom (`moov`) sizes scale with frame count; fixed-buffer tail scans fail on long recording sessions. Jumping directly to `moov` via box headers ensures $O(1)$ zero-copy parsing regardless of file size.
 15. **Always verify multi-byte CAN bitfield packing against raw hex dumps before assuming packed bit shifts:** Off-by-one byte decoding shifts ripple through all downstream fields, causing severe coordinate miscalculations (e.g., TargetY decoded as TargetX) and track ID aliasing.
 16. **Foxglove Protobuf user scripts require `@foxglove/schemas` and typed `Float64Array` buffers:** Returning plain JavaScript `number[]` arrays or generic `Message<T>` types breaks schema resolution in Foxglove's runtime, producing anonymous hashes (e.g. `0bb4508b`) that are rejected by visualization panels. Always import from `@foxglove/schemas` and instantiate `Float64Array` for matrix vectors.
+17. **Never confuse radar semi-axis radii ($\sigma$) with full bounding box dimensions ($2\sigma$), nor swap Field 5 (`majorSize`) and Field 6 (`minorSize`):** In custom MRR firmware, Field 5 is the longitudinal semi-major axis radius ($R_{\text{major}}$) and Field 6 is the transverse semi-minor axis radius ($R_{\text{minor}}$). Always test orientation against large high-aspect vehicles (e.g., long trucks facing oncoming at $180^\circ$) rather than square reflection clusters from compact passenger cars.
+
 
 
