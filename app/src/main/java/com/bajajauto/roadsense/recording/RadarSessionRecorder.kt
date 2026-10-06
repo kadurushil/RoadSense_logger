@@ -1,6 +1,7 @@
 package com.bajajauto.roadsense.recording
 
 import android.content.Context
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import com.bajajauto.roadsense.models.RawRadarPacket
@@ -37,8 +38,11 @@ class RadarSessionRecorder(
     }
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "RadarSessionRecorder-Worker").apply {
-            priority = Thread.NORM_PRIORITY + 1
+        Thread({
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+            runnable.run()
+        }, "RadarSessionRecorder-Worker").apply {
+            priority = Thread.MAX_PRIORITY - 1
         }
     }
 

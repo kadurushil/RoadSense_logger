@@ -13,6 +13,7 @@ import android.hardware.camera2.params.MeteringRectangle
 import android.media.MediaRecorder
 import android.os.Handler
 import android.os.HandlerThread
+import android.os.Process
 import android.os.SystemClock
 import android.util.Range
 import android.view.Surface
@@ -167,7 +168,7 @@ class CameraEngine(private val context: Context) {
     }
 
     private fun startBackgroundThread() {
-        backgroundThread = HandlerThread("CameraEngine-Worker").apply {
+        backgroundThread = HandlerThread("CameraEngine-Worker", Process.THREAD_PRIORITY_URGENT_DISPLAY).apply {
             start()
             backgroundHandler = Handler(looper)
         }
@@ -339,6 +340,9 @@ class CameraEngine(private val context: Context) {
         }
     }
 
+    val persistentSurfaceTexture: SurfaceTexture?
+        get() = previewSurfaceTexture
+
     /**
      * Attaches the live viewfinder surface texture from Compose AndroidView.
      */
@@ -349,6 +353,28 @@ class CameraEngine(private val context: Context) {
             currentViewHeight = height
             return
         }
+
+        // If actively recording video and the session is running:
+        // NEVER destroy and recreate CameraCaptureSession!
+        if (isRecordingVideo && captureSession != null) {
+            if (previewSurfaceTexture === surfaceTexture) {
+                AppLogger.i(TAG, "attachPreviewSurface: Re-attaching existing persistent preview surface during active recording (${width}x${height})")
+                currentViewWidth = width
+                currentViewHeight = height
+                isPreviewActive = true
+                if (_roadAeMode.value == RoadAeMode.AUTO_ROAD) {
+                    startLuminanceAnalyzer()
+                }
+                return
+            } else {
+                AppLogger.w(TAG, "attachPreviewSurface: SurfaceTexture changed during active recording. Preserving active recording session.")
+                currentViewWidth = width
+                currentViewHeight = height
+                isPreviewActive = true
+                return
+            }
+        }
+
         previewSurfaceTexture = surfaceTexture
         currentViewWidth = width
         currentViewHeight = height
@@ -450,14 +476,16 @@ class CameraEngine(private val context: Context) {
         stopLuminanceAnalyzer()
         previewTextureViewRef = null
         isPreviewActive = false
-        previewSurface?.release()
-        previewSurface = null
-        previewSurfaceTexture = null
 
-        if (cameraDevice != null && isRecordingVideo) {
-            // Keep recording surface alive, detach preview only
-            restartSession()
-        } else if (!isRecordingVideo) {
+        if (isRecordingVideo) {
+            // CRITICAL: DO NOT tear down or restart CameraCaptureSession while actively recording video!
+            // Closing the session halts the sensor HAL pipeline, starving MediaRecorder and dropping frames for 300-600ms.
+            // We keep previewSurface and previewSurfaceTexture alive so they can be seamlessly reattached when the user returns.
+            AppLogger.i(TAG, "Active recording in progress: preserving CameraCaptureSession and preview surface")
+        } else {
+            previewSurface?.release()
+            previewSurface = null
+            previewSurfaceTexture = null
             closeCamera()
         }
     }
@@ -1251,8 +1279,12 @@ class CameraEngine(private val context: Context) {
             mediaRecorder?.release()
             mediaRecorder = null
             recorderSurface = null
+            previewSurface?.release()
+            previewSurface = null
+            previewSurfaceTexture?.release()
+            previewSurfaceTexture = null
             _engineState.value = CameraEngineState.Closed
-            AppLogger.i(TAG, "Closed CameraDevice")
+            AppLogger.i(TAG, "Closed CameraDevice and released preview surfaces")
         } catch (e: Exception) {
             AppLogger.e(TAG, "Error closing camera", e)
         }
@@ -1319,7 +1351,7 @@ class CameraEngine(private val context: Context) {
             recorderSurface = null
 
             AppLogger.i(TAG, "Stopped video recording. Total frames captured: $total")
-            if (isPreviewActive) {
+            if (isPreviewActive && previewSurface != null) {
                 restartSession()
             } else {
                 closeCamera()

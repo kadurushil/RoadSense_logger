@@ -1,5 +1,6 @@
 package com.bajajauto.roadsense.recording
 
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import com.bajajauto.roadsense.imu.ImuFrame
@@ -36,8 +37,11 @@ class ImuSessionRecorder(
     }
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "ImuSessionRecorder-Worker").apply {
-            priority = Thread.NORM_PRIORITY
+        Thread({
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+            runnable.run()
+        }, "ImuSessionRecorder-Worker").apply {
+            priority = Thread.MAX_PRIORITY - 1
         }
     }
 

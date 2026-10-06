@@ -1,5 +1,6 @@
 package com.bajajauto.roadsense.recording
 
+import android.os.Process
 import android.util.Log
 import java.io.BufferedWriter
 import java.io.File
@@ -33,8 +34,11 @@ class SessionTimelineWriter {
     }
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "TimelineWriter-Worker").apply {
-            priority = Thread.NORM_PRIORITY
+        Thread({
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+            runnable.run()
+        }, "TimelineWriter-Worker").apply {
+            priority = Thread.MAX_PRIORITY - 1
         }
     }
 

@@ -2,6 +2,7 @@ package com.bajajauto.roadsense.ui.screens
 
 import android.Manifest
 import android.content.Context
+import com.bajajauto.roadsense.logging.AppLogger
 import android.content.res.Configuration
 import android.graphics.SurfaceTexture
 import android.view.TextureView
@@ -283,6 +284,14 @@ private fun SbsCameraFeedPane(
                         AndroidView(
                             factory = { ctx ->
                                 TextureView(ctx).apply {
+                                    val persistent = viewModel.cameraEngine.persistentSurfaceTexture
+                                    if (persistent != null && !persistent.isReleased) {
+                                        try {
+                                            setSurfaceTexture(persistent)
+                                        } catch (e: Exception) {
+                                            AppLogger.w("SbsDashboardCard", "Could not reuse persistent SurfaceTexture: ${e.message}")
+                                        }
+                                    }
                                     surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                                         override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
                                             previewWidth = width
@@ -295,13 +304,14 @@ private fun SbsCameraFeedPane(
                                         override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
                                             previewWidth = width
                                             previewHeight = height
+                                            viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
                                             viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
                                             viewModel.updateCameraIntrinsics(width, height)
                                         }
 
                                         override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
                                             viewModel.cameraEngine.detachPreviewSurface(surface)
-                                            return true
+                                            return false
                                         }
 
                                         override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}

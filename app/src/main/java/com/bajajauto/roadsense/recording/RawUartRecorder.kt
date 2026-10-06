@@ -1,6 +1,7 @@
 package com.bajajauto.roadsense.recording
 
 import android.content.Context
+import android.os.Process
 import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,8 +45,11 @@ class RawUartRecorder(private val context: Context) {
     }
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "RawUartRecorder-Worker").apply {
-            priority = Thread.NORM_PRIORITY + 1
+        Thread({
+            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+            runnable.run()
+        }, "RawUartRecorder-Worker").apply {
+            priority = Thread.MAX_PRIORITY - 1
         }
     }
 
