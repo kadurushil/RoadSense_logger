@@ -20,3 +20,9 @@ local.properties
 node_modules/
 __pycache__/
 *.pyc
+*.pt
+*.pth
+tools/vision/checkpoints/
+tools/vision/models/
+tools/vision/output/
+
