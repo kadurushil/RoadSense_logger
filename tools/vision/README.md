@@ -37,32 +37,31 @@ C:\ProgramData\miniconda3\envs\cv313\python.exe tools\vision\generate_baseline_p
 
 ---
 
-## Step 2: Running the Uncalibrated Baseline
+## Step 2: Running Perception & Tracking
 
-The script supports clean, single-line commands without line breaks or backticks. It accepts either a direct video file OR a RoadSense session directory directly:
+The script supports clean, single-line commands without line breaks or backticks. It accepts either a direct video file OR a RoadSense session directory directly, and automatically corrects reverse landscape video orientation (180° rotation):
 
-### 1. Simple Single-Line Run on Session (First 100 Frames):
+### 1. High-Speed Standalone YOLO Tracking (-y / ~45-55+ FPS):
+Bypasses heavy depth models to run pure YOLO26 + ByteTrack tracking. Recommended for long driving logs:
+
 ```powershell
-python tools\vision\generate_baseline_perception.py logs\session_20261002_141835 -n 100
+# Quick 300-frame slice (~6 seconds):
+python tools\vision\generate_baseline_perception.py logs\session_20261006_095609 -y -n 300
+
+# Full 32-minute driving session (~18-20 minutes total runtime):
+python tools\vision\generate_baseline_perception.py logs\session_20261006_095609 -y
 ```
 
-### 2. Full Run on Session Video (All Frames, Fast Model):
+### 2. Full 3D Baseline Perception (YOLO + Depth Anything):
+Runs YOLO26 tracking + Video Depth Anything metric depth estimation:
+
 ```powershell
-python tools\vision\generate_baseline_perception.py logs\session_20261002_141835
+# Fast model (VITS):
+python tools\vision\generate_baseline_perception.py logs\session_20261006_095609 -n 150
+
+# High-precision model (VITL):
+python tools\vision\generate_baseline_perception.py logs\session_20261006_095609 -e vitl -n 150
 ```
 
-### 3. High-Precision Model Run (ViT-L):
-```powershell
-python tools\vision\generate_baseline_perception.py logs\session_20261002_141835 -e vitl
-```
-
-### 4. Run on Any Arbitrary Video File:
-```powershell
-python tools\vision\generate_baseline_perception.py "D:\Work\CV\Logs\WIN_20250902_14_47_18_Pro.mp4" -n 150
-```
-
-### Outputs Generated:
-1. `tools\vision\output\baseline_annotated_video.mp4`:
-   * High-definition video with bounding boxes, motion trails, 3D coordinate badges, and real-time telemetry diagnostics.
-2. `tools\vision\output\baseline_tracking_with_depth.json`:
-   * Complete frame-by-frame JSON recording bounding box coordinates, optical 3D positions $(X, Y, Z)$, and metadata.
+### 3. Automatic Inversion & Orientation Handling:
+Smartphones mounted in reverse landscape mode (180°) are detected automatically via MP4 container metadata (`-r auto`) and rendered 100% upright. You can also manually specify rotation if needed: `-r 180` or `-r 0`.
