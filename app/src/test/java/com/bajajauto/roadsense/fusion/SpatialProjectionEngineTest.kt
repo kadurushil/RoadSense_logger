@@ -3,6 +3,7 @@ package com.bajajauto.roadsense.fusion
 import com.bajajauto.roadsense.fusion.engine.CameraIntrinsics
 import com.bajajauto.roadsense.fusion.engine.SpatialProjectionEngine
 import com.bajajauto.roadsense.fusion.model.CalibrationParameters
+import com.bajajauto.roadsense.fusion.model.PitchQuality
 import com.bajajauto.roadsense.models.RadarAccTarget
 import com.bajajauto.roadsense.models.RadarBsdAlert
 import com.bajajauto.roadsense.models.RadarCanOutputs
@@ -122,7 +123,7 @@ class SpatialProjectionEngineTest {
             0f, 10f, pitchNudgedParams, testIntrinsics, viewW, viewH
         )!!
 
-        assertTrue("Pitch down should translate pixels vertically", ptPitchNudged.yPx > ptBase.yPx)
+        assertTrue("Pitch down should translate world points upward in pixels (smaller yPx)", ptPitchNudged.yPx < ptBase.yPx)
 
         // Apply yaw nudge (+1.0°) -> camera pans right, point shifts left on sensor
         val yawNudgedParams = baseParams.copy(nudgeYawDeg = 1.0f)
@@ -186,6 +187,32 @@ class SpatialProjectionEngineTest {
         )
         assertNotNull(farPt)
         assertEquals("Horizon vCenter must match projection of far point", farPt!!.yPx, horizon.first.yPx, 0.5f)
+    }
+
+    @Test
+    fun testCalculateHorizonLineRollSlopeMatches3DProjection() {
+        val params = CalibrationParameters(
+            pitchDeg = 0.0f,
+            rollDeg = 3.0f // Tilted right
+        )
+        val horizon = SpatialProjectionEngine.calculateHorizonLine(params, testIntrinsics, viewW, viewH)
+
+        // Project a virtual point on the right horizon (xRadar = 300m, yRadar = 3000m)
+        val farPtRight = SpatialProjectionEngine.project2DRadarToScreen(
+            xRadar = 300f,
+            yRadar = 3000f,
+            params = params,
+            intrinsics = testIntrinsics,
+            viewWidth = viewW,
+            viewHeight = viewH,
+            targetHeightM = params.heightOffsetM
+        )
+        assertNotNull(farPtRight)
+
+        // Interpolate horizon Y at farPtRight.xPx
+        val slope = (horizon.second.yPx - horizon.first.yPx) / viewW.toFloat()
+        val expectedYAtX = horizon.first.yPx + slope * farPtRight!!.xPx
+        assertEquals("Horizon line must pass through 3D projected far-field point under roll", expectedYAtX, farPtRight.yPx, 1.0f)
     }
 
     @Test
@@ -565,5 +592,81 @@ class SpatialProjectionEngineTest {
         assertTrue("Fallback target must be flagged as FCW target", fallbackTarget.isFcwTarget)
         assertEquals(2, fallbackTarget.fcwStage)
         assertTrue("Fallback target label must contain [FCW S2] tag", fallbackTarget.label.contains("[FCW S2]"))
+    }
+
+    @Test
+    fun testPhase2SemanticAliasesAndClampLeveling() {
+        val params = CalibrationParameters(
+            pitchDeg = 7.5f,
+            yawDeg = -1.2f,
+            rollDeg = 0.3f,
+            nudgePitchDeg = 0.5f,
+            nudgeYawDeg = -0.3f
+        )
+
+        // 1. Verify semantic aliases
+        assertEquals(8.0f, params.cameraPitchDeg, 0.001f)
+        assertEquals(-1.5f, params.radarYawOffsetDeg, 0.001f)
+
+        // 2. Verify clamp leveling threshold (±0.8°)
+        assertTrue("0.3° roll is level", params.isClampLevel)
+        assertTrue("-0.7° roll is level", params.copy(rollDeg = -0.7f).isClampLevel)
+        assertFalse("1.2° roll is tilted", params.copy(rollDeg = 1.2f).isClampLevel)
+        assertFalse("-2.5° roll is tilted", params.copy(rollDeg = -2.5f).isClampLevel)
+
+        // 3. Verify ADAS windshield pitch quality evaluation
+        assertEquals(PitchQuality.OPTIMAL, params.pitchQuality)
+        assertEquals(PitchQuality.OPTIMAL, params.copy(pitchDeg = 3.0f, nudgePitchDeg = 0f).pitchQuality)
+        assertEquals(PitchQuality.OPTIMAL, params.copy(pitchDeg = 12.0f, nudgePitchDeg = 0f).pitchQuality)
+        assertEquals(PitchQuality.TOO_SHALLOW, params.copy(pitchDeg = 1.5f, nudgePitchDeg = 0f).pitchQuality)
+        assertEquals(PitchQuality.TOO_STEEP, params.copy(pitchDeg = 14.0f, nudgePitchDeg = 0f).pitchQuality)
+        assertEquals(PitchQuality.FACING_UP, params.copy(pitchDeg = -2.0f, nudgePitchDeg = 0f).pitchQuality)
+    }
+
+    @Test
+    fun testPhase2LiveImuSynthesisAndRadarYawIsolation() {
+        val baseCalib = CalibrationParameters(
+            pitchDeg = 5.0f,
+            yawDeg = -1.0f,
+            rollDeg = 0.0f
+        )
+
+        // Synthesize dynamic parameters from live phone IMU (+8.4° pitch, 0.2° roll)
+        val liveSynthesized = baseCalib.copy(
+            pitchDeg = 8.4f,
+            rollDeg = 0.2f,
+            nudgePitchDeg = 0f
+        )
+
+        // Camera pitch and roll update
+        assertEquals(8.4f, liveSynthesized.cameraPitchDeg, 0.001f)
+        assertEquals(0.2f, liveSynthesized.rollDeg, 0.001f)
+
+        // Radar yaw remains strictly isolated at -1.0°
+        assertEquals(-1.0f, liveSynthesized.radarYawOffsetDeg, 0.001f)
+
+        // Changing radar yaw to compensate for bumper mounting squint does NOT shift horizon
+        val yawAdjusted = liveSynthesized.copy(yawDeg = 2.0f)
+        val horizon1 = SpatialProjectionEngine.calculateHorizonLine(liveSynthesized, testIntrinsics, viewW, viewH)
+        val horizon2 = SpatialProjectionEngine.calculateHorizonLine(yawAdjusted, testIntrinsics, viewW, viewH)
+
+        assertEquals("Radar yaw adjustment must not shift horizon line left Y", horizon1.first.yPx, horizon2.first.yPx, 0.001f)
+        assertEquals("Radar yaw adjustment must not shift horizon line right Y", horizon1.second.yPx, horizon2.second.yPx, 0.001f)
+    }
+
+    @Test
+    fun testDownwardPitchMovesHorizonLineUpward() {
+        val levelParams = CalibrationParameters(pitchDeg = 0.0f, rollDeg = 0.0f)
+        val downParams = CalibrationParameters(pitchDeg = 10.0f, rollDeg = 0.0f) // Tilted down toward road
+        val upParams = CalibrationParameters(pitchDeg = -10.0f, rollDeg = 0.0f)  // Tilted up toward sky
+
+        val levelHorizon = SpatialProjectionEngine.calculateHorizonLine(levelParams, testIntrinsics, viewW, viewH)
+        val downHorizon = SpatialProjectionEngine.calculateHorizonLine(downParams, testIntrinsics, viewW, viewH)
+        val upHorizon = SpatialProjectionEngine.calculateHorizonLine(upParams, testIntrinsics, viewW, viewH)
+
+        val cy = testIntrinsics.cy // 540f
+        assertEquals("Level horizon must be at screen center cy", cy, levelHorizon.first.yPx, 0.01f)
+        assertTrue("Downward pitch (+10°) must move horizon line UP on screen (< cy)", downHorizon.first.yPx < cy)
+        assertTrue("Upward pitch (-10°) must move horizon line DOWN on screen (> cy)", upHorizon.first.yPx > cy)
     }
 }

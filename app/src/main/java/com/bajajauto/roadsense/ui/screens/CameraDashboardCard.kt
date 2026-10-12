@@ -93,6 +93,7 @@ fun CameraDashboardCard(
     val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
     val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
     val radarFrame by viewModel.latestFrame.collectAsState()
+    val imuTelemetry by viewModel.imuTelemetry.collectAsState()
 
     var previewWidth by remember { mutableStateOf(1920) }
     var previewHeight by remember { mutableStateOf(1080) }
@@ -309,6 +310,8 @@ fun CameraDashboardCard(
                 CameraCalibrationCard(
                     calibrationParams = calibrationParams,
                     isRadarOverlayEnabled = isRadarOverlayEnabled,
+                    imuTelemetry = imuTelemetry,
+                    onSyncImuPitch = { viewModel.syncPitchFromImu() },
                     onLaunchCalibration = { viewModel.setCalibrationFullScreen(true) },
                     onToggleRadarOverlay = { viewModel.toggleRadarOverlay() },
                     onResetDefaults = { viewModel.resetCalibrationToDefaults() }
@@ -531,6 +534,8 @@ fun CameraDashboardCard(
             CameraCalibrationCard(
                 calibrationParams = calibrationParams,
                 isRadarOverlayEnabled = isRadarOverlayEnabled,
+                imuTelemetry = imuTelemetry,
+                onSyncImuPitch = { viewModel.syncPitchFromImu() },
                 onLaunchCalibration = { viewModel.setCalibrationFullScreen(true) },
                 onToggleRadarOverlay = { viewModel.toggleRadarOverlay() },
                 onResetDefaults = { viewModel.resetCalibrationToDefaults() }

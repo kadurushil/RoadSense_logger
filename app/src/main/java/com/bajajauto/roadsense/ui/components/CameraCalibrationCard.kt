@@ -15,16 +15,20 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.fusion.model.CalibrationParameters
+import com.bajajauto.roadsense.imu.ImuTelemetryState
 import java.util.Locale
 
 /**
  * Dashboard card in the Camera controls panel displaying current radar-camera
- * spatial calibration status and providing actions to launch the Fullscreen Calibration Studio.
+ * spatial calibration status and providing actions to launch the Fullscreen Calibration Studio
+ * and perform one-tap pitch synchronization from phone IMU.
  */
 @Composable
 fun CameraCalibrationCard(
     calibrationParams: CalibrationParameters,
     isRadarOverlayEnabled: Boolean,
+    imuTelemetry: ImuTelemetryState? = null,
+    onSyncImuPitch: (() -> Unit)? = null,
     onLaunchCalibration: () -> Unit,
     onToggleRadarOverlay: () -> Unit,
     onResetDefaults: () -> Unit,
@@ -87,34 +91,52 @@ fun CameraCalibrationCard(
             ) {
                 Column(
                     modifier = Modifier.padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    // Row 1: Angles (θ_cam, ψ_rad, ϕ_roll)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
                         Text(
-                            text = "Pitch: ${String.format(Locale.US, "%.1f°", calibrationParams.effectivePitchDeg)}",
+                            text = "θ_cam: ${String.format(Locale.US, "%.1f°", calibrationParams.effectivePitchDeg)}",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = Color(0xFF64B5F6)
                         )
                         Text(
-                            text = "Yaw: ${String.format(Locale.US, "%.1f°", calibrationParams.effectiveYawDeg)}",
+                            text = "ψ_rad: ${String.format(Locale.US, "%.1f°", calibrationParams.effectiveYawDeg)}",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
                             fontFamily = FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = Color(0xFF81C784)
                         )
                         Text(
-                            text = "Roll: ${String.format(Locale.US, "%.1f°", calibrationParams.rollDeg)}",
+                            text = "ϕ_roll: ${String.format(Locale.US, "%.1f°", calibrationParams.rollDeg)}",
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
 
+                    // Row 2: IMU Assistant Badges (Feature B & D)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        DigitalClampLevelPill(
+                            rollDeg = imuTelemetry?.rollDeg ?: calibrationParams.rollDeg,
+                            onClick = onSyncImuPitch
+                        )
+                        PitchQualityBadge(
+                            quality = calibrationParams.pitchQuality,
+                            pitchDeg = calibrationParams.effectivePitchDeg
+                        )
+                    }
+
+                    // Row 3: Physical Geometry Offsets
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -141,29 +163,59 @@ fun CameraCalibrationCard(
                 }
             }
 
-            // Fullscreen Launch Action Button
-            Button(
-                onClick = onLaunchCalibration,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
-                ),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(38.dp)
+            // Primary Actions: One-Tap Sync & Fullscreen Launch
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Fullscreen,
-                    contentDescription = "Fullscreen",
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Calibrate Viewfinder (Fullscreen)",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                if (onSyncImuPitch != null) {
+                    OutlinedButton(
+                        onClick = onSyncImuPitch,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(38.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Color(0xFF64B5F6)
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = "Sync Pitch from IMU",
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Sync IMU",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = onLaunchCalibration,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier
+                        .weight(if (onSyncImuPitch != null) 1.3f else 1f)
+                        .height(38.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Fullscreen,
+                        contentDescription = "Fullscreen",
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Calibrate (Studio)",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             // Secondary Actions: Overlay Toggle & Reset

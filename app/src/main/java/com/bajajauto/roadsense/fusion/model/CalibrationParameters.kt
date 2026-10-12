@@ -28,6 +28,18 @@ data class CalibrationParameters(
     val effectivePitchDeg: Float get() = pitchDeg + nudgePitchDeg
     val effectiveYawDeg: Float get() = yawDeg + nudgeYawDeg
 
+    // Semantic Physical Aliases
+    val cameraPitchDeg: Float get() = effectivePitchDeg
+    val radarYawOffsetDeg: Float get() = effectiveYawDeg
+    val isClampLevel: Boolean get() = kotlin.math.abs(rollDeg) <= 0.8f
+
+    val pitchQuality: PitchQuality get() = when {
+        effectivePitchDeg < 0.0f -> PitchQuality.FACING_UP
+        effectivePitchDeg < 3.0f -> PitchQuality.TOO_SHALLOW
+        effectivePitchDeg > 12.0f -> PitchQuality.TOO_STEEP
+        else -> PitchQuality.OPTIMAL
+    }
+
     fun toJson(): JSONObject {
         return JSONObject().apply {
             put("setbackM", setbackM.toDouble())
@@ -67,4 +79,15 @@ data class CalibrationParameters(
             )
         }
     }
+}
+
+/**
+ * Pitch angle quality status for automotive ADAS windshield mounting.
+ * Typical forward ADAS operates best with 3° to 12° downward tilt (+3.0° to +12.0°).
+ */
+enum class PitchQuality {
+    OPTIMAL,       // 3.0° .. 12.0° (ideal road-to-sky ratio)
+    TOO_SHALLOW,   // < 3.0° (too much sky, near bumper clipped)
+    TOO_STEEP,     // > 12.0° (too much bonnet/dashboard)
+    FACING_UP      // < 0.0° (tilted upwards toward sky)
 }

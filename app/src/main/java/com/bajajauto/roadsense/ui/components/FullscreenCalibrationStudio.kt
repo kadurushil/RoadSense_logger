@@ -45,6 +45,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.bajajauto.roadsense.camera.CameraResolution
 import com.bajajauto.roadsense.fusion.engine.CameraIntrinsics
 import com.bajajauto.roadsense.fusion.engine.SpatialProjectionEngine
+import androidx.compose.foundation.horizontalScroll
+import com.bajajauto.roadsense.fusion.model.PitchQuality
 import com.bajajauto.roadsense.fusion.model.CalibrationParameters
 import com.bajajauto.roadsense.fusion.sim.SimulatedRadarDataProvider
 import com.bajajauto.roadsense.models.RadarFrame
@@ -71,6 +73,21 @@ fun FullscreenCalibrationStudio(
     val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
     val radarFrame by viewModel.latestFrame.collectAsState()
     val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
+    val imuTelemetry by viewModel.imuTelemetry.collectAsState()
+    val isLiveImuHorizonEnabled by viewModel.isLiveImuHorizonEnabled.collectAsState()
+
+    // Dynamically synthesize active display parameters when Live IMU Horizon Follow is active
+    val activeDisplayParams = remember(calibrationParams, imuTelemetry, isLiveImuHorizonEnabled) {
+        if (isLiveImuHorizonEnabled) {
+            calibrationParams.copy(
+                pitchDeg = imuTelemetry.pitchDeg,
+                rollDeg = imuTelemetry.rollDeg,
+                nudgePitchDeg = 0f
+            )
+        } else {
+            calibrationParams
+        }
+    }
 
     val context = LocalContext.current
     val windowManager = remember { context.getSystemService(Context.WINDOW_SERVICE) as WindowManager }
@@ -177,7 +194,7 @@ fun FullscreenCalibrationStudio(
                     val w = size.width.toInt()
                     val h = size.height.toInt()
                     val guides = SpatialProjectionEngine.calculateGroundGuideLines(
-                        params = calibrationParams,
+                        params = activeDisplayParams,
                         intrinsics = activeIntrinsics!!,
                         viewWidth = w,
                         viewHeight = h
@@ -346,7 +363,7 @@ fun FullscreenCalibrationStudio(
                                 )
 
                                 // Centered car width label below caliper brackets & yellow target line
-                                val carLabel = "${String.format(java.util.Locale.US, "%.1fm CAR", calibrationParams.targetWidthM)}"
+                                val carLabel = "${String.format(java.util.Locale.US, "%.1fm CAR", activeDisplayParams.targetWidthM)}"
                                 val carTextPaint = Paint().apply {
                                     color = android.graphics.Color.YELLOW
                                     textSize = 10f * density
@@ -413,7 +430,7 @@ fun FullscreenCalibrationStudio(
                             typeface = Typeface.MONOSPACE
                             setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
                         }
-                        val hText = "HORIZON (θ: ${String.format(Locale.US, "%.1f°", calibrationParams.effectivePitchDeg)}, ϕ: ${String.format(Locale.US, "%.1f°", calibrationParams.rollDeg)})"
+                        val hText = "HORIZON (θ: ${String.format(Locale.US, "%.1f°", activeDisplayParams.effectivePitchDeg)}, ϕ: ${String.format(Locale.US, "%.1f°", activeDisplayParams.rollDeg)})"
                         drawContext.canvas.nativeCanvas.drawText(hText, hCenterX - 110f * density, hCenterY - 14f, hPaint)
                     }
                 }
@@ -423,8 +440,8 @@ fun FullscreenCalibrationStudio(
             val activeRadarFrame = if (showSimulatedPoints) {
                 SimulatedRadarDataProvider.getFrame(
                     frameIndex = simFrameIndex,
-                    targetDist = calibrationParams.targetDistanceM,
-                    targetWidth = calibrationParams.targetWidthM
+                    targetDist = activeDisplayParams.targetDistanceM,
+                    targetWidth = activeDisplayParams.targetWidthM
                 )
             } else {
                 radarFrame
@@ -432,7 +449,7 @@ fun FullscreenCalibrationStudio(
 
             ViewfinderRadarOverlay(
                 radarFrame = activeRadarFrame,
-                calibrationParams = calibrationParams,
+                calibrationParams = activeDisplayParams,
                 intrinsics = activeIntrinsics,
                 viewWidth = studioWidth,
                 viewHeight = studioHeight,
@@ -453,19 +470,20 @@ fun FullscreenCalibrationStudio(
             )
         }
 
-        // 5. Slim Top Floating Bar
+        // 5. Slim Top Floating Bar with IMU Assistant Deck
         Surface(
-            color = Color.Black.copy(alpha = 0.55f),
+            color = Color.Black.copy(alpha = 0.65f),
             shape = RoundedCornerShape(20.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 6.dp)
+                .padding(horizontal = 8.dp, vertical = 6.dp)
                 .align(Alignment.TopCenter)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -492,6 +510,65 @@ fun FullscreenCalibrationStudio(
                         color = Color.White
                     )
                 }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Center: IMU Assistant Cluster (Level Pill, Pitch Quality, Live IMU, Sync Pitch)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Feature B: Digital Spirit Level Pill
+                    DigitalClampLevelPill(
+                        rollDeg = imuTelemetry.rollDeg,
+                        onClick = { viewModel.updateExtrinsics(rollDeg = imuTelemetry.rollDeg) }
+                    )
+
+                    // Feature D: Pitch Quality Badge
+                    PitchQualityBadge(
+                        quality = activeDisplayParams.pitchQuality,
+                        pitchDeg = activeDisplayParams.effectivePitchDeg
+                    )
+
+                    // Feature C: Live IMU Follow Toggle
+                    FilterChip(
+                        selected = isLiveImuHorizonEnabled,
+                        onClick = { viewModel.toggleLiveImuHorizon() },
+                        label = {
+                            Text(
+                                if (isLiveImuHorizonEnabled) "Live IMU ●" else "Live IMU",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        modifier = Modifier.height(28.dp),
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = Color(0xFF00E5FF).copy(alpha = 0.35f),
+                            selectedLabelColor = Color(0xFF00E5FF)
+                        )
+                    )
+
+                    // Feature A: One-Tap Sync Pitch Button
+                    OutlinedButton(
+                        onClick = { viewModel.syncPitchFromImu() },
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = Color(0xFF64B5F6)
+                        )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = "Sync Pitch from IMU",
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("Sync Pitch", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 // Right: Toggles & Dynamic Save / Load Buttons
                 Row(
@@ -560,7 +637,7 @@ fun FullscreenCalibrationStudio(
                         Text("Load Saved", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
 
-                    // Save Baseline / Saved status button (Stable layout, never collapses or shifts)
+                    // Save Baseline / Saved status button
                     Button(
                         onClick = { viewModel.saveBaselineCalibration() },
                         enabled = isModified,
@@ -590,20 +667,22 @@ fun FullscreenCalibrationStudio(
             }
         }
 
-        // 6. Bottom Floating HUD Deck (Ultra-Compact Single Row)
+        // 6. Bottom Floating HUD Deck (Ultra-Compact Single Row with Dedicated Radar Yaw)
         Surface(
-            color = Color.Black.copy(alpha = 0.65f),
+            color = Color.Black.copy(alpha = 0.70f),
             shape = RoundedCornerShape(22.dp),
             modifier = Modifier
-                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .padding(horizontal = 8.dp, vertical = 8.dp)
                 .align(Alignment.BottomCenter)
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Pitch badge (θ) - Click to reset Pitch to 0.0°
+                // Pitch badge (θ_cam) - Windshield Camera Pitch
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
@@ -613,13 +692,13 @@ fun FullscreenCalibrationStudio(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = "θ",
-                        fontSize = 12.sp,
+                        text = "θ_cam",
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.Gray
                     )
                     Text(
-                        text = String.format(Locale.US, "%.1f°", calibrationParams.effectivePitchDeg),
+                        text = String.format(Locale.US, "%+.1f°", activeDisplayParams.effectivePitchDeg),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
@@ -627,48 +706,100 @@ fun FullscreenCalibrationStudio(
                     )
                 }
 
-                // Yaw badge (ψ) - Click to reset Yaw to 0.0°
-                Row(
+                // If Live IMU is enabled, show LOCK PITCH button; else show SYNC IMU button
+                if (isLiveImuHorizonEnabled) {
+                    Button(
+                        onClick = { viewModel.lockLiveImuPitch() },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF00E5FF),
+                            contentColor = Color.Black
+                        ),
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        modifier = Modifier.height(30.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Lock Live Pitch",
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("LOCK PITCH", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                } else {
+                    OutlinedButton(
+                        onClick = { viewModel.syncPitchFromImu() },
+                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.height(30.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Sync,
+                            contentDescription = "Sync IMU Pitch",
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(3.dp))
+                        Text("SYNC IMU", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                VerticalDivider(
+                    modifier = Modifier.height(20.dp),
+                    color = Color.DarkGray
+                )
+
+                // Radar Yaw badge (ψ_rad) - Strictly Radar Bumper Offset
+                Column(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
-                        .clickable { viewModel.resetYawToZero() }
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        .clickable { viewModel.resetRadarYawToZero() }
+                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "ψ_rad",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.Gray
+                        )
+                        Text(
+                            text = String.format(Locale.US, "%+.1f°", activeDisplayParams.effectiveYawDeg),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = Color(0xFF81C784)
+                        )
+                    }
                     Text(
-                        text = "ψ",
-                        fontSize = 12.sp,
+                        text = "RADAR BUMPER YAW",
+                        fontSize = 7.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.Gray
-                    )
-                    Text(
-                        text = String.format(Locale.US, "%.1f°", calibrationParams.effectiveYawDeg),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = Color(0xFF81C784)
+                        color = Color.LightGray.copy(alpha = 0.6f)
                     )
                 }
 
-                // Quick Reset to Zero Angles Button (Resets both Pitch and Yaw to 0.0°)
+                // Reset Radar Yaw button (0°)
                 OutlinedButton(
-                    onClick = { viewModel.resetAnglesToZero() },
+                    onClick = { viewModel.resetRadarYawToZero() },
                     contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.height(30.dp),
                     colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Color(0xFFFFB74D)
+                        contentColor = Color(0xFF81C784)
                     )
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Reset angles to 0°",
-                        modifier = Modifier.size(13.dp)
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
                     Text("0°", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
+
+                VerticalDivider(
+                    modifier = Modifier.height(20.dp),
+                    color = Color.DarkGray
+                )
 
                 // Micro-Nudge D-Pad Buttons
                 Row(
@@ -680,28 +811,28 @@ fun FullscreenCalibrationStudio(
                         contentPadding = PaddingValues(0.dp),
                         modifier = Modifier.size(30.dp)
                     ) {
-                        Text("▲", fontSize = 11.sp, color = Color.White)
+                        Text("▲", fontSize = 11.sp, color = Color(0xFF64B5F6))
                     }
                     OutlinedButton(
                         onClick = { viewModel.nudgePitch(0.1f) },
                         contentPadding = PaddingValues(0.dp),
                         modifier = Modifier.size(30.dp)
                     ) {
-                        Text("▼", fontSize = 11.sp, color = Color.White)
+                        Text("▼", fontSize = 11.sp, color = Color(0xFF64B5F6))
                     }
                     OutlinedButton(
                         onClick = { viewModel.nudgeYaw(-0.1f) },
                         contentPadding = PaddingValues(0.dp),
                         modifier = Modifier.size(30.dp)
                     ) {
-                        Text("◄", fontSize = 11.sp, color = Color.White)
+                        Text("◄", fontSize = 11.sp, color = Color(0xFF81C784))
                     }
                     OutlinedButton(
                         onClick = { viewModel.nudgeYaw(0.1f) },
                         contentPadding = PaddingValues(0.dp),
                         modifier = Modifier.size(30.dp)
                     ) {
-                        Text("►", fontSize = 11.sp, color = Color.White)
+                        Text("►", fontSize = 11.sp, color = Color(0xFF81C784))
                     }
                 }
 
@@ -859,8 +990,8 @@ private fun CalibrationExtrinsicsDialog(
                     )
 
                     PrecisionStepperRow(
-                        label = "Mount Roll (ϕ)",
-                        subtitle = "Phone lateral rotation tilt",
+                        label = "Windshield Clamp Roll (ϕ)",
+                        subtitle = "Phone lateral rotation tilt relative to road",
                         value = params.rollDeg,
                         unit = "°",
                         range = -10.0f..10.0f,
@@ -1022,6 +1153,115 @@ private fun PrecisionStepperRow(
             onValueChange = onValueChange,
             valueRange = range,
             modifier = Modifier.fillMaxWidth().height(20.dp)
+        )
+    }
+}
+
+/**
+ * Visual Digital Spirit Level Pill (Feature B).
+ * Guides the user to level the smartphone windshield clamp (Roll -> 0.0°).
+ * Displays glowing green when within ±0.8° of level ground,
+ * or amber directional arrows when tilted left/right.
+ */
+@Composable
+fun DigitalClampLevelPill(
+    rollDeg: Float,
+    onClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val absRoll = abs(rollDeg)
+    val isLevel = absRoll <= 0.8f
+    val isSevere = absRoll > 3.0f
+
+    val (bgCol, textCol, labelText) = when {
+        isSevere -> Triple(
+            Color(0xFFB71C1C).copy(alpha = 0.85f),
+            Color.White,
+            String.format(Locale.US, "▲ HIGH ROLL %+.1f°", rollDeg)
+        )
+        isLevel -> Triple(
+            Color(0xFF2E7D32).copy(alpha = 0.85f),
+            Color(0xFFA5D6A7),
+            String.format(Locale.US, "● LEVEL %+.1f°", rollDeg)
+        )
+        rollDeg < -0.8f -> Triple(
+            Color(0xFFE65100).copy(alpha = 0.85f),
+            Color(0xFFFFCC80),
+            String.format(Locale.US, "◄ TILT L %.1f°", absRoll)
+        )
+        else -> Triple(
+            Color(0xFFE65100).copy(alpha = 0.85f),
+            Color(0xFFFFCC80),
+            String.format(Locale.US, "TILT R %.1f° ►", absRoll)
+        )
+    }
+
+    Surface(
+        color = bgCol,
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = labelText,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                color = textCol
+            )
+        }
+    }
+}
+
+/**
+ * Pitch Quality Status Badge (Feature D).
+ * Evaluates camera pitch angle for forward automotive ADAS perception.
+ */
+@Composable
+fun PitchQualityBadge(
+    quality: PitchQuality,
+    pitchDeg: Float,
+    modifier: Modifier = Modifier
+) {
+    val (bgCol, textCol, labelText) = when (quality) {
+        PitchQuality.OPTIMAL -> Triple(
+            Color(0xFF1B5E20).copy(alpha = 0.85f),
+            Color(0xFF81C784),
+            "OPTIMAL PITCH"
+        )
+        PitchQuality.TOO_SHALLOW -> Triple(
+            Color(0xFFE65100).copy(alpha = 0.85f),
+            Color(0xFFFFCC80),
+            String.format(Locale.US, "TOO SHALLOW (%.1f°)", pitchDeg)
+        )
+        PitchQuality.TOO_STEEP -> Triple(
+            Color(0xFFBF360C).copy(alpha = 0.85f),
+            Color(0xFFFFAB91),
+            String.format(Locale.US, "TOO STEEP (%.1f°)", pitchDeg)
+        )
+        PitchQuality.FACING_UP -> Triple(
+            Color(0xFFB71C1C).copy(alpha = 0.85f),
+            Color.White,
+            String.format(Locale.US, "FACING UP (%.1f°)", pitchDeg)
+        )
+    }
+
+    Surface(
+        color = bgCol,
+        shape = RoundedCornerShape(12.dp),
+        modifier = modifier
+    ) {
+        Text(
+            text = labelText,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color = textCol,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
         )
     }
 }

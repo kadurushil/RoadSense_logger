@@ -66,12 +66,12 @@ object SpatialProjectionEngine {
         val y1 = y0
         val z1 = x0 * sinY + z0 * cosY
 
-        // Rotate around X_c (Pitch - tilt up/down)
+        // Rotate around X_c (Pitch - positive θ tilts camera DOWN towards road, shifting world features UP on screen)
         val cosP = cos(pitchRad)
         val sinP = sin(pitchRad)
         val x2 = x1
-        val y2 = y1 * cosP + z1 * sinP
-        val z2 = -y1 * sinP + z1 * cosP
+        val y2 = y1 * cosP - z1 * sinP
+        val z2 = y1 * sinP + z1 * cosP
 
         // Rotate around Z_c (Roll - level clamp)
         val cosR = cos(rollRad)
@@ -148,8 +148,9 @@ object SpatialProjectionEngine {
         val targetPitch = atan2(-zRel.toDouble(), dist2D)
 
         // Solve angles: R_x(θ) · R_y(ψ)
+        // Downward pitch (+θ) shifts world features upward on screen (alphaY < targetPitch)
         val yawRad = targetYaw - alphaX
-        val pitchRad = alphaY - targetPitch
+        val pitchRad = targetPitch - alphaY
 
         val pitchDeg = Math.toDegrees(pitchRad).toFloat()
         val yawDeg = Math.toDegrees(yawRad).toFloat()
@@ -177,16 +178,19 @@ object SpatialProjectionEngine {
         val pitchRad = Math.toRadians(params.effectivePitchDeg.toDouble()).toFloat()
         val rollRad = Math.toRadians(params.rollDeg.toDouble()).toFloat()
 
-        // Horizon vertical offset at center: v = cy + fy * tan(θ)
-        // Camera tilted down (negative pitch) moves the horizon up on screen (< cy).
-        val vCenter = cy + (fy * tan(pitchRad.toDouble())).toFloat()
+        // Horizon vertical offset at center:
+        // Positive pitch (+θ) indicates downward tilt toward the road.
+        // When camera pitches down (+θ), physical features in the environment (including the true road horizon)
+        // shift upward in the viewfinder (< cy, towards y = 0).
+        val vCenter = cy - (fy * tan(pitchRad.toDouble())).toFloat()
 
-        // Account for roll angle across the view width
+        // Account for roll angle across the view width:
+        // Clockwise roll tilts right edge of camera down, so world horizon on right side shifts UP (< vCenter)
         val halfW = viewWidth / 2f
         val tanRoll = tan(rollRad.toDouble()).toFloat()
 
-        val leftY = vCenter - halfW * tanRoll
-        val rightY = vCenter + halfW * tanRoll
+        val leftY = vCenter + halfW * tanRoll
+        val rightY = vCenter - halfW * tanRoll
 
         val left = ScreenPoint(0f, leftY, 0f, leftY / viewHeight, 100f)
         val right = ScreenPoint(viewWidth.toFloat(), rightY, 1f, rightY / viewHeight, 100f)

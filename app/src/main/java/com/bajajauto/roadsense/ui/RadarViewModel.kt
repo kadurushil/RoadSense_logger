@@ -107,6 +107,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val _isRadarArcsEnabled = MutableStateFlow(true)
     val isRadarArcsEnabled: StateFlow<Boolean> = _isRadarArcsEnabled.asStateFlow()
 
+    private val _isLiveImuHorizonEnabled = MutableStateFlow(false)
+    val isLiveImuHorizonEnabled: StateFlow<Boolean> = _isLiveImuHorizonEnabled.asStateFlow()
+
     private val _activeIntrinsics = MutableStateFlow<CameraIntrinsics?>(null)
     val activeIntrinsics: StateFlow<CameraIntrinsics?> = _activeIntrinsics.asStateFlow()
 
@@ -726,6 +729,48 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             nudgeYawDeg = 0f
         )
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "Reset Yaw angle to zero (0.0°)")
+    }
+
+    fun resetRadarYawToZero() {
+        resetYawToZero()
+    }
+
+    fun toggleLiveImuHorizon() {
+        val next = !_isLiveImuHorizonEnabled.value
+        _isLiveImuHorizonEnabled.value = next
+        com.bajajauto.roadsense.logging.AppLogger.i("Calibration", "Live IMU Horizon Follow toggled: $next")
+    }
+
+    fun setLiveImuHorizonEnabled(enabled: Boolean) {
+        _isLiveImuHorizonEnabled.value = enabled
+    }
+
+    /**
+     * Feature A: One-Tap Sync Pitch & Roll from IMU.
+     * Instantly transfers the smartphone's gravitational pitch and clamp roll
+     * into the camera calibration baseline.
+     */
+    fun syncPitchFromImu() {
+        val imuState = imuTelemetry.value
+        val current = _calibrationParams.value
+        val updated = current.copy(
+            pitchDeg = imuState.pitchDeg,
+            rollDeg = imuState.rollDeg,
+            nudgePitchDeg = 0f
+        )
+        _calibrationParams.value = updated
+        com.bajajauto.roadsense.logging.AppLogger.i("Calibration", "Synced camera pitch from IMU: ${imuState.pitchDeg}°, roll: ${imuState.rollDeg}°")
+    }
+
+    /**
+     * Feature C: Lock Live IMU Pitch.
+     * Freezes the active live-followed pitch and roll into the calibration baseline
+     * and terminates live follow mode.
+     */
+    fun lockLiveImuPitch() {
+        syncPitchFromImu()
+        _isLiveImuHorizonEnabled.value = false
+        com.bajajauto.roadsense.logging.AppLogger.i("Calibration", "Locked live IMU pitch into calibration baseline")
     }
 
     fun revertNudges() {
