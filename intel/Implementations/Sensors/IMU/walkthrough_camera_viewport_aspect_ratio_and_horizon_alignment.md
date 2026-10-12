@@ -1,0 +1,58 @@
+# Walkthrough: Camera Viewport 16:9 FIT, Square-Pixel Intrinsics & Horizon Alignment
+
+## Overview
+This implementation resolves the visual horizon divergence observed during Live IMU camera calibration on the Samsung Galaxy M30 (`1080 x 2340`, 19.5:9 aspect ratio). It introduces a unified **Standard 16:9 FIT** viewport model across all app screens, corrects anamorphic camera intrinsics distortion, aligns the artificial horizon with the physical world, and relocates studio calibration controls into natural pillarbox wings.
+
+---
+
+## Changes
+
+### 1. Unified 16:9 FIT Viewport Engine
+- Created [CameraViewportTransform.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/camera/CameraViewportTransform.kt):
+  - Enforces `scale = minOf(viewW / effStreamW, viewH / effStreamH)` (scale = 1.0 on Galaxy M30 in 1080p landscape).
+  - Calculates symmetrical pillarbox wings: `offsetX = 210 px` left and right on a 2340 px wide screen.
+  - Generates exact `Matrix` transforms without center-crop zooming or distortion.
+- Updated [CameraEngine.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/camera/CameraEngine.kt) to delegate `configureTransform` to `CameraViewportTransform.configureTransformMatrix`.
+
+### 2. Standard 16:9 Aspect Ratio Across All Viewports
+- Updated [SbsDashboardCard.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/ui/screens/SbsDashboardCard.kt) to strictly enforce `16f / 9f` aspect ratio for the camera viewport.
+- Updated [CameraDashboardCard.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/ui/screens/CameraDashboardCard.kt) to strictly enforce `16f / 9f` aspect ratio in both landscape and portrait layouts.
+
+### 3. Galaxy M30 Sensor Crop & Square-Pixel Intrinsics
+- Overhauled [CameraIntrinsicsProvider.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/fusion/engine/CameraIntrinsicsProvider.kt):
+  - Fixed 4:3 sensor (`4128 x 3096`) to 16:9 stream vertical ISP crop calculation ($H_{\text{crop}} = 2322$ px).
+  - Accurately computes square pixel focal length:
+    $$f_x = f_y = 1920 \times \left(\frac{3.58}{4.624}\right) = 1486.5\text{ px}$$
+    (eliminating previous 33.3% anamorphic focal length underestimation of 1114.9 px).
+  - Aligns optical center strictly with view center: $c_x = 1170\text{ px}, c_y = 540\text{ px}$.
+
+### 4. Natural Pillarbox Studio HUD Layout
+- Redesigned [FullscreenCalibrationStudio.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/ui/components/FullscreenCalibrationStudio.kt):
+  - Removed bottom floating calibration bar that previously occluded the center road surface.
+  - **Left Pillarbox Wing:** Camera pitch badge ($\theta_{\text{cam}}$), vertical nudge buttons (▲/▼), and Live IMU SYNC/LOCK button.
+  - **Right Pillarbox Wing:** Radar yaw badge ($\psi_{\text{rad}}$), horizontal nudge buttons (◄/►), 0° yaw reset button, and Extrinsics Settings modal gear.
+  - Central 16:9 video frame (`1920 x 1080`) remains 100% unobstructed.
+- Updated [SpatialProjectionEngine.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/fusion/engine/SpatialProjectionEngine.kt):
+  - Artificial horizon endpoints snap cleanly to `videoOffsetX` (210 px) and `videoOffsetX + videoWidth` (2130 px), keeping lines inside the video frame and off the pillarbox control wings.
+
+---
+
+## Verification & Testing
+
+### JVM Unit Tests
+Ran `.\gradlew.bat testDebugUnitTest`:
+```powershell
+BUILD SUCCESSFUL in 3s
+24 actionable tasks: 5 executed, 19 up-to-date
+52 tests completed, 0 failed
+```
+- [CameraViewportTransformTest.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/test/java/com/bajajauto/roadsense/camera/CameraViewportTransformTest.kt): Validates 16:9 FIT geometry, scale = 1.0, 210 px pillarbox offsets, and centered intrinsics.
+- `SpatialProjectionEngineTest.kt`: Validates horizon projection, pinhole projection, and reverse landscape geometry.
+
+### Debug APK Build
+Ran `.\gradlew.bat assembleDebug`:
+```powershell
+BUILD SUCCESSFUL in 2s
+36 actionable tasks: 4 executed, 32 up-to-date
+```
+Output: `app/build/outputs/apk/debug/app-debug.apk` (ready for manual installation).

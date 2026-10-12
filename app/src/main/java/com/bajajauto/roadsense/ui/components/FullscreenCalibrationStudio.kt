@@ -667,46 +667,63 @@ fun FullscreenCalibrationStudio(
             }
         }
 
-        // 6. Bottom Floating HUD Deck (Ultra-Compact Single Row with Dedicated Radar Yaw)
+        // 6. Left Pillarbox Deck (Camera Pitch Controls - Vertically Arranged in Left Wing)
         Surface(
             color = Color.Black.copy(alpha = 0.70f),
-            shape = RoundedCornerShape(22.dp),
+            shape = RoundedCornerShape(16.dp),
             modifier = Modifier
-                .padding(horizontal = 8.dp, vertical = 8.dp)
-                .align(Alignment.BottomCenter)
+                .padding(start = 10.dp, top = 54.dp, bottom = 12.dp)
+                .align(Alignment.CenterStart)
         ) {
-            Row(
-                modifier = Modifier
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                // Pitch badge (θ_cam) - Windshield Camera Pitch
-                Row(
+                // Pitch badge (θ_cam)
+                Column(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .clickable { viewModel.resetPitchToZero() }
                         .padding(horizontal = 4.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
                         text = "θ_cam",
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.Gray
                     )
                     Text(
                         text = String.format(Locale.US, "%+.1f°", activeDisplayParams.effectivePitchDeg),
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
                         color = Color(0xFF64B5F6)
                     )
                 }
 
-                // If Live IMU is enabled, show LOCK PITCH button; else show SYNC IMU button
+                // Vertical Pitch Nudges ▲ and ▼
+                OutlinedButton(
+                    onClick = { viewModel.nudgePitch(0.1f) },
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.size(30.dp),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text("▲", fontSize = 11.sp, color = Color(0xFF64B5F6), fontWeight = FontWeight.Bold)
+                }
+                OutlinedButton(
+                    onClick = { viewModel.nudgePitch(-0.1f) },
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.size(30.dp),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text("▼", fontSize = 11.sp, color = Color(0xFF64B5F6), fontWeight = FontWeight.Bold)
+                }
+
+                HorizontalDivider(modifier = Modifier.width(32.dp), color = Color.DarkGray)
+
+                // SYNC / LOCK PITCH Button
                 if (isLiveImuHorizonEnabled) {
                     Button(
                         onClick = { viewModel.lockLiveImuPitch() },
@@ -714,132 +731,99 @@ fun FullscreenCalibrationStudio(
                             containerColor = Color(0xFF00E5FF),
                             contentColor = Color.Black
                         ),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        modifier = Modifier.height(30.dp)
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                        modifier = Modifier.height(26.dp)
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = "Lock Live Pitch",
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text("LOCK PITCH", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("LOCK", fontSize = 9.sp, fontWeight = FontWeight.Bold)
                     }
                 } else {
                     OutlinedButton(
                         onClick = { viewModel.syncPitchFromImu() },
-                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.height(30.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.height(26.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF64B5F6))
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Sync,
-                            contentDescription = "Sync IMU Pitch",
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text("SYNC IMU", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("SYNC", fontSize = 9.sp, fontWeight = FontWeight.Bold)
                     }
                 }
+            }
+        }
 
-                VerticalDivider(
-                    modifier = Modifier.height(20.dp),
-                    color = Color.DarkGray
-                )
-
-                // Radar Yaw badge (ψ_rad) - Strictly Radar Bumper Offset
+        // 7. Right Pillarbox Deck (Radar Yaw Controls & Extrinsics Dialog in Right Wing)
+        Surface(
+            color = Color.Black.copy(alpha = 0.70f),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .padding(end = 10.dp, top = 54.dp, bottom = 12.dp)
+                .align(Alignment.CenterEnd)
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Radar Yaw badge (ψ_rad)
                 Column(
                     modifier = Modifier
                         .clip(RoundedCornerShape(6.dp))
                         .clickable { viewModel.resetRadarYawToZero() }
-                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(
-                            text = "ψ_rad",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.Gray
-                        )
-                        Text(
-                            text = String.format(Locale.US, "%+.1f°", activeDisplayParams.effectiveYawDeg),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            color = Color(0xFF81C784)
-                        )
-                    }
                     Text(
-                        text = "RADAR BUMPER YAW",
-                        fontSize = 7.sp,
+                        text = "ψ_rad",
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color.LightGray.copy(alpha = 0.6f)
+                        color = Color.Gray
+                    )
+                    Text(
+                        text = String.format(Locale.US, "%+.1f°", activeDisplayParams.effectiveYawDeg),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = Color(0xFF81C784)
                     )
                 }
 
-                // Reset Radar Yaw button (0°)
-                OutlinedButton(
-                    onClick = { viewModel.resetRadarYawToZero() },
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.height(30.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = Color(0xFF81C784)
-                    )
-                ) {
-                    Text("0°", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-
-                VerticalDivider(
-                    modifier = Modifier.height(20.dp),
-                    color = Color.DarkGray
-                )
-
-                // Micro-Nudge D-Pad Buttons
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
-                        onClick = { viewModel.nudgePitch(-0.1f) },
-                        contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Text("▲", fontSize = 11.sp, color = Color(0xFF64B5F6))
-                    }
-                    OutlinedButton(
-                        onClick = { viewModel.nudgePitch(0.1f) },
-                        contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Text("▼", fontSize = 11.sp, color = Color(0xFF64B5F6))
-                    }
+                // Horizontal Yaw Nudges ◄ and ►
+                Row(horizontalArrangement = Arrangement.spacedBy(3.dp)) {
                     OutlinedButton(
                         onClick = { viewModel.nudgeYaw(-0.1f) },
                         contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier.size(30.dp)
+                        modifier = Modifier.size(28.dp),
+                        shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("◄", fontSize = 11.sp, color = Color(0xFF81C784))
+                        Text("◄", fontSize = 11.sp, color = Color(0xFF81C784), fontWeight = FontWeight.Bold)
                     }
                     OutlinedButton(
                         onClick = { viewModel.nudgeYaw(0.1f) },
                         contentPadding = PaddingValues(0.dp),
-                        modifier = Modifier.size(30.dp)
+                        modifier = Modifier.size(28.dp),
+                        shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("►", fontSize = 11.sp, color = Color(0xFF81C784))
+                        Text("►", fontSize = 11.sp, color = Color(0xFF81C784), fontWeight = FontWeight.Bold)
                     }
                 }
+
+                // Reset Radar Yaw (0°)
+                OutlinedButton(
+                    onClick = { viewModel.resetRadarYawToZero() },
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.height(24.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF81C784))
+                ) {
+                    Text("0°", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+
+                HorizontalDivider(modifier = Modifier.width(32.dp), color = Color.DarkGray)
 
                 // Extrinsics Settings Dialog Button
                 IconButton(
                     onClick = { showExtrinsicsDrawer = true },
-                    modifier = Modifier.size(30.dp)
+                    modifier = Modifier.size(28.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Settings,

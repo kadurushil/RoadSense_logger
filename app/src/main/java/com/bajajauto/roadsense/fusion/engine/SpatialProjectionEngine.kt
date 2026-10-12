@@ -173,6 +173,7 @@ object SpatialProjectionEngine {
         val scaleX = viewWidth.toFloat() / intrinsics.imageWidth.toFloat()
         val scaleY = viewHeight.toFloat() / intrinsics.imageHeight.toFloat()
         val fy = intrinsics.fy * scaleY
+        val cx = intrinsics.cx * scaleX
         val cy = intrinsics.cy * scaleY
 
         val pitchRad = Math.toRadians(params.effectivePitchDeg.toDouble()).toFloat()
@@ -184,16 +185,17 @@ object SpatialProjectionEngine {
         // shift upward in the viewfinder (< cy, towards y = 0).
         val vCenter = cy - (fy * tan(pitchRad.toDouble())).toFloat()
 
-        // Account for roll angle across the view width:
+        // Account for roll angle across the active video frame:
         // Clockwise roll tilts right edge of camera down, so world horizon on right side shifts UP (< vCenter)
-        val halfW = viewWidth / 2f
         val tanRoll = tan(rollRad.toDouble()).toFloat()
+        val startX = intrinsics.videoOffsetX * scaleX
+        val endX = (intrinsics.videoOffsetX + intrinsics.videoWidth) * scaleX
 
-        val leftY = vCenter + halfW * tanRoll
-        val rightY = vCenter - halfW * tanRoll
+        val leftY = vCenter - (startX - cx) * tanRoll
+        val rightY = vCenter - (endX - cx) * tanRoll
 
-        val left = ScreenPoint(0f, leftY, 0f, leftY / viewHeight, 100f)
-        val right = ScreenPoint(viewWidth.toFloat(), rightY, 1f, rightY / viewHeight, 100f)
+        val left = ScreenPoint(startX, leftY, startX / viewWidth, leftY / viewHeight, 100f)
+        val right = ScreenPoint(endX, rightY, endX / viewWidth, rightY / viewHeight, 100f)
 
         return Pair(left, right)
     }

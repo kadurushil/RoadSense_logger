@@ -569,11 +569,16 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     fun updateCameraIntrinsics(viewWidth: Int, viewHeight: Int) {
         if (viewWidth <= 0 || viewHeight <= 0) return
         val selectedCamId = cameraEngine.selectedCamera.value?.id
+        val res = cameraEngine.selectedResolution.value
+        val rot = cameraEngine.currentDisplayRotation
         _activeIntrinsics.value = CameraIntrinsicsProvider.getIntrinsics(
             context = getApplication(),
             cameraId = selectedCamId,
             viewWidth = viewWidth,
-            viewHeight = viewHeight
+            viewHeight = viewHeight,
+            streamWidth = res.width,
+            streamHeight = res.height,
+            displayRotation = rot
         )
     }
 

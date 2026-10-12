@@ -274,7 +274,7 @@ private fun SbsCameraFeedPane(
                 contentAlignment = Alignment.Center
             ) {
                 if (shouldRenderPreview) {
-                    val cameraAspect = if (selectedRes == CameraResolution.RES_480P) 4f / 3f else 16f / 9f
+                    val cameraAspect = 16f / 9f
                     Box(
                         modifier = Modifier
                             .aspectRatio(cameraAspect)

@@ -5,11 +5,15 @@ import android.graphics.Rect
 import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.util.SizeF
+import android.view.Surface
+import com.bajajauto.roadsense.camera.CameraViewportTransform
 import com.bajajauto.roadsense.logging.AppLogger
 import kotlin.math.atan
+import kotlin.math.tan
 
 /**
- * Pinhole camera intrinsic parameters scaled to an arbitrary viewport resolution.
+ * Pinhole camera intrinsic parameters scaled to an arbitrary viewport resolution
+ * in Standard 16:9 FIT (letterbox/pillarbox) geometry.
  */
 data class CameraIntrinsics(
     val fx: Float,
@@ -19,7 +23,11 @@ data class CameraIntrinsics(
     val imageWidth: Int,
     val imageHeight: Int,
     val hfovDeg: Float,
-    val vfovDeg: Float
+    val vfovDeg: Float,
+    val videoOffsetX: Float = 0f,
+    val videoOffsetY: Float = 0f,
+    val videoWidth: Float = imageWidth.toFloat(),
+    val videoHeight: Float = imageHeight.toFloat()
 )
 
 object CameraIntrinsicsProvider {
@@ -27,81 +35,171 @@ object CameraIntrinsicsProvider {
     private const val TAG = "CameraIntrinsics"
 
     /**
-     * Extracts or calculates camera intrinsics for the specified camera and viewport dimensions.
+     * Extracts or calculates camera intrinsics for the specified camera and viewport dimensions,
+     * maintaining square pixels and standard 16:9 FIT geometry.
      */
     fun getIntrinsics(
         context: Context,
         cameraId: String?,
         viewWidth: Int,
-        viewHeight: Int
+        viewHeight: Int,
+        streamWidth: Int = 1920,
+        streamHeight: Int = 1080,
+        displayRotation: Int = Surface.ROTATION_270
     ): CameraIntrinsics {
         val safeW = if (viewWidth > 0) viewWidth else 1920
         val safeH = if (viewHeight > 0) viewHeight else 1080
+        val safeStreamW = if (streamWidth > 0) streamWidth else 1920
+        val safeStreamH = if (streamHeight > 0) streamHeight else 1080
+
+        val geo = CameraViewportTransform.computeViewportGeometry(
+            viewWidth = safeW,
+            viewHeight = safeH,
+            streamWidth = safeStreamW,
+            streamHeight = safeStreamH,
+            displayRotation = displayRotation
+        )
 
         if (cameraId == null) {
-            return fallbackIntrinsics(safeW, safeH)
+            return fallbackIntrinsics(safeW, safeH, safeStreamW, safeStreamH, geo)
         }
 
         try {
             val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
             val chars = cameraManager.getCameraCharacteristics(cameraId)
 
-            // 1. Check for hardware-calibrated intrinsics [fx, fy, cx, cy, skew]
             val lensCalib = chars.get(CameraCharacteristics.LENS_INTRINSIC_CALIBRATION)
             val activeArray = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
             val physicalSize = chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
             val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
-            val focalMm = focalLengths?.firstOrNull() ?: 4.0f
+            val focalMm = focalLengths?.firstOrNull() ?: 3.58f
 
+            // 1. Hardware-calibrated intrinsics [fx, fy, cx, cy, skew] if supported (e.g. FULL / LOGICAL)
             if (lensCalib != null && lensCalib.size >= 4 && activeArray != null && activeArray.width() > 0 && activeArray.height() > 0) {
-                val scaleX = safeW.toFloat() / activeArray.width().toFloat()
-                val scaleY = safeH.toFloat() / activeArray.height().toFloat()
+                val sensorW = activeArray.width().toFloat()
+                val sensorH = activeArray.height().toFloat()
+                val sensorAspect = sensorW / sensorH
+                val streamAspect = safeStreamW.toFloat() / safeStreamH.toFloat()
 
-                val fx = lensCalib[0] * scaleX
-                val fy = lensCalib[1] * scaleY
-                val cx = lensCalib[2] * scaleX
-                val cy = lensCalib[3] * scaleY
+                // Compute ISP active crop region from sensor to stream aspect
+                val cropW = if (streamAspect >= sensorAspect) sensorW else sensorH * streamAspect
+                val cropH = if (streamAspect >= sensorAspect) sensorW / streamAspect else sensorH
+                val cropX = (sensorW - cropW) / 2f
+                val cropY = (sensorH - cropH) / 2f
 
-                val hfov = (2.0 * atan((safeW / (2.0 * fx))) * 180.0 / Math.PI).toFloat()
-                val vfov = (2.0 * atan((safeH / (2.0 * fy))) * 180.0 / Math.PI).toFloat()
+                val scaleToStream = safeStreamW / cropW
 
-                AppLogger.d(TAG, "Using LENS_INTRINSIC_CALIBRATION: fx=$fx, fy=$fy, cx=$cx, cy=$cy (HFOV=$hfov°)")
-                return CameraIntrinsics(fx, fy, cx, cy, safeW, safeH, hfov, vfov)
+                val fxStream = lensCalib[0] * scaleToStream
+                val fyStream = lensCalib[1] * scaleToStream
+                val cxStream = (lensCalib[2] - cropX) * scaleToStream
+                val cyStream = (lensCalib[3] - cropY) * scaleToStream
+
+                // Scale stream intrinsics into on-screen Viewport FIT coordinates
+                val fxScreen = fxStream * geo.scale
+                val fyScreen = fyStream * geo.scale
+                val cxScreen = cxStream * geo.scale + geo.offsetX
+                val cyScreen = cyStream * geo.scale + geo.offsetY
+
+                val hfov = (2.0 * atan((geo.videoWidth / (2.0 * fxScreen))) * 180.0 / Math.PI).toFloat()
+                val vfov = (2.0 * atan((geo.videoHeight / (2.0 * fyScreen))) * 180.0 / Math.PI).toFloat()
+
+                AppLogger.d(TAG, "LENS_INTRINSIC_CALIBRATION (FIT): fx=$fxScreen, fy=$fyScreen, cx=$cxScreen, cy=$cyScreen (HFOV=$hfov°, VFOV=$vfov°)")
+                return CameraIntrinsics(
+                    fx = fxScreen,
+                    fy = fyScreen,
+                    cx = cxScreen,
+                    cy = cyScreen,
+                    imageWidth = safeW,
+                    imageHeight = safeH,
+                    hfovDeg = hfov,
+                    vfovDeg = vfov,
+                    videoOffsetX = geo.offsetX,
+                    videoOffsetY = geo.offsetY,
+                    videoWidth = geo.videoWidth,
+                    videoHeight = geo.videoHeight
+                )
             }
 
-            // 2. Physical sensor dimensions fallback calculation
+            // 2. Physical sensor dimensions derivation (e.g. Galaxy M30 / LIMITED hardware level)
             if (physicalSize != null && physicalSize.width > 0f && physicalSize.height > 0f && focalMm > 0f) {
-                val fx = safeW * (focalMm / physicalSize.width)
-                val fy = safeH * (focalMm / physicalSize.height)
-                val cx = safeW / 2f
-                val cy = safeH / 2f
+                val sensorAspect = physicalSize.width / physicalSize.height
+                val streamAspect = safeStreamW.toFloat() / safeStreamH.toFloat()
 
-                val hfov = (2.0 * atan((physicalSize.width / (2.0 * focalMm))) * 180.0 / Math.PI).toFloat()
-                val vfov = (2.0 * atan((physicalSize.height / (2.0 * focalMm))) * 180.0 / Math.PI).toFloat()
+                // For 16:9 stream on 4:3 sensor, the ISP crops sensor height:
+                // Base focal length in stream buffer coordinates (square pixels preserved):
+                val baseFocalStreamPx = if (streamAspect >= sensorAspect) {
+                    safeStreamW * (focalMm / physicalSize.width)
+                } else {
+                    safeStreamH * (focalMm / physicalSize.height)
+                }
 
-                AppLogger.d(TAG, "Calculated from sensor physical size: fx=$fx, fy=$fy, HFOV=$hfov° (focal=${focalMm}mm)")
-                return CameraIntrinsics(fx, fy, cx, cy, safeW, safeH, hfov, vfov)
+                val fxScreen = baseFocalStreamPx * geo.scale
+                val fyScreen = baseFocalStreamPx * geo.scale // Physically square pixels
+                val cxScreen = (safeStreamW / 2f) * geo.scale + geo.offsetX
+                val cyScreen = (safeStreamH / 2f) * geo.scale + geo.offsetY
+
+                val hfov = (2.0 * atan((geo.videoWidth / (2.0 * fxScreen))) * 180.0 / Math.PI).toFloat()
+                val vfov = (2.0 * atan((geo.videoHeight / (2.0 * fyScreen))) * 180.0 / Math.PI).toFloat()
+
+                AppLogger.d(TAG, "Derived from physical sensor (FIT): fx=$fxScreen, fy=$fyScreen, cx=$cxScreen, cy=$cyScreen, HFOV=$hfov°, VFOV=$vfov° (focal=${focalMm}mm)")
+                return CameraIntrinsics(
+                    fx = fxScreen,
+                    fy = fyScreen,
+                    cx = cxScreen,
+                    cy = cyScreen,
+                    imageWidth = safeW,
+                    imageHeight = safeH,
+                    hfovDeg = hfov,
+                    vfovDeg = vfov,
+                    videoOffsetX = geo.offsetX,
+                    videoOffsetY = geo.offsetY,
+                    videoWidth = geo.videoWidth,
+                    videoHeight = geo.videoHeight
+                )
             }
 
         } catch (e: Exception) {
             AppLogger.w(TAG, "Failed to query CameraCharacteristics: ${e.message}")
         }
 
-        return fallbackIntrinsics(safeW, safeH)
+        return fallbackIntrinsics(safeW, safeH, safeStreamW, safeStreamH, geo)
     }
 
     /**
-     * Standard 68° horizontal FOV automotive pinhole model.
+     * Standard 65.7° horizontal FOV automotive pinhole model for 16:9 stream in FIT mode.
      */
-    fun fallbackIntrinsics(viewWidth: Int, viewHeight: Int): CameraIntrinsics {
-        val hfov = 68.0f
+    fun fallbackIntrinsics(
+        viewWidth: Int,
+        viewHeight: Int,
+        streamWidth: Int = 1920,
+        streamHeight: Int = 1080,
+        geo: CameraViewportTransform.ViewportGeometry = CameraViewportTransform.computeViewportGeometry(viewWidth, viewHeight, streamWidth, streamHeight)
+    ): CameraIntrinsics {
+        val hfov = 65.7f
         val halfHfovRad = Math.toRadians(hfov.toDouble() / 2.0)
-        val fx = (viewWidth / (2.0 * kotlin.math.tan(halfHfovRad))).toFloat()
-        val fy = fx // Square pixels assumed
-        val cx = viewWidth / 2.0f
-        val cy = viewHeight / 2.0f
-        val vfov = (2.0 * atan((viewHeight / (2.0 * fy))) * 180.0 / Math.PI).toFloat()
+        val fxStream = (streamWidth / (2.0 * tan(halfHfovRad))).toFloat()
+        val fyStream = fxStream
 
-        return CameraIntrinsics(fx, fy, cx, cy, viewWidth, viewHeight, hfov, vfov)
+        val fxScreen = fxStream * geo.scale
+        val fyScreen = fyStream * geo.scale
+        val cxScreen = (streamWidth / 2f) * geo.scale + geo.offsetX
+        val cyScreen = (streamHeight / 2f) * geo.scale + geo.offsetY
+
+        val vfov = (2.0 * atan((geo.videoHeight / (2.0 * fyScreen))) * 180.0 / Math.PI).toFloat()
+
+        return CameraIntrinsics(
+            fx = fxScreen,
+            fy = fyScreen,
+            cx = cxScreen,
+            cy = cyScreen,
+            imageWidth = viewWidth,
+            imageHeight = viewHeight,
+            hfovDeg = hfov,
+            vfovDeg = vfov,
+            videoOffsetX = geo.offsetX,
+            videoOffsetY = geo.offsetY,
+            videoWidth = geo.videoWidth,
+            videoHeight = geo.videoHeight
+        )
     }
 }

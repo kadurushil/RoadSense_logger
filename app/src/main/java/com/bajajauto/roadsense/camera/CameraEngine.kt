@@ -155,7 +155,8 @@ class CameraEngine(private val context: Context) {
     private var isPreviewActive = false
 
     @Volatile
-    private var currentDisplayRotation: Int = Surface.ROTATION_0
+    var currentDisplayRotation: Int = Surface.ROTATION_0
+        private set
 
     private var currentViewWidth: Int = 0
     private var currentViewHeight: Int = 0
@@ -415,40 +416,16 @@ class CameraEngine(private val context: Context) {
         if (viewWidth == 0 || viewHeight == 0) return
 
         val res = _selectedResolution.value
-        val matrix = Matrix()
-        val viewRect = RectF(0f, 0f, viewWidth.toFloat(), viewHeight.toFloat())
-        val bufferRect = RectF(0f, 0f, res.height.toFloat(), res.width.toFloat())
-        val centerX = viewRect.centerX()
-        val centerY = viewRect.centerY()
-
-        if (displayRotation == Surface.ROTATION_90 || displayRotation == Surface.ROTATION_270) {
-            // LANDSCAPE (Rotation 90 or 270)
-            bufferRect.offset(centerX - bufferRect.centerX(), centerY - bufferRect.centerY())
-            matrix.setRectToRect(viewRect, bufferRect, Matrix.ScaleToFit.FILL)
-            val scale = maxOf(
-                viewHeight.toFloat() / res.height,
-                viewWidth.toFloat() / res.width
-            )
-            matrix.postScale(scale, scale, centerX, centerY)
-            matrix.postRotate((90 * (displayRotation - 2)).toFloat(), centerX, centerY)
-        } else if (displayRotation == Surface.ROTATION_180) {
-            matrix.postRotate(180f, centerX, centerY)
-        } else {
-            // PORTRAIT (Rotation 0)
-            // Camera HAL delivers buffer oriented at 90 deg (effective aspect = res.height / res.width)
-            val bufferAspect = res.height.toFloat() / res.width.toFloat()
-            val viewAspect = viewWidth.toFloat() / viewHeight.toFloat()
-            if (viewAspect > bufferAspect) {
-                val scale = viewAspect / bufferAspect
-                matrix.postScale(1f, scale, centerX, centerY)
-            } else if (viewAspect < bufferAspect) {
-                val scale = bufferAspect / viewAspect
-                matrix.postScale(scale, 1f, centerX, centerY)
-            }
-        }
+        val matrix = CameraViewportTransform.configureTransformMatrix(
+            viewWidth = viewWidth,
+            viewHeight = viewHeight,
+            streamWidth = res.width,
+            streamHeight = res.height,
+            displayRotation = displayRotation
+        )
 
         textureView.setTransform(matrix)
-        AppLogger.d(TAG, "configureTransform: view=${viewWidth}x${viewHeight}, buf=${res.width}x${res.height}, rot=$displayRotation")
+        AppLogger.d(TAG, "configureTransform (Standard FIT): view=${viewWidth}x${viewHeight}, buf=${res.width}x${res.height}, rot=$displayRotation")
     }
 
     /**
