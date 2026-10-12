@@ -109,6 +109,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isLiveImuHorizonEnabled = MutableStateFlow(false)
     val isLiveImuHorizonEnabled: StateFlow<Boolean> = _isLiveImuHorizonEnabled.asStateFlow()
+    private var imuMonitoringStartedByCalibration = false
 
     private val _activeIntrinsics = MutableStateFlow<CameraIntrinsics?>(null)
     val activeIntrinsics: StateFlow<CameraIntrinsics?> = _activeIntrinsics.asStateFlow()
@@ -543,7 +544,23 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setCalibrationFullScreen(enabled: Boolean) {
         _isCalibrationFullScreen.value = enabled
-        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Calibration fullscreen set to $enabled")
+        if (enabled) {
+            // Auto-start IMU monitoring for live telemetry if not already active
+            if (!imuManager.telemetryState.value.isMonitoring) {
+                imuMonitoringStartedByCalibration = true
+                startImuMonitoring()
+            }
+            // Turn on Live IMU horizon follow by default during calibration
+            _isLiveImuHorizonEnabled.value = true
+        } else {
+            _isLiveImuHorizonEnabled.value = false
+            // Turn off IMU monitoring if it was automatically started for calibration
+            if (imuMonitoringStartedByCalibration && !isImuRecording.value) {
+                stopImuMonitoring()
+                imuMonitoringStartedByCalibration = false
+            }
+        }
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Calibration fullscreen set to $enabled (liveImu=${_isLiveImuHorizonEnabled.value})")
     }
 
     fun setCameraFullScreen(enabled: Boolean) {
@@ -743,11 +760,19 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleLiveImuHorizon() {
         val next = !_isLiveImuHorizonEnabled.value
         _isLiveImuHorizonEnabled.value = next
+        if (next && !imuManager.telemetryState.value.isMonitoring) {
+            imuMonitoringStartedByCalibration = true
+            startImuMonitoring()
+        }
         com.bajajauto.roadsense.logging.AppLogger.i("Calibration", "Live IMU Horizon Follow toggled: $next")
     }
 
     fun setLiveImuHorizonEnabled(enabled: Boolean) {
         _isLiveImuHorizonEnabled.value = enabled
+        if (enabled && !imuManager.telemetryState.value.isMonitoring) {
+            imuMonitoringStartedByCalibration = true
+            startImuMonitoring()
+        }
     }
 
     /**
@@ -756,6 +781,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
      * into the camera calibration baseline.
      */
     fun syncPitchFromImu() {
+        if (!imuManager.telemetryState.value.isMonitoring) {
+            startImuMonitoring()
+        }
         val imuState = imuTelemetry.value
         val current = _calibrationParams.value
         val updated = current.copy(

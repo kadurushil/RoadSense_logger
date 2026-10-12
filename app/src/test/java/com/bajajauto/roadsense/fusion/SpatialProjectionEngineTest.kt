@@ -669,4 +669,26 @@ class SpatialProjectionEngineTest {
         assertTrue("Downward pitch (+10°) must move horizon line UP on screen (< cy)", downHorizon.first.yPx < cy)
         assertTrue("Upward pitch (-10°) must move horizon line DOWN on screen (> cy)", upHorizon.first.yPx > cy)
     }
+
+    @Test
+    fun testRotatingPhoneToLeftRotatesHorizonLineToRightForPhysicalSync() {
+        // When user rotates phone towards left (CCW roll, left edge dips, right edge lifts),
+        // measured lateral roll is negative (-5.0°).
+        val rollLeftParams = CalibrationParameters(pitchDeg = 0.0f, rollDeg = -5.0f)
+        val horizon = SpatialProjectionEngine.calculateHorizonLine(rollLeftParams, testIntrinsics, viewW, viewH)
+
+        val cy = testIntrinsics.cy // 540f
+        // Left edge of horizon line (horizon.first) must move UP (< cy)
+        // Right edge of horizon line (horizon.second) must move DOWN (> cy)
+        // Thus rotating the horizon line to the right (Clockwise) relative to the screen,
+        // keeping it perfectly level with the physical horizon in the world.
+        assertTrue("Left side of horizon must move UP on screen (< cy) when rolling phone left", horizon.first.yPx < cy)
+        assertTrue("Right side of horizon must move DOWN on screen (> cy) when rolling phone left", horizon.second.yPx > cy)
+
+        // Conversely, rolling phone right (+5.0°) must rotate horizon left (CCW)
+        val rollRightParams = CalibrationParameters(pitchDeg = 0.0f, rollDeg = 5.0f)
+        val horizonRight = SpatialProjectionEngine.calculateHorizonLine(rollRightParams, testIntrinsics, viewW, viewH)
+        assertTrue("Left side of horizon must move DOWN on screen (> cy) when rolling phone right", horizonRight.first.yPx > cy)
+        assertTrue("Right side of horizon must move UP on screen (< cy) when rolling phone right", horizonRight.second.yPx < cy)
+    }
 }

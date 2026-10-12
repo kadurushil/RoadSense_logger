@@ -357,15 +357,15 @@ class ImuManager(private val context: Context) {
                         val cameraPitchDeg = Math.toDegrees(cameraPitchRad.toDouble()).toFloat()
 
                         // 2. Lateral Mount Roll (Angle of dashboard transverse axis relative to level ground)
-                        // In Reverse Landscape (ROTATION_270): Top of phone (+Y) points Right across dashboard -> roll = asin(R[7])
-                        // In Standard Landscape (ROTATION_90): Top of phone (+Y) points Left across dashboard -> roll = asin(-R[7])
-                        // In Portrait (ROTATION_0): Right side (+X) points Right -> roll = asin(R[6])
-                        // In Reverse Portrait (ROTATION_180): Right side (+X) points Left -> roll = asin(-R[6])
+                        // In Reverse Landscape (ROTATION_270): Top of phone (+Y) points Right across dashboard -> roll = -asin(R[7])
+                        // In Standard Landscape (ROTATION_90): Top of phone (+Y) points Left across dashboard -> roll = asin(R[7])
+                        // In Portrait (ROTATION_0): Right side (+X) points Right -> roll = -asin(R[6])
+                        // In Reverse Portrait (ROTATION_180): Right side (+X) points Left -> roll = asin(R[6])
                         val lateralRollRad = when (displayRot) {
-                            Surface.ROTATION_270 -> asin(R[7].coerceIn(-1f, 1f))
-                            Surface.ROTATION_90 -> asin((-R[7]).coerceIn(-1f, 1f))
-                            Surface.ROTATION_180 -> asin((-R[6]).coerceIn(-1f, 1f))
-                            else -> asin(R[6].coerceIn(-1f, 1f))
+                            Surface.ROTATION_270 -> -asin(R[7].coerceIn(-1f, 1f))
+                            Surface.ROTATION_90 -> asin(R[7].coerceIn(-1f, 1f))
+                            Surface.ROTATION_180 -> asin(R[6].coerceIn(-1f, 1f))
+                            else -> -asin(R[6].coerceIn(-1f, 1f))
                         }
                         val lateralRollDeg = Math.toDegrees(lateralRollRad.toDouble()).toFloat()
 

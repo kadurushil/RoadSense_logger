@@ -55,10 +55,10 @@ data class ImuSample(
 
             // 2. Lateral Mount Roll (Angle of dashboard transverse axis relative to level ground)
             val lateralRollRad = when (displayRotation) {
-                Surface.ROTATION_270 -> asin(R[7].coerceIn(-1f, 1f))
-                Surface.ROTATION_90 -> asin((-R[7]).coerceIn(-1f, 1f))
-                Surface.ROTATION_180 -> asin((-R[6]).coerceIn(-1f, 1f))
-                else -> asin(R[6].coerceIn(-1f, 1f))
+                Surface.ROTATION_270 -> -asin(R[7].coerceIn(-1f, 1f))
+                Surface.ROTATION_90 -> asin(R[7].coerceIn(-1f, 1f))
+                Surface.ROTATION_180 -> asin(R[6].coerceIn(-1f, 1f))
+                else -> -asin(R[6].coerceIn(-1f, 1f))
             }
             val lateralRollDeg = Math.toDegrees(lateralRollRad.toDouble()).toFloat()
 

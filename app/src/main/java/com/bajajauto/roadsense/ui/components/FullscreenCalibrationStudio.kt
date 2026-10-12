@@ -1,6 +1,7 @@
 package com.bajajauto.roadsense.ui.components
 
 import android.content.Context
+import androidx.activity.compose.BackHandler
 import com.bajajauto.roadsense.logging.AppLogger
 import android.graphics.Paint
 import android.graphics.SurfaceTexture
@@ -68,6 +69,14 @@ fun FullscreenCalibrationStudio(
     onExit: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    BackHandler(onBack = onExit)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.setCalibrationFullScreen(false)
+        }
+    }
+
     val calibrationParams by viewModel.calibrationParams.collectAsState()
     val savedBaseline by viewModel.savedBaselineParams.collectAsState()
     val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()

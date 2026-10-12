@@ -1,7 +1,7 @@
 # Walkthrough: Camera Viewport 16:9 FIT, Square-Pixel Intrinsics & Horizon Alignment
 
 ## Overview
-This implementation resolves the visual horizon divergence observed during Live IMU camera calibration on the Samsung Galaxy M30 (`1080 x 2340`, 19.5:9 aspect ratio). It introduces a unified **Standard 16:9 FIT** viewport model across all app screens, corrects anamorphic camera intrinsics distortion, aligns the artificial horizon with the physical world, and relocates studio calibration controls into natural pillarbox wings.
+This implementation resolves the visual horizon divergence observed during Live IMU camera calibration on the Samsung Galaxy M30 (`1080 x 2340`, 19.5:9 aspect ratio). It introduces a unified **Standard 16:9 FIT** viewport model across all app screens, corrects anamorphic camera intrinsics distortion, aligns the artificial horizon with the physical world, relocates studio calibration controls into natural pillarbox wings, automates IMU monitoring during calibration, and corrects the physical roll angle sign.
 
 ---
 
@@ -35,6 +35,18 @@ This implementation resolves the visual horizon divergence observed during Live 
 - Updated [SpatialProjectionEngine.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/fusion/engine/SpatialProjectionEngine.kt):
   - Artificial horizon endpoints snap cleanly to `videoOffsetX` (210 px) and `videoOffsetX + videoWidth` (2130 px), keeping lines inside the video frame and off the pillarbox control wings.
 
+### 5. Automated IMU Monitoring Lifecycle
+- Updated [RadarViewModel.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/ui/RadarViewModel.kt):
+  - When opening calibration studio (`setCalibrationFullScreen(true)`), IMU monitoring automatically starts if not already active and `isLiveImuHorizonEnabled` is turned on by default.
+  - When exiting calibration studio (`setCalibrationFullScreen(false)`), `isLiveImuHorizonEnabled` is turned off, and IMU monitoring automatically stops if it was initiated by calibration (preserving battery).
+  - Added `BackHandler(onBack = onExit)` and `DisposableEffect` in [FullscreenCalibrationStudio.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/ui/components/FullscreenCalibrationStudio.kt) to ensure graceful teardown on back navigation.
+
+### 6. Physical Roll Angle Sign Correction
+- Corrected lateral mount roll angle sign in [ImuManager.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuManager.kt) and [ImuSample.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuSample.kt):
+  - In Reverse Landscape (`ROTATION_270`): `roll = -asin(R[7])`.
+  - When rotating the phone to the left (CCW roll, left edge dips, right edge lifts), the measured roll angle is now negative ($\text{roll} < 0$).
+  - In [SpatialProjectionEngine.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/fusion/engine/SpatialProjectionEngine.kt), this causes the artificial horizon to rotate to the right (Clockwise), keeping it stable and in sync with the physical world horizon.
+
 ---
 
 ## Verification & Testing
@@ -42,12 +54,14 @@ This implementation resolves the visual horizon divergence observed during Live 
 ### JVM Unit Tests
 Ran `.\gradlew.bat testDebugUnitTest`:
 ```powershell
-BUILD SUCCESSFUL in 3s
-24 actionable tasks: 5 executed, 19 up-to-date
-52 tests completed, 0 failed
+BUILD SUCCESSFUL in 4s
+24 actionable tasks: 9 executed, 15 up-to-date
+53 tests completed, 0 failed
 ```
 - [CameraViewportTransformTest.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/test/java/com/bajajauto/roadsense/camera/CameraViewportTransformTest.kt): Validates 16:9 FIT geometry, scale = 1.0, 210 px pillarbox offsets, and centered intrinsics.
-- `SpatialProjectionEngineTest.kt`: Validates horizon projection, pinhole projection, and reverse landscape geometry.
+- [SpatialProjectionEngineTest.kt](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/test/java/com/bajajauto/roadsense/fusion/SpatialProjectionEngineTest.kt):
+  - `testDownwardPitchMovesHorizonLineUpward`: Verifies downward tilt moves horizon UP on screen.
+  - `testRotatingPhoneToLeftRotatesHorizonLineToRightForPhysicalSync`: Verifies rotating phone left rotates horizon right for physical synchronization.
 
 ### Debug APK Build
 Ran `.\gradlew.bat assembleDebug`:
