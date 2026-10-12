@@ -24,6 +24,7 @@ import com.bajajauto.roadsense.imu.ImuSensorCapability
 import com.bajajauto.roadsense.imu.ImuTelemetryState
 import com.bajajauto.roadsense.imu.SensorCategory
 import com.bajajauto.roadsense.ui.RadarViewModel
+import com.bajajauto.roadsense.ui.components.PhoneOrientation3DVisualizer
 import java.util.Locale
 import kotlin.math.abs
 
@@ -533,7 +534,10 @@ private fun LiveTelemetryContent(
         }
     }
 
-    // 2. Accelerometer Comparison (Raw vs Linear without g)
+    // 2. 3D Vehicle Attitude & Level Ground Visualizer
+    PhoneOrientation3DVisualizer(telemetry = telemetry)
+
+    // 3. Accelerometer Comparison (Raw vs Linear without g)
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier.fillMaxWidth()

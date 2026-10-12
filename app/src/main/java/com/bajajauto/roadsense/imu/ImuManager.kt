@@ -15,7 +15,7 @@ import android.view.WindowManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlin.math.sqrt
+import kotlin.math.*
 
 /**
  * Autonomous high-rate IMU & motion sensor acquisition manager.
@@ -89,6 +89,7 @@ class ImuManager(private val context: Context) {
     private val currentQuat = floatArrayOf(0f, 0f, 0f, 1f) // qx, qy, qz, qw (identity default)
     private val rotationMatrix = FloatArray(9)
     private val remappedMatrix = FloatArray(9)
+    private val currentWorldMatrix = FloatArray(9) { if (it % 4 == 0) 1f else 0f }
     private val orientationAngles = FloatArray(3)
     private var lastUiEmitMonoNs: Long = 0L
 
@@ -342,28 +343,45 @@ class ImuManager(private val context: Context) {
                 Sensor.TYPE_GAME_ROTATION_VECTOR -> {
                     try {
                         SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-                        // Remap from phone body coordinates to vehicle windshield frame (Landscape ROTATION_90 standard):
-                        // Vehicle Forward (Camera Boresight) = -Z_phone (AXIS_MINUS_Z)
-                        // Vehicle Right = -Y_phone (AXIS_MINUS_Y, since +Y points left across dashboard in ROTATION_90)
-                        // Vehicle Up = +X_phone (computed as (-Y) x (-Z) = +X)
+                        val R = rotationMatrix
+                        System.arraycopy(R, 0, currentWorldMatrix, 0, 9)
+
+                        // Convert raw matrix to vehicle attitude quaternion for MCAP
+                        rotationMatrixToQuaternion(R, currentQuat)
+
                         val displayRot = getDisplayRotation()
-                        val axisX = when (displayRot) {
-                            Surface.ROTATION_90 -> SensorManager.AXIS_MINUS_Y
-                            Surface.ROTATION_270 -> SensorManager.AXIS_Y
-                            Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X
-                            else -> SensorManager.AXIS_X
+
+                        // 1. Camera Optical Pitch (Angle of rear camera boresight -Z_phone relative to level ground)
+                        // In world coords: b_z = -R[8]. Positive pitch = tilted down towards road (+Z_world component of -b_z = +R[8])
+                        val cameraPitchRad = asin(R[8].coerceIn(-1f, 1f))
+                        val cameraPitchDeg = Math.toDegrees(cameraPitchRad.toDouble()).toFloat()
+
+                        // 2. Lateral Mount Roll (Angle of dashboard transverse axis relative to level ground)
+                        // In Reverse Landscape (ROTATION_270): Top of phone (+Y) points Right across dashboard -> roll = asin(R[7])
+                        // In Standard Landscape (ROTATION_90): Top of phone (+Y) points Left across dashboard -> roll = asin(-R[7])
+                        // In Portrait (ROTATION_0): Right side (+X) points Right -> roll = asin(R[6])
+                        // In Reverse Portrait (ROTATION_180): Right side (+X) points Left -> roll = asin(-R[6])
+                        val lateralRollRad = when (displayRot) {
+                            Surface.ROTATION_270 -> asin(R[7].coerceIn(-1f, 1f))
+                            Surface.ROTATION_90 -> asin((-R[7]).coerceIn(-1f, 1f))
+                            Surface.ROTATION_180 -> asin((-R[6]).coerceIn(-1f, 1f))
+                            else -> asin(R[6].coerceIn(-1f, 1f))
                         }
-                        val axisY = SensorManager.AXIS_MINUS_Z
-                        val success = SensorManager.remapCoordinateSystem(rotationMatrix, axisX, axisY, remappedMatrix)
-                        val targetMatrix = if (success) remappedMatrix else rotationMatrix
+                        val lateralRollDeg = Math.toDegrees(lateralRollRad.toDouble()).toFloat()
 
-                        SensorManager.getOrientation(targetMatrix, orientationAngles)
-                        currentEulerAngles[0] = Math.toDegrees(orientationAngles[1].toDouble()).toFloat() // Pitch (Elevation of camera boresight)
-                        currentEulerAngles[1] = Math.toDegrees(orientationAngles[2].toDouble()).toFloat() // Roll (Bank of dashboard)
-                        currentEulerAngles[2] = Math.toDegrees(orientationAngles[0].toDouble()).toFloat() // Yaw (Heading)
+                        // 3. Yaw Heading (Instantaneous Azimuth without gimbal lock)
+                        // When flat on table (|R[8]| > 0.7): direct native phone azimuth, ultra-responsive, zero overshoot
+                        // When upright in vehicle mount: camera optical boresight heading in horizontal plane
+                        val yawDeg = if (abs(R[8]) > 0.7f) {
+                            SensorManager.getOrientation(R, orientationAngles)
+                            Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
+                        } else {
+                            Math.toDegrees(atan2(-R[2].toDouble(), -R[5].toDouble())).toFloat()
+                        }
 
-                        // Convert remapped matrix to vehicle attitude quaternion for MCAP
-                        rotationMatrixToQuaternion(targetMatrix, currentQuat)
+                        currentEulerAngles[0] = cameraPitchDeg
+                        currentEulerAngles[1] = lateralRollDeg
+                        currentEulerAngles[2] = yawDeg
                     } catch (e: Exception) {
                         // ignore malformed vector
                     }
@@ -391,6 +409,8 @@ class ImuManager(private val context: Context) {
                     pitchDeg = currentEulerAngles[0],
                     rollDeg = currentEulerAngles[1],
                     yawDeg = currentEulerAngles[2],
+                    rotationMatrix = currentWorldMatrix.clone(),
+                    quat = currentQuat.clone(),
                     isMonitoring = true,
                     lastUpdateMonoNs = nowNs
                 )

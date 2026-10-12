@@ -3,7 +3,7 @@ package com.bajajauto.roadsense.imu
 import android.hardware.Sensor
 import android.hardware.SensorManager
 import android.view.Surface
-import kotlin.math.sqrt
+import kotlin.math.*
 
 /**
  * Nanosecond-synchronized sample from an onboard IMU or motion sensor.
@@ -42,28 +42,35 @@ data class ImuSample(
      * Converts rotation vector quaternion to vehicle attitude Euler angles (Pitch, Roll, Yaw) in degrees,
      * remapped to the vehicle windshield frame where the rear camera optical axis (-Z_phone) points forward.
      */
-    fun toEulerAnglesDeg(displayRotation: Int = Surface.ROTATION_90): FloatArray {
+    fun toEulerAnglesDeg(displayRotation: Int = Surface.ROTATION_270): FloatArray {
         val rotationMatrix = FloatArray(9)
-        val remappedMatrix = FloatArray(9)
         val orientationAngles = FloatArray(3)
-        // Check if quaternion has valid length
         return try {
             SensorManager.getRotationMatrixFromVector(rotationMatrix, values)
-            val axisX = when (displayRotation) {
-                Surface.ROTATION_90 -> SensorManager.AXIS_MINUS_Y
-                Surface.ROTATION_270 -> SensorManager.AXIS_Y
-                Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X
-                else -> SensorManager.AXIS_X
+            val R = rotationMatrix
+
+            // 1. Camera Optical Pitch (Angle of rear camera boresight -Z_phone relative to level ground)
+            val cameraPitchRad = asin(R[8].coerceIn(-1f, 1f))
+            val cameraPitchDeg = Math.toDegrees(cameraPitchRad.toDouble()).toFloat()
+
+            // 2. Lateral Mount Roll (Angle of dashboard transverse axis relative to level ground)
+            val lateralRollRad = when (displayRotation) {
+                Surface.ROTATION_270 -> asin(R[7].coerceIn(-1f, 1f))
+                Surface.ROTATION_90 -> asin((-R[7]).coerceIn(-1f, 1f))
+                Surface.ROTATION_180 -> asin((-R[6]).coerceIn(-1f, 1f))
+                else -> asin(R[6].coerceIn(-1f, 1f))
             }
-            val axisY = SensorManager.AXIS_MINUS_Z
-            val success = SensorManager.remapCoordinateSystem(rotationMatrix, axisX, axisY, remappedMatrix)
-            val targetMatrix = if (success) remappedMatrix else rotationMatrix
-            SensorManager.getOrientation(targetMatrix, orientationAngles)
-            floatArrayOf(
-                Math.toDegrees(orientationAngles[1].toDouble()).toFloat(), // Pitch
-                Math.toDegrees(orientationAngles[2].toDouble()).toFloat(), // Roll
-                Math.toDegrees(orientationAngles[0].toDouble()).toFloat()  // Yaw / Azimuth
-            )
+            val lateralRollDeg = Math.toDegrees(lateralRollRad.toDouble()).toFloat()
+
+            // 3. Yaw Heading (Instantaneous Azimuth without gimbal lock)
+            val yawDeg = if (abs(R[8]) > 0.7f) {
+                SensorManager.getOrientation(R, orientationAngles)
+                Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
+            } else {
+                Math.toDegrees(atan2(-R[2].toDouble(), -R[5].toDouble())).toFloat()
+            }
+
+            floatArrayOf(cameraPitchDeg, lateralRollDeg, yawDeg)
         } catch (e: Exception) {
             floatArrayOf(0f, 0f, 0f)
         }

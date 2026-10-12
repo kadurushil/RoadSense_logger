@@ -10,6 +10,12 @@ data class ImuTelemetryState(
     val pitchDeg: Float = 0f,
     val rollDeg: Float = 0f,
     val yawDeg: Float = 0f,
+    val rotationMatrix: FloatArray = floatArrayOf(
+        1f, 0f, 0f,
+        0f, 1f, 0f,
+        0f, 0f, 1f
+    ), // 3x3 row-major world rotation matrix mapping phone to level ground
+    val quat: FloatArray = floatArrayOf(0f, 0f, 0f, 1f), // qx, qy, qz, qw
     val isMonitoring: Boolean = false,
     val lastUpdateMonoNs: Long = 0L
 ) {
@@ -20,6 +26,8 @@ data class ImuTelemetryState(
         if (!rawAccel.contentEquals(other.rawAccel)) return false
         if (!linearAccel.contentEquals(other.linearAccel)) return false
         if (!gyroRates.contentEquals(other.gyroRates)) return false
+        if (!rotationMatrix.contentEquals(other.rotationMatrix)) return false
+        if (!quat.contentEquals(other.quat)) return false
         if (pitchDeg != other.pitchDeg) return false
         if (rollDeg != other.rollDeg) return false
         if (yawDeg != other.yawDeg) return false
@@ -32,6 +40,8 @@ data class ImuTelemetryState(
         var result = rawAccel.contentHashCode()
         result = 31 * result + linearAccel.contentHashCode()
         result = 31 * result + gyroRates.contentHashCode()
+        result = 31 * result + rotationMatrix.contentHashCode()
+        result = 31 * result + quat.contentHashCode()
         result = 31 * result + pitchDeg.hashCode()
         result = 31 * result + rollDeg.hashCode()
         result = 31 * result + yawDeg.hashCode()
