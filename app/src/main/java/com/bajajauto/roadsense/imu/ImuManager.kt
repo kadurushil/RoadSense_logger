@@ -36,7 +36,7 @@ class ImuManager(private val context: Context) {
         private const val JITTER_WINDOW_SIZE = 128
         private const val UI_UPDATE_INTERVAL_NS = 40_000_000L // 40 ms = 25 Hz
         private const val STATS_UPDATE_INTERVAL_NS = 200_000_000L // 200 ms = 5 Hz
-        const val DEFAULT_SAMPLING_DELAY_US = 9615 // Native 104 Hz hardware ODR for ST LSM6DSL (1/104s = 9615 µs)
+        const val DEFAULT_SAMPLING_DELAY_US = SensorManager.SENSOR_DELAY_FASTEST // 0 µs: Hardware FIFO fastest raw rate without HAL decimation filter
     }
 
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
