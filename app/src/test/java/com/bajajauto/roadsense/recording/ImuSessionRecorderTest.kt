@@ -74,14 +74,11 @@ class ImuSessionRecorderTest {
 
         recorder.recordFrame(frame1)
         recorder.recordFrame(frame2)
-        Thread.sleep(150) // Allow background worker to execute write
-
-        assertEquals(2L, recorder.framesRecorded.value)
 
         val stoppedFrames = recorder.stopRecording()
         assertEquals(2L, stoppedFrames)
+        assertEquals(2L, recorder.framesRecorded.value)
         assertFalse(recorder.isRecording.value)
-        Thread.sleep(150) // Allow writer to flush & close
 
         // Verify CSV file exists and contains the correct formatted rows
         val csvFile = File(imuDir, "imu_frames.csv")
@@ -91,7 +88,7 @@ class ImuSessionRecorderTest {
         assertEquals("Should have header + 2 frame lines", 3, lines.size)
         assertEquals(ImuFrame.CSV_HEADER.trim(), lines[0])
 
-        // Verify frame 1 content
+        // Verify frame 1 content (standard 15 columns)
         val parts1 = lines[1].split(",")
         assertEquals(15, parts1.size)
         assertEquals("1000100000", parts1[0])

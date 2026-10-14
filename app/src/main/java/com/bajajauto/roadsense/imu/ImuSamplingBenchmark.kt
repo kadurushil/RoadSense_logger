@@ -4,7 +4,8 @@ package com.bajajauto.roadsense.imu
  * Standard delay presets for Android SensorManager registration.
  */
 enum class ImuRatePreset(val label: String, val delayUs: Int, val targetHz: Float) {
-    FASTEST("FASTEST (0 µs)", 0, 100f),
+    FASTEST("FASTEST (0 µs)", 0, 104f),
+    RATE_104HZ("Native 104 Hz (9,615 µs)", 9615, 104f),
     RATE_100HZ("100 Hz (10,000 µs)", 10000, 100f),
     RATE_50HZ("50 Hz (20,000 µs)", 20000, 50f),
     RATE_20HZ("20 Hz (50,000 µs)", 50000, 20f)

@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.bajajauto.roadsense.camera.AutoFitTextureView
 import com.bajajauto.roadsense.camera.CameraEngineState
 import com.bajajauto.roadsense.camera.RoadAeMode
 import com.bajajauto.roadsense.camera.RoadAeState
@@ -38,7 +39,7 @@ import java.util.Locale
 
 /**
  * Immersive edge-to-edge Fullscreen Camera Preview HUD:
- * - Edge-to-edge Camera2 TextureView with proper aspect ratio and display rotation transforms.
+ * - Edge-to-edge Camera2 AutoFitTextureView with proper aspect ratio and display rotation transforms.
  * - Tap-to-focus (AF/AE) with floating reticle overlay.
  * - Live Radar HUD overlay (points, tracks, range arcs at 10m/30m/60m/120m).
  * - Floating top action pill: Exit button, resolution/fps badge, HUD toggle, Range Arcs toggle, Nudge toggle, and Record/Stop timer button.
@@ -81,10 +82,12 @@ fun FullscreenCameraPreview(
             .background(Color.Black),
         contentAlignment = Alignment.Center
     ) {
-        // 1. Edge-to-Edge Camera Viewfinder
+        // 1. Edge-to-Edge Camera Viewfinder (Strict 16:9 Fit without stretching)
         AndroidView(
             factory = { ctx ->
-                TextureView(ctx).apply {
+                AutoFitTextureView(ctx).apply {
+                    val res = viewModel.cameraEngine.selectedResolution.value
+                    setAspectRatio(res.width, res.height, displayRotation)
                     val persistent = viewModel.cameraEngine.persistentSurfaceTexture
                     if (persistent != null && !persistent.isReleased) {
                         try {
@@ -120,6 +123,8 @@ fun FullscreenCameraPreview(
                 }
             },
             update = { textureView ->
+                val res = viewModel.cameraEngine.selectedResolution.value
+                textureView.setAspectRatio(res.width, res.height, displayRotation)
                 if (textureView.isAvailable) {
                     previewWidth = textureView.width
                     previewHeight = textureView.height

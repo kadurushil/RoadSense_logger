@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Process
 import android.os.SystemClock
+import android.os.Trace
 import android.util.Log
 import android.view.Surface
 import android.view.WindowManager
@@ -35,6 +36,7 @@ class ImuManager(private val context: Context) {
         private const val JITTER_WINDOW_SIZE = 128
         private const val UI_UPDATE_INTERVAL_NS = 40_000_000L // 40 ms = 25 Hz
         private const val STATS_UPDATE_INTERVAL_NS = 200_000_000L // 200 ms = 5 Hz
+        const val DEFAULT_SAMPLING_DELAY_US = 9615 // Native 104 Hz hardware ODR for ST LSM6DSL (1/104s = 9615 µs)
     }
 
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -67,6 +69,9 @@ class ImuManager(private val context: Context) {
     @Volatile
     private var isMonitoring = false
 
+    @Volatile
+    private var currentSamplingDelayUs: Int = DEFAULT_SAMPLING_DELAY_US
+
     // Benchmark tracking variables (accessed on ImuThread)
     private var benchmarkSensorType: Int = 0
     private var benchmarkTargetPreset: ImuRatePreset = ImuRatePreset.RATE_100HZ
@@ -96,6 +101,13 @@ class ImuManager(private val context: Context) {
     // High-rate synchronized frame listener for active session recording
     @Volatile
     private var onFrameListener: ((ImuFrame) -> Unit)? = null
+
+    // High-performance zero-allocation session recorder instance
+    @Volatile
+    private var activeRecorder: com.bajajauto.roadsense.recording.ImuSessionRecorder? = null
+
+    @Volatile
+    private var cachedDisplayRotation: Int = Surface.ROTATION_90
 
     // Frequency counter for LiveMetricsBar
     private var hzCounterStartMonoNs: Long = 0L
@@ -292,76 +304,124 @@ class ImuManager(private val context: Context) {
     private val liveTelemetryListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
             if (!isMonitoring) return
-            val nowNs = event.timestamp
-            hzCounterEvents++
+            Trace.beginSection("RoadSense:onSensorChanged")
+            try {
+                val nowNs = event.timestamp
+                val deliveryNs = SystemClock.elapsedRealtimeNanos()
+                hzCounterEvents++
 
-            when (event.sensor.type) {
-                Sensor.TYPE_ACCELEROMETER -> {
-                    currentRawAccel[0] = event.values[0]
-                    currentRawAccel[1] = event.values[1]
-                    currentRawAccel[2] = event.values[2]
-                    currentRawAccel[3] = sqrt(event.values[0] * event.values[0] + event.values[1] * event.values[1] + event.values[2] * event.values[2])
+                when (event.sensor.type) {
+                    Sensor.TYPE_ACCELEROMETER -> {
+                        currentRawAccel[0] = event.values[0]
+                        currentRawAccel[1] = event.values[1]
+                        currentRawAccel[2] = event.values[2]
+                        currentRawAccel[3] = sqrt(event.values[0] * event.values[0] + event.values[1] * event.values[1] + event.values[2] * event.values[2])
 
-                    // Emit synchronized 100 Hz ImuFrame for active session recording / MCAP
-                    onFrameListener?.let { listener ->
-                        val frame = ImuFrame(
-                            elapsedRealtimeNs = event.timestamp,
-                            wallTimeMs = System.currentTimeMillis(),
-                            ax = currentRawAccel[0],
-                            ay = currentRawAccel[1],
-                            az = currentRawAccel[2],
-                            gx = currentGyroRad[0],
-                            gy = currentGyroRad[1],
-                            gz = currentGyroRad[2],
-                            qx = currentQuat[0],
-                            qy = currentQuat[1],
-                            qz = currentQuat[2],
-                            qw = currentQuat[3],
-                            linAx = currentLinearAccel[0],
-                            linAy = currentLinearAccel[1],
-                            linAz = currentLinearAccel[2]
-                        )
-                        listener.invoke(frame)
+                        // Zero-allocation direct ring buffer recording on dedicated worker thread
+                        val recorder = activeRecorder
+                        if (recorder != null) {
+                            recorder.recordFrame(
+                                elapsedRealtimeNs = event.timestamp,
+                                deliveryNs = deliveryNs,
+                                wallTimeMs = System.currentTimeMillis(),
+                                ax = currentRawAccel[0],
+                                ay = currentRawAccel[1],
+                                az = currentRawAccel[2],
+                                gx = currentGyroRad[0],
+                                gy = currentGyroRad[1],
+                                gz = currentGyroRad[2],
+                                qx = currentQuat[0],
+                                qy = currentQuat[1],
+                                qz = currentQuat[2],
+                                qw = currentQuat[3],
+                                linAx = currentLinearAccel[0],
+                                linAy = currentLinearAccel[1],
+                                linAz = currentLinearAccel[2]
+                            )
+                        } else {
+                            // Emit synchronized ImuFrame to external listener if registered
+                            onFrameListener?.let { listener ->
+                                val frame = ImuFrame(
+                                    elapsedRealtimeNs = event.timestamp,
+                                    wallTimeMs = System.currentTimeMillis(),
+                                    ax = currentRawAccel[0],
+                                    ay = currentRawAccel[1],
+                                    az = currentRawAccel[2],
+                                    gx = currentGyroRad[0],
+                                    gy = currentGyroRad[1],
+                                    gz = currentGyroRad[2],
+                                    qx = currentQuat[0],
+                                    qy = currentQuat[1],
+                                    qz = currentQuat[2],
+                                    qw = currentQuat[3],
+                                    linAx = currentLinearAccel[0],
+                                    linAy = currentLinearAccel[1],
+                                    linAz = currentLinearAccel[2],
+                                    deliveryNs = deliveryNs
+                                )
+                                listener.invoke(frame)
+                            }
+                        }
+                    }
+                    Sensor.TYPE_LINEAR_ACCELERATION -> {
+                        currentLinearAccel[0] = event.values[0]
+                        currentLinearAccel[1] = event.values[1]
+                        currentLinearAccel[2] = event.values[2]
+                        currentLinearAccel[3] = sqrt(event.values[0] * event.values[0] + event.values[1] * event.values[1] + event.values[2] * event.values[2])
+                    }
+                    Sensor.TYPE_GYROSCOPE -> {
+                        // Raw rad/s for MCAP / ROS sensor_msgs/msg/Imu
+                        currentGyroRad[0] = event.values[0]
+                        currentGyroRad[1] = event.values[1]
+                        currentGyroRad[2] = event.values[2]
+                        // Convert rad/s to deg/s for UI dashboard gauges
+                        currentGyroRates[0] = Math.toDegrees(event.values[0].toDouble()).toFloat()
+                        currentGyroRates[1] = Math.toDegrees(event.values[1].toDouble()).toFloat()
+                        currentGyroRates[2] = Math.toDegrees(event.values[2].toDouble()).toFloat()
+                    }
+                    Sensor.TYPE_GAME_ROTATION_VECTOR -> {
+                        // Direct extraction of orientation quaternion [qx, qy, qz, qw] from event.values
+                        // Avoids heavy 3x3 rotation matrix conversion and IPC binder calls on the fast 104 Hz path
+                        val qx = event.values[0]
+                        val qy = event.values[1]
+                        val qz = event.values[2]
+                        val qw = if (event.values.size >= 4 && event.values[3] != 0f) {
+                            event.values[3]
+                        } else {
+                            val sumSq = qx * qx + qy * qy + qz * qz
+                            if (sumSq < 1f) sqrt(1f - sumSq) else 0f
+                        }
+                        currentQuat[0] = qx
+                        currentQuat[1] = qy
+                        currentQuat[2] = qz
+                        currentQuat[3] = qw
                     }
                 }
-                Sensor.TYPE_LINEAR_ACCELERATION -> {
-                    currentLinearAccel[0] = event.values[0]
-                    currentLinearAccel[1] = event.values[1]
-                    currentLinearAccel[2] = event.values[2]
-                    currentLinearAccel[3] = sqrt(event.values[0] * event.values[0] + event.values[1] * event.values[1] + event.values[2] * event.values[2])
+
+                // Rolling Hz calculation every 500 ms
+                val hzDurationNs = deliveryNs - hzCounterStartMonoNs
+                if (hzDurationNs >= 500_000_000L) {
+                    val hz = (hzCounterEvents * 1_000_000_000f) / hzDurationNs
+                    _imuHz.value = hz / 4f
+                    hzCounterStartMonoNs = deliveryNs
+                    hzCounterEvents = 0L
                 }
-                Sensor.TYPE_GYROSCOPE -> {
-                    // Raw rad/s for MCAP / ROS sensor_msgs/msg/Imu
-                    currentGyroRad[0] = event.values[0]
-                    currentGyroRad[1] = event.values[1]
-                    currentGyroRad[2] = event.values[2]
-                    // Convert rad/s to deg/s for UI dashboard gauges
-                    currentGyroRates[0] = Math.toDegrees(event.values[0].toDouble()).toFloat()
-                    currentGyroRates[1] = Math.toDegrees(event.values[1].toDouble()).toFloat()
-                    currentGyroRates[2] = Math.toDegrees(event.values[2].toDouble()).toFloat()
-                }
-                Sensor.TYPE_GAME_ROTATION_VECTOR -> {
+
+                // Throttle UI emit to ~25 Hz (every 40 ms)
+                if (deliveryNs - lastUiEmitMonoNs >= UI_UPDATE_INTERVAL_NS) {
+                    lastUiEmitMonoNs = deliveryNs
+                    cachedDisplayRotation = getDisplayRotation()
+
+                    // Compute Euler angles for UI dashboard gauges and horizon follow from current quaternion
                     try {
-                        SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+                        SensorManager.getRotationMatrixFromVector(rotationMatrix, currentQuat)
                         val R = rotationMatrix
                         System.arraycopy(R, 0, currentWorldMatrix, 0, 9)
 
-                        // Convert raw matrix to vehicle attitude quaternion for MCAP
-                        rotationMatrixToQuaternion(R, currentQuat)
-
-                        val displayRot = getDisplayRotation()
-
-                        // 1. Camera Optical Pitch (Angle of rear camera boresight -Z_phone relative to level ground)
-                        // In world coords: b_z = -R[8]. Positive pitch = tilted down towards road (+Z_world component of -b_z = +R[8])
                         val cameraPitchRad = asin(R[8].coerceIn(-1f, 1f))
                         val cameraPitchDeg = Math.toDegrees(cameraPitchRad.toDouble()).toFloat()
 
-                        // 2. Lateral Mount Roll (Angle of dashboard transverse axis relative to level ground)
-                        // In Reverse Landscape (ROTATION_270): Top of phone (+Y) points Right across dashboard -> roll = -asin(R[7])
-                        // In Standard Landscape (ROTATION_90): Top of phone (+Y) points Left across dashboard -> roll = asin(R[7])
-                        // In Portrait (ROTATION_0): Right side (+X) points Right -> roll = -asin(R[6])
-                        // In Reverse Portrait (ROTATION_180): Right side (+X) points Left -> roll = asin(R[6])
-                        val lateralRollRad = when (displayRot) {
+                        val lateralRollRad = when (cachedDisplayRotation) {
                             Surface.ROTATION_270 -> -asin(R[7].coerceIn(-1f, 1f))
                             Surface.ROTATION_90 -> asin(R[7].coerceIn(-1f, 1f))
                             Surface.ROTATION_180 -> asin(R[6].coerceIn(-1f, 1f))
@@ -369,9 +429,6 @@ class ImuManager(private val context: Context) {
                         }
                         val lateralRollDeg = Math.toDegrees(lateralRollRad.toDouble()).toFloat()
 
-                        // 3. Yaw Heading (Instantaneous Azimuth without gimbal lock)
-                        // When flat on table (|R[8]| > 0.7): direct native phone azimuth, ultra-responsive, zero overshoot
-                        // When upright in vehicle mount: camera optical boresight heading in horizontal plane
                         val yawDeg = if (abs(R[8]) > 0.7f) {
                             SensorManager.getOrientation(R, orientationAngles)
                             Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
@@ -382,38 +439,23 @@ class ImuManager(private val context: Context) {
                         currentEulerAngles[0] = cameraPitchDeg
                         currentEulerAngles[1] = lateralRollDeg
                         currentEulerAngles[2] = yawDeg
-                    } catch (e: Exception) {
-                        // ignore malformed vector
-                    }
+                    } catch (_: Exception) {}
+
+                    _telemetryState.value = ImuTelemetryState(
+                        rawAccel = currentRawAccel.clone(),
+                        linearAccel = currentLinearAccel.clone(),
+                        gyroRates = currentGyroRates.clone(),
+                        pitchDeg = currentEulerAngles[0],
+                        rollDeg = currentEulerAngles[1],
+                        yawDeg = currentEulerAngles[2],
+                        rotationMatrix = currentWorldMatrix.clone(),
+                        quat = currentQuat.clone(),
+                        isMonitoring = true,
+                        lastUpdateMonoNs = nowNs
+                    )
                 }
-            }
-
-            // Rolling Hz calculation every 500 ms
-            val monoNs = SystemClock.elapsedRealtimeNanos()
-            val hzDurationNs = monoNs - hzCounterStartMonoNs
-            if (hzDurationNs >= 500_000_000L) {
-                val hz = (hzCounterEvents * 1_000_000_000f) / hzDurationNs
-                // Normalize by number of active continuous sensors (typically 4: accel, lin_accel, gyro, game_rot)
-                _imuHz.value = hz / 4f
-                hzCounterStartMonoNs = monoNs
-                hzCounterEvents = 0L
-            }
-
-            // Throttle UI emit to ~25 Hz (every 40 ms)
-            if (monoNs - lastUiEmitMonoNs >= UI_UPDATE_INTERVAL_NS) {
-                lastUiEmitMonoNs = monoNs
-                _telemetryState.value = ImuTelemetryState(
-                    rawAccel = currentRawAccel.clone(),
-                    linearAccel = currentLinearAccel.clone(),
-                    gyroRates = currentGyroRates.clone(),
-                    pitchDeg = currentEulerAngles[0],
-                    rollDeg = currentEulerAngles[1],
-                    yawDeg = currentEulerAngles[2],
-                    rotationMatrix = currentWorldMatrix.clone(),
-                    quat = currentQuat.clone(),
-                    isMonitoring = true,
-                    lastUpdateMonoNs = nowNs
-                )
+            } finally {
+                Trace.endSection()
             }
         }
 
@@ -423,8 +465,11 @@ class ImuManager(private val context: Context) {
     /**
      * Starts live monitoring of primary vehicle motion sensors (Accel, Linear Accel, Gyro, Game Rotation Vector).
      */
-    fun startLiveMonitoring(delayUs: Int = 10000): Boolean {
-        if (isMonitoring) return true
+    fun startLiveMonitoring(delayUs: Int = DEFAULT_SAMPLING_DELAY_US): Boolean {
+        if (isMonitoring && currentSamplingDelayUs == delayUs) return true
+        if (isMonitoring) {
+            sensorManager.unregisterListener(liveTelemetryListener)
+        }
 
         val accel = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         val linearAccel = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
@@ -436,9 +481,11 @@ class ImuManager(private val context: Context) {
             return false
         }
 
+        currentSamplingDelayUs = delayUs
         hzCounterStartMonoNs = SystemClock.elapsedRealtimeNanos()
         hzCounterEvents = 0L
         lastUiEmitMonoNs = 0L
+        cachedDisplayRotation = getDisplayRotation()
         isMonitoring = true
 
         accel?.let { sensorManager.registerListener(liveTelemetryListener, it, delayUs, backgroundHandler) }
@@ -447,7 +494,7 @@ class ImuManager(private val context: Context) {
         gameRot?.let { sensorManager.registerListener(liveTelemetryListener, it, delayUs, backgroundHandler) }
 
         _telemetryState.value = _telemetryState.value.copy(isMonitoring = true)
-        Log.i(TAG, "Started live IMU monitoring at $delayUs µs")
+        Log.i(TAG, "Started live IMU monitoring at $delayUs µs (target native 104 Hz)")
         return true
     }
 
@@ -471,14 +518,13 @@ class ImuManager(private val context: Context) {
     }
 
     /**
-     * Connects an active recording session and ensures 100 Hz sensor acquisition is running.
+     * Connects an active recording session and ensures native 104 Hz sensor acquisition is running.
+     * Direct zero-allocation ring buffer integration.
      */
     fun startSessionRecording(recorder: com.bajajauto.roadsense.recording.ImuSessionRecorder) {
-        setOnFrameListener { frame ->
-            recorder.recordFrame(frame)
-        }
-        if (!isMonitoring) {
-            startLiveMonitoring(delayUs = 10000)
+        this.activeRecorder = recorder
+        if (!isMonitoring || currentSamplingDelayUs != DEFAULT_SAMPLING_DELAY_US) {
+            startLiveMonitoring(delayUs = DEFAULT_SAMPLING_DELAY_US)
         }
     }
 
@@ -486,6 +532,7 @@ class ImuManager(private val context: Context) {
      * Detaches the session recorder when recording completes.
      */
     fun stopSessionRecording() {
+        this.activeRecorder = null
         setOnFrameListener(null)
     }
 

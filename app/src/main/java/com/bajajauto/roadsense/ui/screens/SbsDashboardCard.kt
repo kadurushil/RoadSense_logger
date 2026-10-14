@@ -7,6 +7,7 @@ import android.content.res.Configuration
 import android.graphics.SurfaceTexture
 import android.view.TextureView
 import android.view.WindowManager
+import com.bajajauto.roadsense.camera.AutoFitTextureView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -283,7 +284,9 @@ private fun SbsCameraFeedPane(
                     ) {
                         AndroidView(
                             factory = { ctx ->
-                                TextureView(ctx).apply {
+                                AutoFitTextureView(ctx).apply {
+                                    val res = viewModel.cameraEngine.selectedResolution.value
+                                    setAspectRatio(res.width, res.height, displayRotation)
                                     val persistent = viewModel.cameraEngine.persistentSurfaceTexture
                                     if (persistent != null && !persistent.isReleased) {
                                         try {
@@ -319,6 +322,8 @@ private fun SbsCameraFeedPane(
                                 }
                             },
                             update = { textureView ->
+                                val res = viewModel.cameraEngine.selectedResolution.value
+                                textureView.setAspectRatio(res.width, res.height, displayRotation)
                                 if (textureView.isAvailable) {
                                     previewWidth = textureView.width
                                     previewHeight = textureView.height

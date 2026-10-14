@@ -8,6 +8,7 @@ import android.graphics.SurfaceTexture
 import android.view.Surface
 import android.view.TextureView
 import android.view.WindowManager
+import com.bajajauto.roadsense.camera.AutoFitTextureView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -152,7 +153,9 @@ fun CameraDashboardCard(
                     ) {
                         AndroidView(
                             factory = { ctx ->
-                                TextureView(ctx).apply {
+                                AutoFitTextureView(ctx).apply {
+                                    val res = viewModel.cameraEngine.selectedResolution.value
+                                    setAspectRatio(res.width, res.height, displayRotation)
                                     val persistent = viewModel.cameraEngine.persistentSurfaceTexture
                                     if (persistent != null && !persistent.isReleased) {
                                         try {
@@ -188,6 +191,8 @@ fun CameraDashboardCard(
                                 }
                             },
                             update = { textureView ->
+                                val res = viewModel.cameraEngine.selectedResolution.value
+                                textureView.setAspectRatio(res.width, res.height, displayRotation)
                                 if (textureView.isAvailable) {
                                     previewWidth = textureView.width
                                     previewHeight = textureView.height
@@ -395,7 +400,9 @@ fun CameraDashboardCard(
                     if (shouldRenderPreview) {
                         AndroidView(
                             factory = { ctx ->
-                                TextureView(ctx).apply {
+                                AutoFitTextureView(ctx).apply {
+                                    val res = viewModel.cameraEngine.selectedResolution.value
+                                    setAspectRatio(res.width, res.height, displayRotation)
                                     val persistent = viewModel.cameraEngine.persistentSurfaceTexture
                                     if (persistent != null && !persistent.isReleased) {
                                         try {
@@ -430,6 +437,8 @@ fun CameraDashboardCard(
                                 }
                             },
                             update = { textureView ->
+                                val res = viewModel.cameraEngine.selectedResolution.value
+                                textureView.setAspectRatio(res.width, res.height, displayRotation)
                                 if (textureView.isAvailable) {
                                     previewWidth = textureView.width
                                     previewHeight = textureView.height

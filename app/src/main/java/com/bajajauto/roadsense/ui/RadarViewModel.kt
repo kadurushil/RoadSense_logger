@@ -331,10 +331,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             cameraSessionRecorder.recordFrame(frame)
         }
 
-        // IMU frame listener: automatically records synchronized 100 Hz frames if session recording is active
-        imuManager.setOnFrameListener { frame ->
-            imuSessionRecorder.recordFrame(frame)
-        }
+
 
         // Auto-warm up GNSS on launch if permission is available
         if (hasLocationPermission()) {
@@ -493,9 +490,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             }
             canedgeIngestionManager.onSessionStarted(session)
             imuSessionRecorder.startRecording(session)
-            if (!imuManager.telemetryState.value.isMonitoring) {
-                imuManager.startLiveMonitoring(delayUs = 10000)
-            }
+            imuManager.startSessionRecording(imuSessionRecorder)
         }
         return session
     }
@@ -510,6 +505,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         cameraSessionRecorder.stopRecording()
         gnssSessionRecorder.stopRecording()
         val imuFrames = imuSessionRecorder.stopRecording()
+        imuManager.stopSessionRecording()
         sessionRecorder.currentSession?.totalImuFrames = imuFrames
         return sessionRecorder.stopSession()
     }
@@ -867,7 +863,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         imuManager.stopBenchmark()
     }
 
-    fun startImuMonitoring(delayUs: Int = 10000): Boolean {
+    fun startImuMonitoring(delayUs: Int = com.bajajauto.roadsense.imu.ImuManager.DEFAULT_SAMPLING_DELAY_US): Boolean {
         return imuManager.startLiveMonitoring(delayUs)
     }
 

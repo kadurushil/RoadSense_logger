@@ -9,6 +9,7 @@ import android.graphics.Typeface
 import android.view.Surface
 import android.view.TextureView
 import android.view.WindowManager
+import com.bajajauto.roadsense.camera.AutoFitTextureView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -148,10 +149,12 @@ fun FullscreenCalibrationStudio(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
         ) {
-            // 1. Edge-to-Edge Camera Viewfinder (Rotated according to display orientation)
+            // 1. Edge-to-Edge Camera Viewfinder (Rotated according to display orientation, strict 16:9 Fit)
             AndroidView(
                 factory = { ctx ->
-                    TextureView(ctx).apply {
+                    AutoFitTextureView(ctx).apply {
+                        val res = viewModel.cameraEngine.selectedResolution.value
+                        setAspectRatio(res.width, res.height, displayRotation)
                         val persistent = viewModel.cameraEngine.persistentSurfaceTexture
                         if (persistent != null && !persistent.isReleased) {
                             try {
@@ -187,6 +190,8 @@ fun FullscreenCalibrationStudio(
                     }
                 },
                 update = { textureView ->
+                    val res = viewModel.cameraEngine.selectedResolution.value
+                    textureView.setAspectRatio(res.width, res.height, displayRotation)
                     if (textureView.isAvailable) {
                         studioWidth = textureView.width
                         studioHeight = textureView.height

@@ -21,6 +21,7 @@ import java.util.Locale
  * @param linAx Dynamic linear acceleration X without gravity (m/s²)
  * @param linAy Dynamic linear acceleration Y without gravity (m/s²)
  * @param linAz Dynamic linear acceleration Z without gravity (m/s²)
+ * @param deliveryNs Monotonic timestamp when event arrived in app (SystemClock.elapsedRealtimeNanos())
  */
 data class ImuFrame(
     val elapsedRealtimeNs: Long,
@@ -37,7 +38,8 @@ data class ImuFrame(
     val qw: Float,
     val linAx: Float = 0f,
     val linAy: Float = 0f,
-    val linAz: Float = 0f
+    val linAz: Float = 0f,
+    val deliveryNs: Long = 0L
 ) {
     companion object {
         const val CSV_HEADER = "elapsed_realtime_ns,wall_time_ms,ax,ay,az,gx,gy,gz,qx,qy,qz,qw,lin_ax,lin_ay,lin_az\n"
