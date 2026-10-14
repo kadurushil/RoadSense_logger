@@ -466,9 +466,28 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         }
         val session = sessionRecorder.startSession()
         if (session != null) {
-            sessionManager.saveSessionCalibration(session, _calibrationParams.value)
+            val res = cameraEngine.selectedResolution.value
+            val camId = cameraEngine.selectedCamera.value?.id
+            val streamIntrinsics = CameraIntrinsicsProvider.getStreamIntrinsics(
+                context = getApplication(),
+                cameraId = camId,
+                streamWidth = res.width,
+                streamHeight = res.height
+            )
+            val calibWithIntrinsics = _calibrationParams.value.copy(
+                streamWidth = res.width,
+                streamHeight = res.height,
+                fx = streamIntrinsics.fx,
+                fy = streamIntrinsics.fy,
+                cx = streamIntrinsics.cx,
+                cy = streamIntrinsics.cy,
+                hfovDeg = streamIntrinsics.hfovDeg,
+                vfovDeg = streamIntrinsics.vfovDeg
+            )
+            _calibrationParams.value = calibWithIntrinsics
+            sessionManager.saveSessionCalibration(session, calibWithIntrinsics)
             gnssSessionRecorder.startRecording(session)
-            val videoFile = cameraSessionRecorder.startRecording(session, cameraEngine.selectedResolution.value)
+            val videoFile = cameraSessionRecorder.startRecording(session, res)
             if (videoFile != null) {
                 cameraEngine.startVideoRecording(videoFile)
             }
@@ -699,11 +718,27 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveBaselineCalibration(profileName: String = "Default Mount") {
         val current = _calibrationParams.value
+        val res = cameraEngine.selectedResolution.value
+        val camId = cameraEngine.selectedCamera.value?.id
+        val streamIntrinsics = CameraIntrinsicsProvider.getStreamIntrinsics(
+            context = getApplication(),
+            cameraId = camId,
+            streamWidth = res.width,
+            streamHeight = res.height
+        )
         val consolidated = current.copy(
             pitchDeg = current.effectivePitchDeg,
             yawDeg = current.effectiveYawDeg,
             nudgePitchDeg = 0f,
             nudgeYawDeg = 0f,
+            streamWidth = res.width,
+            streamHeight = res.height,
+            fx = streamIntrinsics.fx,
+            fy = streamIntrinsics.fy,
+            cx = streamIntrinsics.cx,
+            cy = streamIntrinsics.cy,
+            hfovDeg = streamIntrinsics.hfovDeg,
+            vfovDeg = streamIntrinsics.vfovDeg,
             profileName = profileName,
             lastCalibratedTimestampMs = System.currentTimeMillis()
         )
@@ -715,7 +750,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                 sessionManager.saveSessionCalibration(activeSession, consolidated)
             }
         }
-        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Saved baseline calibration: Pitch=${consolidated.pitchDeg}°, Yaw=${consolidated.yawDeg}°")
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Saved baseline calibration: Pitch=${consolidated.pitchDeg}°, Yaw=${consolidated.yawDeg}°, fx=${consolidated.fx}, HFOV=${consolidated.hfovDeg}°")
     }
 
     fun loadSavedCalibration() {

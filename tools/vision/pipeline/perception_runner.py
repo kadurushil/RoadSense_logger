@@ -95,8 +95,8 @@ class PerceptionRunner:
         if rotation_deg in (90, 270):
             width, height = height, width
 
-        intrinsics = PinholeIntrinsics.from_fov(width=width, height=height, hfov_deg=68.0)
-        projector = GroundPlaneProjector(self.extrinsics, intrinsics)
+        intrinsics = PinholeIntrinsics.from_calib_json(self.calib_path, width=width, height=height)
+        projector = GroundPlaneProjector(self.extrinsics, intrinsics, video_rotation_deg=0)
 
         # Load timestamps from session_timeline.csv and session_metadata.json
         ts_info = TimelineLoader.load_camera_timestamps(
@@ -129,6 +129,11 @@ class PerceptionRunner:
                 "height_m": self.extrinsics.camera_height_m,
                 "pitch_deg": self.extrinsics.pitch_deg,
                 "yaw_deg": self.extrinsics.yaw_deg,
+                "roll_deg": self.extrinsics.roll_deg,
+                "fx": intrinsics.fx,
+                "fy": intrinsics.fy,
+                "cx": intrinsics.cx,
+                "cy": intrinsics.cy,
             },
             "frames": [],
         }
@@ -217,8 +222,8 @@ class PerceptionRunner:
         total_frames = len(raw_frames)
         frames_to_process = min(total_frames, max_frames) if max_frames else total_frames
 
-        intrinsics = PinholeIntrinsics.from_fov(width=1280, height=720, hfov_deg=68.0)
-        projector = GroundPlaneProjector(self.extrinsics, intrinsics)
+        intrinsics = PinholeIntrinsics.from_calib_json(self.calib_path, width=1920, height=1080)
+        projector = GroundPlaneProjector(self.extrinsics, intrinsics, video_rotation_deg=0)
 
         ts_info = TimelineLoader.load_camera_timestamps(
             self.session_dir, expected_frames=total_frames, fps=30.0
@@ -245,6 +250,11 @@ class PerceptionRunner:
                 "height_m": self.extrinsics.camera_height_m,
                 "pitch_deg": self.extrinsics.pitch_deg,
                 "yaw_deg": self.extrinsics.yaw_deg,
+                "roll_deg": self.extrinsics.roll_deg,
+                "fx": intrinsics.fx,
+                "fy": intrinsics.fy,
+                "cx": intrinsics.cx,
+                "cy": intrinsics.cy,
             },
             "frames": [],
         }

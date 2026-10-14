@@ -6,9 +6,12 @@ Transforms 2D bounding box tire-contact pixel coordinates (cx, y2) into 3D
 metric ground coordinates (X_v, Y_v, Z_v) on the road surface (Z_v = 0).
 """
 
+import json
+import os
 import math
 from dataclasses import dataclass
 from typing import Optional, Tuple, Dict, Any
+import numpy as np
 
 try:
     from .camera_extrinsics import CameraExtrinsics
@@ -23,18 +26,50 @@ class PinholeIntrinsics:
     fy: float
     cx: float
     cy: float
+    width: int = 1920
+    height: int = 1080
 
     @classmethod
-    def from_fov(cls, width: int, height: int, hfov_deg: float = 68.0) -> "PinholeIntrinsics":
+    def from_fov(cls, width: int = 1920, height: int = 1080, hfov_deg: float = 65.7) -> "PinholeIntrinsics":
         """Calculates focal lengths from horizontal FOV and image dimensions."""
         fx = (width / 2.0) / math.tan(math.radians(hfov_deg / 2.0))
         fy = fx  # Square pixel assumption
         cx = width / 2.0
         cy = height / 2.0
-        return cls(fx=fx, fy=fy, cx=cx, cy=cy)
+        return cls(fx=fx, fy=fy, cx=cx, cy=cy, width=width, height=height)
 
+    @classmethod
+    def from_calib_json(cls, calib_path: str, width: int = 1920, height: int = 1080) -> "PinholeIntrinsics":
+        """
+        Loads calibrated camera intrinsics from radar_camera_calib.json.
+        Scales intrinsics if target width/height differs from recording stream resolution.
+        """
+        if os.path.isfile(calib_path):
+            try:
+                with open(calib_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                ref_w = int(data.get("streamWidth", 1920))
+                ref_h = int(data.get("streamHeight", 1080))
+                hfov = float(data.get("hfovDeg", 65.7))
+                default_fx = (ref_w / 2.0) / math.tan(math.radians(hfov / 2.0))
+                base_fx = float(data.get("fx", default_fx))
+                base_fy = float(data.get("fy", default_fx))
+                base_cx = float(data.get("cx", ref_w / 2.0))
+                base_cy = float(data.get("cy", ref_h / 2.0))
 
-import numpy as np
+                scale_x = width / float(ref_w)
+                scale_y = height / float(ref_h)
+                return cls(
+                    fx=base_fx * scale_x,
+                    fy=base_fy * scale_y,
+                    cx=base_cx * scale_x,
+                    cy=base_cy * scale_y,
+                    width=width,
+                    height=height,
+                )
+            except Exception:
+                pass
+        return cls.from_fov(width=width, height=height, hfov_deg=65.7)
 
 
 class GroundPlaneProjector:
@@ -46,15 +81,15 @@ class GroundPlaneProjector:
         self,
         extrinsics: CameraExtrinsics,
         intrinsics: PinholeIntrinsics,
-        video_rotation_deg: int = 180,
+        video_rotation_deg: int = 0,
     ):
         self.extrinsics = extrinsics
         self.intrinsics = intrinsics
         self.video_rotation_deg = video_rotation_deg
 
-        # Compute exact camera optical transformation matrix R matching convert_session_to_mcap.py
+        # Compute camera optical transformation matrix R matching RoadSense SpatialProjectionEngine
         pitch = math.radians(extrinsics.pitch_deg)
-        yaw = math.radians(extrinsics.yaw_deg)
+        yaw = math.radians(getattr(extrinsics, "camera_yaw_deg", extrinsics.yaw_deg))
         roll = math.radians((extrinsics.roll_deg + video_rotation_deg) % 360.0)
 
         R0 = np.array([
@@ -63,18 +98,21 @@ class GroundPlaneProjector:
             [ 1,  0,  0]
         ], dtype=float)
 
+        # Yaw pan around camera Y-axis (down)
         Ry = np.array([
             [ math.cos(yaw), 0, -math.sin(yaw)],
             [ 0,             1,  0],
             [ math.sin(yaw), 0,  math.cos(yaw)]
         ], dtype=float)
 
+        # Pitch tilt around camera X-axis (right: positive tilts downward toward asphalt)
         Rx = np.array([
             [ 1, 0,                0],
-            [ 0, math.cos(pitch),  math.sin(pitch)],
-            [ 0, -math.sin(pitch), math.cos(pitch)]
+            [ 0, math.cos(pitch), -math.sin(pitch)],
+            [ 0, math.sin(pitch),  math.cos(pitch)]
         ], dtype=float)
 
+        # Roll around camera optical Z-axis (forward)
         Rz = np.array([
             [ math.cos(roll), math.sin(roll), 0],
             [-math.sin(roll), math.cos(roll), 0],
@@ -104,10 +142,10 @@ class GroundPlaneProjector:
         Returns:
             Dictionary with {x_fwd_m, y_left_m, z_elev_m, range_m, valid} or None if above horizon.
         """
-        # In upright image (from auto-rotated 180° video), map to raw sensor coordinates
+        # Map raw sensor coordinates if non-upright
         if self.video_rotation_deg == 180:
-            u_raw = 1280.0 - u_center
-            v_raw = 720.0 - v_bottom
+            u_raw = float(self.intrinsics.width) - u_center
+            v_raw = float(self.intrinsics.height) - v_bottom
         else:
             u_raw = u_center
             v_raw = v_bottom
@@ -144,17 +182,18 @@ class GroundPlaneProjector:
 
 
 if __name__ == "__main__":
-    # Self-test: 720p camera at standard mount parameters
-    ext = CameraExtrinsics(camera_height_m=1.45, pitch_deg=4.143, yaw_deg=-1.896)
-    intr = PinholeIntrinsics.from_fov(width=1280, height=720, hfov_deg=68.0)
-    projector = GroundPlaneProjector(ext, intr)
+    # Self-test: 1080p camera at standard mount parameters (7.0° pitch down, 1.45m height)
+    ext = CameraExtrinsics(camera_height_m=1.45, pitch_deg=7.0, yaw_deg=0.0)
+    intr = PinholeIntrinsics.from_fov(width=1920, height=1080, hfov_deg=65.7)
+    projector = GroundPlaneProjector(ext, intr, video_rotation_deg=0)
 
-    # Car tire contact patch at pixel (u=640, v=480)
-    res = projector.project_bottom_center_to_ground(u_center=640.0, v_bottom=480.0)
+    # Car tire contact patch at pixel (u=960, v=800)
+    res = projector.project_bottom_center_to_ground(u_center=960.0, v_bottom=800.0)
     print("[GroundPlaneProjector Self-Test]")
     if res:
-        print(f"  Pixel (640, 480) -> Forward Y: {res['y_fwd_m']}m, Lateral X: {res['x_lat_m']}m")
-        assert res["y_fwd_m"] > 0, "Forward distance must be positive"
+        print(f"  Pixel (960, 800) -> Forward X: {res['x_fwd_m']}m, Left Y: {res['y_left_m']}m, Range: {res['range_m']}m")
+        assert res["x_fwd_m"] > 0, "Forward distance must be positive"
+        assert abs(res["y_left_m"]) < 0.1, "Centered pixel must have ~0 lateral offset"
         print("  Status: PASSED")
     else:
         print("  Status: FAILED (Horizon reject)")

@@ -131,8 +131,8 @@ if __name__ == "__main__":
     print("[BoxDimensions Self-Test]")
     # Car detected at 15m with 180px width, 120px height in 720p (fx=947)
     box = BoxDimensions.compute_3d_box(
-        x_lat_m=0.5,
-        y_fwd_m=15.0,
+        x_fwd_m=15.0,
+        y_left_m=0.5,
         class_name="car",
         w_px=180.0,
         h_px=120.0,

@@ -161,6 +161,16 @@ class SpatialProjectionEngineTest {
         assertEquals(original.pitchDeg, restored.pitchDeg, 0.001f)
         assertEquals(original.yawDeg, restored.yawDeg, 0.001f)
         assertEquals(original.rollDeg, restored.rollDeg, 0.001f)
+        assertEquals(original.cameraYawDeg, restored.cameraYawDeg, 0.001f)
+        assertEquals(original.radarYawOffsetDeg, restored.radarYawOffsetDeg, 0.001f)
+        assertEquals(original.streamWidth, restored.streamWidth)
+        assertEquals(original.streamHeight, restored.streamHeight)
+        assertEquals(original.fx, restored.fx, 0.001f)
+        assertEquals(original.fy, restored.fy, 0.001f)
+        assertEquals(original.cx, restored.cx, 0.001f)
+        assertEquals(original.cy, restored.cy, 0.001f)
+        assertEquals(original.hfovDeg, restored.hfovDeg, 0.001f)
+        assertEquals(original.vfovDeg, restored.vfovDeg, 0.001f)
         assertEquals(original.profileName, restored.profileName)
     }
 

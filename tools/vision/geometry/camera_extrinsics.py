@@ -20,17 +20,21 @@ class CameraExtrinsics:
     Attributes:
         camera_height_m: Height of the camera lens above the asphalt surface (meters).
         pitch_deg: Downward pitch angle toward the asphalt (degrees, positive = downward).
-        yaw_deg: Horizontal yaw angle (degrees, positive = clockwise / right).
+        yaw_deg: Camera horizontal yaw angle (degrees, positive = clockwise / right).
         roll_deg: Roll angle around optical axis (degrees).
         setback_m: Longitudinal setback behind radar / bumper origin (meters).
         lateral_offset_m: Lateral offset from vehicle center line (meters, positive = right).
+        camera_yaw_deg: Explicit windshield camera yaw relative to vehicle centerline (degrees).
+        radar_yaw_deg: Radar mounting squint angle relative to vehicle centerline (degrees).
     """
     camera_height_m: float = 1.45
-    pitch_deg: float = 4.143
-    yaw_deg: float = -1.896
+    pitch_deg: float = 7.0
+    yaw_deg: float = 0.0
     roll_deg: float = 0.0
     setback_m: float = 0.30
     lateral_offset_m: float = 0.0
+    camera_yaw_deg: float = 0.0
+    radar_yaw_deg: float = -1.0
 
     @classmethod
     def from_calib_json(cls, calib_path: str) -> "CameraExtrinsics":
@@ -53,8 +57,10 @@ class CameraExtrinsics:
         height_offset = float(data.get("heightOffsetM", 0.50))
         cam_height = radar_height + height_offset
 
-        pitch = float(data.get("pitchDeg", 4.143)) + float(data.get("nudgePitchDeg", 0.0))
-        yaw = float(data.get("yawDeg", -1.896)) + float(data.get("nudgeYawDeg", 0.0))
+        pitch = float(data.get("pitchDeg", 7.0)) + float(data.get("nudgePitchDeg", 0.0))
+        raw_yaw = float(data.get("yawDeg", -1.0)) + float(data.get("nudgeYawDeg", 0.0))
+        cam_yaw = float(data.get("cameraYawDeg", 0.0))
+        radar_yaw = float(data.get("radarYawOffsetDeg", raw_yaw))
         roll = float(data.get("rollDeg", 0.0))
 
         setback = float(data.get("setbackM", 0.30))
@@ -63,10 +69,12 @@ class CameraExtrinsics:
         return cls(
             camera_height_m=cam_height,
             pitch_deg=pitch,
-            yaw_deg=yaw,
+            yaw_deg=cam_yaw,
             roll_deg=roll,
             setback_m=setback,
             lateral_offset_m=lateral,
+            camera_yaw_deg=cam_yaw,
+            radar_yaw_deg=radar_yaw,
         )
 
     @property

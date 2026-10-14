@@ -202,4 +202,24 @@ object CameraIntrinsicsProvider {
             videoHeight = geo.videoHeight
         )
     }
+
+    /**
+     * Extracts pure video stream buffer intrinsics without on-screen display letterbox/pillarbox offsets.
+     */
+    fun getStreamIntrinsics(
+        context: Context,
+        cameraId: String?,
+        streamWidth: Int = 1920,
+        streamHeight: Int = 1080
+    ): CameraIntrinsics {
+        return getIntrinsics(
+            context = context,
+            cameraId = cameraId,
+            viewWidth = streamWidth,
+            viewHeight = streamHeight,
+            streamWidth = streamWidth,
+            streamHeight = streamHeight,
+            displayRotation = Surface.ROTATION_0
+        )
+    }
 }

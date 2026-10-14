@@ -22,6 +22,15 @@ data class CalibrationParameters(
     val rollDeg: Float = 0.0f,            // Clamp mount roll level
     val nudgePitchDeg: Float = 0.0f,      // Live in-field session nudge for pitch
     val nudgeYawDeg: Float = 0.0f,        // Live in-field session nudge for yaw
+    val cameraYawDeg: Float = 0.0f,       // Windshield camera heading relative to vehicle centerline
+    val streamWidth: Int = 1920,          // Camera video stream width in pixels (1080p standard)
+    val streamHeight: Int = 1080,         // Camera video stream height in pixels (1080p standard)
+    val fx: Float = 1486.5f,              // Video stream focal length X (Galaxy M30 1080p standard)
+    val fy: Float = 1486.5f,              // Video stream focal length Y (square pixels)
+    val cx: Float = 960.0f,               // Video stream principal center X
+    val cy: Float = 540.0f,               // Video stream principal center Y
+    val hfovDeg: Float = 65.7f,           // Camera horizontal FOV (degrees)
+    val vfovDeg: Float = 39.8f,           // Camera vertical FOV (degrees)
     val profileName: String = "IRVM Bonnet Mount",
     val lastCalibratedTimestampMs: Long = System.currentTimeMillis()
 ) {
@@ -54,6 +63,16 @@ data class CalibrationParameters(
             put("rollDeg", rollDeg.toDouble())
             put("nudgePitchDeg", nudgePitchDeg.toDouble())
             put("nudgeYawDeg", nudgeYawDeg.toDouble())
+            put("cameraYawDeg", cameraYawDeg.toDouble())
+            put("radarYawOffsetDeg", radarYawOffsetDeg.toDouble())
+            put("streamWidth", streamWidth)
+            put("streamHeight", streamHeight)
+            put("fx", fx.toDouble())
+            put("fy", fy.toDouble())
+            put("cx", cx.toDouble())
+            put("cy", cy.toDouble())
+            put("hfovDeg", hfovDeg.toDouble())
+            put("vfovDeg", vfovDeg.toDouble())
             put("profileName", profileName)
             put("lastCalibratedTimestampMs", lastCalibratedTimestampMs)
         }
@@ -61,6 +80,14 @@ data class CalibrationParameters(
 
     companion object {
         fun fromJson(json: JSONObject): CalibrationParameters {
+            val pDeg = json.optDouble("pitchDeg", 7.0).toFloat()
+            val yDeg = json.optDouble("yawDeg", -1.0).toFloat()
+            val streamW = json.optInt("streamWidth", 1920)
+            val streamH = json.optInt("streamHeight", 1080)
+            val hfov = json.optDouble("hfovDeg", 65.7).toFloat()
+            val vfov = json.optDouble("vfovDeg", 39.8).toFloat()
+            val defaultFx = (streamW / (2.0 * kotlin.math.tan(Math.toRadians(hfov.toDouble() / 2.0)))).toFloat()
+
             return CalibrationParameters(
                 setbackM = json.optDouble("setbackM", 0.30).toFloat(),
                 heightOffsetM = json.optDouble("heightOffsetM", 0.50).toFloat(),
@@ -69,11 +96,20 @@ data class CalibrationParameters(
                 targetWidthM = json.optDouble("targetWidthM", 1.30).toFloat(),
                 targetHeightM = json.optDouble("targetHeightM", 0.00).toFloat(),
                 radarHeightM = json.optDouble("radarHeightM", 0.95).toFloat(),
-                pitchDeg = json.optDouble("pitchDeg", 7.0).toFloat(),
-                yawDeg = json.optDouble("yawDeg", -1.0).toFloat(),
+                pitchDeg = pDeg,
+                yawDeg = yDeg,
                 rollDeg = json.optDouble("rollDeg", 0.0).toFloat(),
                 nudgePitchDeg = json.optDouble("nudgePitchDeg", 0.0).toFloat(),
                 nudgeYawDeg = json.optDouble("nudgeYawDeg", 0.0).toFloat(),
+                cameraYawDeg = json.optDouble("cameraYawDeg", 0.0).toFloat(),
+                streamWidth = streamW,
+                streamHeight = streamH,
+                fx = json.optDouble("fx", defaultFx.toDouble()).toFloat(),
+                fy = json.optDouble("fy", defaultFx.toDouble()).toFloat(),
+                cx = json.optDouble("cx", (streamW / 2.0)).toFloat(),
+                cy = json.optDouble("cy", (streamH / 2.0)).toFloat(),
+                hfovDeg = hfov,
+                vfovDeg = vfov,
                 profileName = json.optString("profileName", "IRVM Bonnet Mount"),
                 lastCalibratedTimestampMs = json.optLong("lastCalibratedTimestampMs", System.currentTimeMillis())
             )

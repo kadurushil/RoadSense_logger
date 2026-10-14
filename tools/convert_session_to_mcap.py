@@ -196,11 +196,11 @@ def compute_camera_optical_tf(pitch_deg, yaw_deg, roll_deg, setback, lateral, he
         [ math.sin(yaw), 0,  math.cos(yaw)]
     ], dtype=float)
 
-    # Pitch (tilt around camera X axis, pointing right)
+    # Pitch (tilt around camera X axis, pointing right: positive pitch tilts downward toward asphalt)
     Rx = np.array([
         [ 1, 0,                0],
-        [ 0, math.cos(pitch),  math.sin(pitch)],
-        [ 0, -math.sin(pitch), math.cos(pitch)]
+        [ 0, math.cos(pitch), -math.sin(pitch)],
+        [ 0, math.sin(pitch),  math.cos(pitch)]
     ], dtype=float)
 
     # Roll (roll around camera Z axis, pointing forward)
@@ -904,12 +904,22 @@ def resolve_session_calibration(session_dir):
         "pitchDeg": 7.0,
         "yawDeg": -1.0,
         "rollDeg": 0.0,
+        "cameraYawDeg": 0.0,
+        "radarYawOffsetDeg": -1.0,
         "setbackM": 0.30,
         "heightOffsetM": 0.50,
         "lateralOffsetM": 0.00,
         "radarHeightM": 0.95,
         "targetDistanceM": 10.0,
         "targetWidthM": 1.30,
+        "streamWidth": 1920,
+        "streamHeight": 1080,
+        "fx": 1486.5,
+        "fy": 1486.5,
+        "cx": 960.0,
+        "cy": 540.0,
+        "hfovDeg": 65.7,
+        "vfovDeg": 39.8,
         "profileName": "Default Vehicular Baseline"
     }
 
@@ -1267,6 +1277,10 @@ def convert_session_to_mcap(
         tf_msg = FrameTransforms()
         
         # Transform 1: base_link -> radar_link
+        radar_yaw_deg = float(calib_params.get("radarYawOffsetDeg", calib_params.get("yawDeg", 0.0)))
+        radar_yaw_rad = math.radians(radar_yaw_deg)
+        rqx, rqy, rqz, rqw = euler_to_quaternion(0.0, 0.0, radar_yaw_rad)
+
         tf_radar = tf_msg.transforms.add()
         tf_radar.timestamp.seconds = base_sec
         tf_radar.timestamp.nanos = base_nano
@@ -1275,7 +1289,10 @@ def convert_session_to_mcap(
         tf_radar.translation.x = 0.0
         tf_radar.translation.y = 0.0
         tf_radar.translation.z = calib_params["radarHeightM"]
-        tf_radar.rotation.w = 1.0 # Aligned with vehicle coordinate frame
+        tf_radar.rotation.x = rqx
+        tf_radar.rotation.y = rqy
+        tf_radar.rotation.z = rqz
+        tf_radar.rotation.w = rqw
 
         # Transform 2: base_link -> camera_optical
         # In ROS/Foxglove: camera_optical frame has +Z pointing into the scene, +X pointing right, +Y pointing down.
@@ -1297,9 +1314,10 @@ def convert_session_to_mcap(
         else:
             effective_roll = calib_params.get("rollDeg", 0.0)
 
+        camera_yaw_deg = float(calib_params.get("cameraYawDeg", 0.0))
         cam_quat, cam_trans = compute_camera_optical_tf(
             pitch_deg=calib_params.get("pitchDeg", 7.0),
-            yaw_deg=calib_params.get("yawDeg", -1.0),
+            yaw_deg=camera_yaw_deg,
             roll_deg=effective_roll,
             setback=calib_params.get("setbackM", 0.30),
             lateral=calib_params.get("lateralOffsetM", 0.00),
@@ -1348,20 +1366,26 @@ def convert_session_to_mcap(
         writer.write_message("/tf", tf_msg, log_time=start_wall_ms * 1_000_000)
         count_msg("/tf")
 
-        # Camera Calibration (1280x720 720p HD)
+        # Camera Calibration
         cal_msg = CameraCalibration()
         cal_msg.timestamp.seconds = base_sec
         cal_msg.timestamp.nanos = base_nano
         cal_msg.frame_id = "camera_optical"
-        cal_msg.width = 1280
-        cal_msg.height = 720
+
+        stream_w = int(calib_params.get("streamWidth", 1920))
+        stream_h = int(calib_params.get("streamHeight", 1080))
+        hfov_deg = float(calib_params.get("hfovDeg", 65.7))
+
+        default_fx = (stream_w / 2.0) / math.tan(math.radians(hfov_deg / 2.0))
+        fx = float(calib_params.get("fx", default_fx))
+        fy = float(calib_params.get("fy", default_fx))
+        cx = float(calib_params.get("cx", stream_w / 2.0))
+        cy = float(calib_params.get("cy", stream_h / 2.0))
+
+        cal_msg.width = stream_w
+        cal_msg.height = stream_h
         cal_msg.distortion_model = "plumb_bob"
         cal_msg.D.extend([0.0, 0.0, 0.0, 0.0, 0.0])
-        # Camera intrinsics calculated for ~68 deg HFOV at 1280x720
-        fx = 948.8
-        fy = 948.8
-        cx = 640.0
-        cy = 360.0
         cal_msg.K.extend([fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0])
         cal_msg.R.extend([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
         cal_msg.P.extend([fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0])
@@ -1479,19 +1503,30 @@ def convert_session_to_mcap(
                                 matched_acc_idx = idx
                                 break
 
+                cos_ry = math.cos(radar_yaw_rad)
+                sin_ry = math.sin(radar_yaw_rad)
+
                 for idx, t in enumerate(tracks):
                     is_fcw = (idx == matched_fcw_idx)
                     is_acc = (idx == matched_acc_idx)
 
+                    # Transform track from radar sensor coordinates to vehicle base_link frame:
+                    # Rotation by radar_yaw_rad (mounting squint) around Z-axis
+                    x_fwd_base = t["x_fwd"] * cos_ry - t["y_left"] * sin_ry
+                    y_left_base = t["x_fwd"] * sin_ry + t["y_left"] * cos_ry
+
+                    vx_fwd_base = t["vx_fwd"] * cos_ry - t["vy_left"] * sin_ry
+                    vy_left_base = t["vx_fwd"] * sin_ry + t["vy_left"] * cos_ry
+
                     # 3D Bounding Box
                     cube = entity.cubes.add()
-                    cube.pose.position.x = t["x_fwd"]
-                    cube.pose.position.y = t["y_left"]
+                    cube.pose.position.x = x_fwd_base
+                    cube.pose.position.y = y_left_base
                     cube.pose.position.z = calib_params["radarHeightM"]
                     
                     # Radar frame: +Y forward, +X right (clockwise positive).
                     # ROS base_link frame: +X forward, +Y left (counter-clockwise positive yaw).
-                    heading_rad = math.radians(-t["heading_deg"])
+                    heading_rad = math.radians(-t["heading_deg"]) + radar_yaw_rad
                     qx, qy, qz, qw = euler_to_quaternion(0.0, 0.0, heading_rad)
                     cube.pose.orientation.x = qx
                     cube.pose.orientation.y = qy
@@ -1533,14 +1568,14 @@ def convert_session_to_mcap(
                         txt_r, txt_g, txt_b = 1.0, 0.95, 0.70
 
                     # Velocity Vector Arrow
-                    speed_mag = math.hypot(t["vx_fwd"], t["vy_left"])
+                    speed_mag = math.hypot(vx_fwd_base, vy_left_base)
                     if speed_mag > 0.5:
                         arrow = entity.arrows.add()
-                        arrow.pose.position.x = t["x_fwd"]
-                        arrow.pose.position.y = t["y_left"]
+                        arrow.pose.position.x = x_fwd_base
+                        arrow.pose.position.y = y_left_base
                         arrow.pose.position.z = calib_params["radarHeightM"] + 0.1
 
-                        vel_yaw = math.atan2(t["vy_left"], t["vx_fwd"])
+                        vel_yaw = math.atan2(vy_left_base, vx_fwd_base)
                         aqx, aqy, aqz, aqw = euler_to_quaternion(0.0, 0.0, vel_yaw)
                         arrow.pose.orientation.x = aqx
                         arrow.pose.orientation.y = aqy
@@ -1555,10 +1590,10 @@ def convert_session_to_mcap(
 
                     # Floating Label
                     txt = entity.texts.add()
-                    txt.pose.position.x = t["x_fwd"]
-                    txt.pose.position.y = t["y_left"]
+                    txt.pose.position.x = x_fwd_base
+                    txt.pose.position.y = y_left_base
                     txt.pose.position.z = calib_params["radarHeightM"] + (1.3 if (is_fcw or is_acc) else 1.2)
-                    txt.text = f"{label_prefix}ID #{t['tid']} | {t['vx_fwd']:.1f} m/s | TTI {t['tti']:.1f}s{label_suffix}"
+                    txt.text = f"{label_prefix}ID #{t['tid']} | {vx_fwd_base:.1f} m/s | TTI {t['tti']:.1f}s{label_suffix}"
                     txt.font_size = 0.50 if (is_fcw or is_acc) else 0.42
                     txt.billboard = True
                     txt.color.r = txt_r; txt.color.g = txt_g; txt.color.b = txt_b; txt.color.a = 1.0
