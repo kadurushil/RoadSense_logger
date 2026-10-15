@@ -25,4 +25,6 @@ __pycache__/
 tools/vision/checkpoints/
 tools/vision/models/
 tools/vision/output/
-
+traces/
+scratch/
+*.pftrace
