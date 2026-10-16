@@ -15,13 +15,18 @@ import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
+import com.bajajauto.roadsense.sync.CrossSensorSyncAssociator
+import com.bajajauto.roadsense.sync.SyncKeyframeWriter
+
 /**
  * Autonomous recorder for camera video metadata and microsecond frame shutter timestamps.
- * Writes frame numbers and exposure start nanoseconds to "camera/camera_frames.csv"
+ * Writes frame numbers and exposure start nanoseconds to "camera/camera_frames.csv",
+ * generates synchronized multimodal keyframes in "sync/sync_keyframes.csv",
  * and indexes each frame in the master cross-sensor "session_timeline.csv".
  */
 class CameraSessionRecorder(
-    private val sessionManager: SessionManager? = null
+    private val sessionManager: SessionManager? = null,
+    private val syncAssociator: CrossSensorSyncAssociator? = null
 ) {
 
     companion object {
@@ -54,6 +59,7 @@ class CameraSessionRecorder(
     private var csvWriter: BufferedWriter? = null
     private var videoFile: File? = null
     private var currentResolution: String = "720p"
+    private val keyframeWriter = SyncKeyframeWriter()
 
     /**
      * Prepares camera recording within the active session folder.
@@ -75,6 +81,8 @@ class CameraSessionRecorder(
                 writer.write(CameraFrameMetadata.CSV_HEADER)
                 writer.flush()
             }
+
+            keyframeWriter.start(sessionInfo.syncDir)
 
             activeSession = sessionInfo
             csvWriter = writer
@@ -102,11 +110,26 @@ class CameraSessionRecorder(
         executor.execute {
             if (!isRecordingActive) return@execute
             try {
+                // Associate with nearest IMU, Radar, and GNSS in O(log N)
+                val keyframe = syncAssociator?.associateKeyframe(frame)
+                if (keyframe != null) {
+                    keyframeWriter.writeKeyframe(keyframe)
+                }
+
                 csvWriter?.let { writer ->
                     writer.write(frame.toCsvRow())
                     val count = _framesRecorded.value + 1
                     _framesRecorded.value = count
                     activeSession?.totalCameraFrames = count
+
+                    val imuDeltaStr = if (keyframe != null && keyframe.imuSequenceId >= 0L) {
+                        "imu_dt=${String.format(Locale.US, "%.2f", keyframe.deltaCamImuMs)}ms;imu_seq=${keyframe.imuSequenceId};"
+                    } else ""
+                    val radDeltaStr = if (keyframe != null && keyframe.isRadarActive) {
+                        "rad_dt=${String.format(Locale.US, "%.2f", keyframe.deltaCamRadarMs)}ms;rad_seq=${keyframe.radarFrameNumber};"
+                    } else ""
+                    val gradeStr = if (keyframe != null) "grade=${keyframe.syncGrade};" else ""
+                    val summaryStr = "res=$currentResolution;exp=${frame.exposureTimeNs}ns;iso=${frame.iso};$imuDeltaStr$radDeltaStr$gradeStr".trimEnd(';')
 
                     sessionManager?.recordTimelineEvent(
                         elapsedRealtimeNs = frame.shutterTimestampNs,
@@ -114,7 +137,7 @@ class CameraSessionRecorder(
                         event = "FRAME",
                         sequenceId = frame.frameNumber,
                         relativePath = "camera/$CAMERA_VIDEO_NAME",
-                        summary = "res=$currentResolution;exp=${frame.exposureTimeNs}ns;iso=${frame.iso}"
+                        summary = summaryStr
                     )
                 }
             } catch (e: IOException) {
@@ -132,6 +155,7 @@ class CameraSessionRecorder(
         isRecordingActive = false
         _isRecording.value = false
         val total = _framesRecorded.value
+        keyframeWriter.stop()
 
         executor.execute {
             try {
@@ -154,6 +178,7 @@ class CameraSessionRecorder(
         if (isRecordingActive) {
             stopRecording()
         }
+        keyframeWriter.release()
         executor.shutdown()
     }
 }

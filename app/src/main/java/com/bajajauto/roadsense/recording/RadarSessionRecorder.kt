@@ -16,6 +16,8 @@ import java.io.IOException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
+import com.bajajauto.roadsense.sync.CrossSensorSyncAssociator
+
 /**
  * High-throughput session recorder that writes:
  * 1. Framed binary packets with monotonic & wall-clock timestamps into "radar_frames.bin"
@@ -24,7 +26,8 @@ import java.util.concurrent.Executors
  */
 class RadarSessionRecorder(
     private val context: Context,
-    private val sessionManager: SessionManager = SessionManager(context)
+    private val sessionManager: SessionManager = SessionManager(context),
+    private val syncAssociator: CrossSensorSyncAssociator? = null
 ) {
 
     companion object {
@@ -148,6 +151,8 @@ class RadarSessionRecorder(
      */
     fun writeFrame(packet: RawRadarPacket, hostMonoNs: Long, hostWallMs: Long) {
         if (!isRecordingActive) return
+
+        syncAssociator?.pushRadar(hostMonoNs, packet.header)
 
         val payload = (if (packet.fullPacketBytes.isNotEmpty()) packet.fullPacketBytes else packet.payload).clone()
         executor.execute {

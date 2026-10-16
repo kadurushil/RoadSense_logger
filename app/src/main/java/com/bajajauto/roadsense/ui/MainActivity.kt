@@ -116,6 +116,9 @@ fun RoadSenseCockpitScreen(
     val isCalibrationFullScreen by viewModel.isCalibrationFullScreen.collectAsState()
     val isCameraFullScreen by viewModel.isCameraFullScreen.collectAsState()
 
+    val syncTelemetry by viewModel.liveSyncTelemetry.collectAsState()
+    var showSyncDialog by remember { mutableStateOf(false) }
+
     val coroutineScope = rememberCoroutineScope()
     val tabs = CockpitTab.values()
     val pagerState = rememberPagerState(initialPage = 0) { tabs.size }
@@ -144,7 +147,9 @@ fun RoadSenseCockpitScreen(
                 batteryPct = batteryPct,
                 batteryTempC = batteryTempC,
                 cpuUsagePct = cpuUsagePct,
-                cpuTempC = cpuTempC
+                cpuTempC = cpuTempC,
+                syncTelemetry = syncTelemetry,
+                onSyncClick = { showSyncDialog = true }
             )
         }
 
@@ -367,6 +372,13 @@ fun RoadSenseCockpitScreen(
             viewModel = viewModel,
             onExit = { viewModel.setCalibrationFullScreen(false) },
             modifier = Modifier.fillMaxSize()
+        )
+    }
+
+    if (showSyncDialog) {
+        com.bajajauto.roadsense.ui.components.SyncInspectionDialog(
+            telemetry = syncTelemetry,
+            onDismissRequest = { showSyncDialog = false }
         )
     }
     }

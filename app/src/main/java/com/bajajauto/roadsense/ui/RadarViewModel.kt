@@ -23,6 +23,9 @@ import com.bajajauto.roadsense.recording.RadarSessionRecorder
 import com.bajajauto.roadsense.recording.RawUartRecorder
 import com.bajajauto.roadsense.recording.RecordingState
 import com.bajajauto.roadsense.recording.SessionInfo
+import com.bajajauto.roadsense.recording.SessionSyncAuditor
+import com.bajajauto.roadsense.sync.CrossSensorSyncAssociator
+import com.bajajauto.roadsense.sync.LiveSyncTelemetry
 import com.bajajauto.roadsense.canedge.discovery.CanedgeDiscovery
 import com.bajajauto.roadsense.canedge.ingestion.CanedgeIngestionManager
 import com.bajajauto.roadsense.canedge.model.CanedgeConnectionState
@@ -61,13 +64,19 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val packetAssembler = RadarPacketAssembler()
     private val tlvDecoder = RadarTlvDecoder()
     private val rawRecorder = RawUartRecorder(application)
-    private val sessionRecorder = RadarSessionRecorder(application, sessionManager)
+    val syncAssociator = CrossSensorSyncAssociator()
+    val liveSyncTelemetry: StateFlow<LiveSyncTelemetry> = syncAssociator.liveSyncTelemetry
+
+    private val sessionRecorder = RadarSessionRecorder(application, sessionManager, syncAssociator)
     private val gnssLocationManager = GnssLocationManager(application)
     private val gnssSessionRecorder = GnssSessionRecorder(sessionManager)
     val cameraEngine = CameraEngine(application)
-    private val cameraSessionRecorder = CameraSessionRecorder(sessionManager)
+    private val cameraSessionRecorder = CameraSessionRecorder(sessionManager, syncAssociator)
     val imuManager = ImuManager(application)
-    val imuSessionRecorder = ImuSessionRecorder(sessionManager)
+    val imuSessionRecorder = ImuSessionRecorder(sessionManager, syncAssociator)
+
+    private val _latestSessionAudit = MutableStateFlow<SessionSyncAuditor.AuditResult?>(null)
+    val latestSessionAudit: StateFlow<SessionSyncAuditor.AuditResult?> = _latestSessionAudit.asStateFlow()
 
     // CANedge2 Network & Ingestion Engine
     private val canedgeHttpClient = CanedgeHttpClient()
@@ -323,6 +332,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         gnssLocationManager.addFixListener { fix ->
             gnssFixesThisSec++
             gnssSessionRecorder.recordFix(fix)
+            syncAssociator.updateGnss(fix)
         }
 
         // Camera frame shutter listener: automatically records frame metadata if session recording is active
@@ -458,6 +468,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startSessionRecording(): SessionInfo? {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped START session recording")
+        syncAssociator.reset()
         if (hasLocationPermission()) {
             startGnssUpdates()
         }
@@ -507,7 +518,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         val imuFrames = imuSessionRecorder.stopRecording()
         imuManager.stopSessionRecording()
         sessionRecorder.currentSession?.totalImuFrames = imuFrames
-        return sessionRecorder.stopSession()
+        val stopped = sessionRecorder.stopSession()
+        _latestSessionAudit.value = stopped?.syncAuditResult
+        return stopped
     }
 
     fun startCanedgeDiscovery() {

@@ -277,11 +277,28 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         elif path == "/api/stream":
             self.serve_sse_stream()
         elif path.startswith("/logs/"):
-            rel = path[6:]  # strip /logs/
+            from urllib.parse import unquote
+            rel = unquote(path[6:])  # strip /logs/ and decode URL encoding
             target = os.path.normpath(os.path.join(LOGS_DIR, rel))
-            if target.startswith(LOGS_DIR) and os.path.isfile(target):
+            norm_logs = os.path.normcase(os.path.abspath(LOGS_DIR))
+            norm_target = os.path.normcase(os.path.abspath(target))
+            if norm_target.startswith(norm_logs) and os.path.isfile(target):
                 ext = os.path.splitext(target)[1].lower()
-                mime = "image/png" if ext == ".png" else ("image/jpeg" if ext in [".jpg", ".jpeg"] else "application/octet-stream")
+                mime_map = {
+                    ".html": "text/html; charset=utf-8",
+                    ".htm": "text/html; charset=utf-8",
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".svg": "image/svg+xml",
+                    ".json": "application/json; charset=utf-8",
+                    ".js": "application/javascript; charset=utf-8",
+                    ".css": "text/css; charset=utf-8",
+                    ".csv": "text/plain; charset=utf-8",
+                    ".txt": "text/plain; charset=utf-8",
+                    ".log": "text/plain; charset=utf-8",
+                }
+                mime = mime_map.get(ext, "application/octet-stream")
                 self.serve_file(target, mime)
             else:
                 self.send_error(404, "File not found in logs/")

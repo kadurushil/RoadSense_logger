@@ -15,6 +15,9 @@ import java.io.FileWriter
 import java.io.IOException
 import java.util.concurrent.locks.LockSupport
 
+import com.bajajauto.roadsense.sync.CrossSensorSyncAssociator
+import java.util.concurrent.atomic.AtomicLong
+
 /**
  * Autonomous high-rate recorder for synchronized IMU frames (100–104 Hz).
  *
@@ -26,8 +29,11 @@ import java.util.concurrent.locks.LockSupport
  * frame drops, minimal disk I/O latency, and complete immunity to UI touch interactions.
  */
 class ImuSessionRecorder(
-    private val sessionManager: SessionManager? = null
+    private val sessionManager: SessionManager? = null,
+    private val syncAssociator: CrossSensorSyncAssociator? = null
 ) {
+
+    private val frameSequenceCounter = AtomicLong(0L)
 
     companion object {
         private const val TAG = "ImuSessionRecorder"
@@ -76,6 +82,7 @@ class ImuSessionRecorder(
             totalFramesWritten = 0L
             _framesRecorded.value = 0L
             ringBuffer.reset()
+            frameSequenceCounter.set(0L)
             isRecordingActive = true
             _isRecording.value = true
 
@@ -164,6 +171,9 @@ class ImuSessionRecorder(
     fun recordFrame(frame: ImuFrame) {
         if (!isRecordingActive) return
 
+        val seq = frameSequenceCounter.incrementAndGet()
+        syncAssociator?.pushImu(frame, seq)
+
         ringBuffer.enqueue(
             elapsedRealtimeNs = frame.elapsedRealtimeNs,
             deliveryNs = if (frame.deliveryNs > 0L) frame.deliveryNs else SystemClock.elapsedRealtimeNanos(),
@@ -189,6 +199,18 @@ class ImuSessionRecorder(
         linAx: Float, linAy: Float, linAz: Float
     ): Boolean {
         if (!isRecordingActive) return false
+
+        val seq = frameSequenceCounter.incrementAndGet()
+        syncAssociator?.pushImu(
+            elapsedRealtimeNs = elapsedRealtimeNs,
+            wallTimeMs = wallTimeMs,
+            deliveryNs = deliveryNs,
+            sequenceId = seq,
+            ax = ax, ay = ay, az = az,
+            gx = gx, gy = gy, gz = gz,
+            qx = qx, qy = qy, qz = qz, qw = qw,
+            linAx = linAx, linAy = linAy, linAz = linAz
+        )
 
         return ringBuffer.enqueue(
             elapsedRealtimeNs = elapsedRealtimeNs,

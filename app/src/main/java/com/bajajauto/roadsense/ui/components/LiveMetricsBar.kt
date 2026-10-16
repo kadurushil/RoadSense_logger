@@ -1,6 +1,6 @@
 package com.bajajauto.roadsense.ui.components
 
-import android.content.res.Configuration
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.gnss.GnssFix
+import com.bajajauto.roadsense.sync.LiveSyncTelemetry
 
 /**
  * High-density live telemetry ticker for in-vehicle testing.
@@ -32,9 +33,23 @@ fun LiveMetricsBar(
     batteryTempC: Float,
     cpuUsagePct: Int = 0,
     cpuTempC: Float? = null,
+    syncTelemetry: LiveSyncTelemetry = LiveSyncTelemetry(),
+    onSyncClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val syncColor = when (syncTelemetry.liveGrade) {
+        "GOLD" -> Color(0xFF00E676)
+        "SILVER" -> Color(0xFF69F0AE)
+        "WARN" -> Color(0xFFFFB300)
+        "STALL", "ERROR" -> Color(0xFFFF5252)
+        else -> Color(0xFF78909C)
+    }
+    val syncValue = if (syncTelemetry.isCameraActive && syncTelemetry.isImuActive) {
+        "${"%.1f".format(syncTelemetry.camToImuDeltaMs)}ms"
+    } else {
+        "IDLE"
+    }
 
     Surface(
         color = Color(0xFF0D1117),
@@ -50,9 +65,9 @@ fun LiveMetricsBar(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Sensor Hz rates
+                // Sensor Hz rates + SYNC
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     MetricPill(
@@ -74,6 +89,12 @@ fun LiveMetricsBar(
                         label = "IMU",
                         value = "${"%.1f".format(imuHz)} Hz",
                         color = if (imuHz > 80f) Color(0xFF00E676) else if (imuHz > 0f) Color(0xFFFFB300) else Color(0xFF78909C)
+                    )
+                    MetricPill(
+                        label = "SYNC",
+                        value = syncValue,
+                        color = syncColor,
+                        onClick = onSyncClick
                     )
                 }
 
@@ -143,6 +164,12 @@ fun LiveMetricsBar(
                         value = "${"%.1f".format(imuHz)} Hz",
                         color = if (imuHz > 80f) Color(0xFF00E676) else if (imuHz > 0f) Color(0xFFFFB300) else Color(0xFF78909C)
                     )
+                    MetricPill(
+                        label = "SYNC",
+                        value = syncValue,
+                        color = syncColor,
+                        onClick = onSyncClick
+                    )
                 }
 
                 // Line 2: GNSS precision & CPU & Battery / Thermals
@@ -211,11 +238,13 @@ private fun BatteryTempBadge(
 private fun MetricPill(
     label: String,
     value: String,
-    color: Color
+    color: Color,
+    onClick: (() -> Unit)? = null
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.dp)
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
     ) {
         Text(
             text = label,

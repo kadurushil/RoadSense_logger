@@ -20,6 +20,7 @@ data class SessionInfo(
     val cameraDir: File = File(sessionDir, "camera"),
     val canDir: File = File(sessionDir, "can"),
     val imuDir: File = File(sessionDir, "imu"),
+    val syncDir: File = File(sessionDir, "sync"),
     val startTimeWallMs: Long,
     val startTimeMonotonicNs: Long,
     var stopTimeWallMs: Long? = null,
@@ -28,7 +29,9 @@ data class SessionInfo(
     var totalRadarBytes: Long = 0L,
     var totalGnssFixes: Long = 0L,
     var totalCameraFrames: Long = 0L,
-    var totalImuFrames: Long = 0L
+    var totalImuFrames: Long = 0L,
+    var crossSensorSyncJson: JSONObject? = null,
+    var syncAuditResult: SessionSyncAuditor.AuditResult? = null
 ) {
     fun toJson(): String {
         val json = JSONObject()
@@ -92,6 +95,10 @@ data class SessionInfo(
         if (totalImuFrames > 0 || File(imuDir, "imu_frames.csv").exists()) {
             streamsArray.put("imu/imu_frames.csv")
         }
+        val keyframesFile = File(syncDir, "sync_keyframes.csv")
+        if (keyframesFile.exists() && keyframesFile.length() > 0L) {
+            streamsArray.put("sync/sync_keyframes.csv")
+        }
         val canFiles = canDir.listFiles { _, name -> name.endsWith(".mf4", ignoreCase = true) }
         if (!canFiles.isNullOrEmpty()) {
             val canObj = JSONObject()
@@ -111,6 +118,10 @@ data class SessionInfo(
             streamsArray.put("session_debug.log")
         }
         json.put("activeStreams", streamsArray)
+
+        crossSensorSyncJson?.let {
+            json.put("crossSensorSync", it)
+        }
 
         return json.toString(2)
     }

@@ -51,6 +51,7 @@ class SessionManager(private val context: Context) {
         val cameraDir = File(sessionDir, "camera").apply { mkdirs() }
         val canDir = File(sessionDir, "can").apply { mkdirs() }
         val imuDir = File(sessionDir, "imu").apply { mkdirs() }
+        val syncDir = File(sessionDir, "sync").apply { mkdirs() }
 
         val sessionInfo = SessionInfo(
             sessionId = sessionId,
@@ -60,6 +61,7 @@ class SessionManager(private val context: Context) {
             cameraDir = cameraDir,
             canDir = canDir,
             imuDir = imuDir,
+            syncDir = syncDir,
             startTimeWallMs = nowMs,
             startTimeMonotonicNs = nowMonoNs
         )
@@ -128,6 +130,16 @@ class SessionManager(private val context: Context) {
             summary = "Session finished: totalFrames=${sessionInfo.totalRadarFrames};totalFixes=${sessionInfo.totalGnssFixes}"
         )
         timelineWriter.stop()
+
+        // Execute on-device cross-sensor synchronization audit
+        try {
+            val auditResult = SessionSyncAuditor.auditSession(sessionInfo)
+            sessionInfo.syncAuditResult = auditResult
+            sessionInfo.crossSensorSyncJson = auditResult.toJson()
+            com.bajajauto.roadsense.logging.AppLogger.i(TAG, "Cross-sensor audit: ${auditResult.summaryNote}")
+        } catch (e: Exception) {
+            com.bajajauto.roadsense.logging.AppLogger.e(TAG, "Failed to run cross-sensor audit: ${e.message}")
+        }
 
         writeMetadata(sessionInfo)
         com.bajajauto.roadsense.logging.AppLogger.i(TAG, "Closed session ${sessionInfo.sessionId}, total frames: ${sessionInfo.totalRadarFrames}, total bytes: ${sessionInfo.totalRadarBytes}, total fixes: ${sessionInfo.totalGnssFixes}")

@@ -922,7 +922,7 @@ On this Samsung Exynos platform, all camera properties were queried via `getprop
 16. **Foxglove Protobuf user scripts require `@foxglove/schemas` and typed `Float64Array` buffers:** Returning plain JavaScript `number[]` arrays or generic `Message<T>` types breaks schema resolution in Foxglove's runtime, producing anonymous hashes (e.g. `0bb4508b`) that are rejected by visualization panels. Always import from `@foxglove/schemas` and instantiate `Float64Array` for matrix vectors.
 17. **Never confuse radar semi-axis radii ($\sigma$) with full bounding box dimensions ($2\sigma$), nor swap Field 5 (`majorSize`) and Field 6 (`minorSize`):** In custom MRR firmware, Field 5 is the longitudinal semi-major axis radius ($R_{\text{major}}$) and Field 6 is the transverse semi-minor axis radius ($R_{\text{minor}}$). Always test orientation against large high-aspect vehicles (e.g., long trucks facing oncoming at $180^\circ$) rather than square reflection clusters from compact passenger cars.
 18. **Always use `SENSOR_DELAY_FASTEST` (0 µs) rather than explicit microsecond delays for high-rate IMU logging:** Passing explicit numeric periods (e.g. 9615 µs or 10000 µs) activates Android HAL software decimation and rate-regulation filters, introducing severe 18 ms periodic phase jumps ($\Delta t_{\text{prev}} + \Delta t_{\text{spike}} = 30.0\text{ ms}$). Passing 0 µs requests raw hardware FIFO delivery with minimum jitter ($\sigma < 1.0\text{ ms}$).
-
-
-
-
+19. **Strict Standards for Math Formatting in Markdown:** When writing mathematical formulas, follow the exact markdown-math standards established in `intel/Sensor fusion basics.md`:
+    - Standalone equations must be placed in isolated block display format (`$$...$$`) with empty blank lines before and after to ensure math parsers (KaTeX/MathJax) cleanly tokenize them.
+    - Never place raw LaTeX fractions (`\frac`) or unescaped subscripts with underscores (`_`) directly inside Markdown table headers or cells, as Markdown table parsers treat `|` and `_` as column delimiters and italics, corrupting the LaTeX syntax.
+    - For inline text, tables, and quick timing metrics, use clean Unicode/ASCII characters (`Δt`, `·`, `<=`, `->`) or code spans to guarantee flawless, legible rendering across all IDE previewers and Git diffs.

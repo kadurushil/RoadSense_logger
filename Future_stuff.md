@@ -255,20 +255,52 @@ Automotive engineers have several powerful tools to inspect, graph, and analyze 
 
 ---
 
-### 5.5 Automated Radar-Camera Pitch Calibration & Dynamic Stabilization via IMU
+### 5.5 Automated Radar-Camera Pitch Calibration & Dynamic Stabilization via IMU [DEFERRED TO FUTURE]
+* **Status:** Deferred to future phase. Baseline timing audit confirmed cross-sensor proximity is $< 3.0\text{ ms}$ ($< 5\text{ cm}$ spatial lag at $60\text{ km/h}$), providing the exact temporal fidelity needed for real-time attitude compensation without phase distortion.
 * **Reference Document:** Full theoretical derivation, formulas, and blueprint in [`intel/Implementations/Sensors/RADAR_PITCH_CALIBRATION_VIA_IMU.md`](intel/Implementations/Sensors/RADAR_PITCH_CALIBRATION_VIA_IMU.md).
 * **Motivation:**
-  * Pitch tilt angle ($\theta$) is the most critical and sensitive extrinsic parameter. A $1.0^\circ$ pitch error creates a **$\approx 28\text{ px}$ vertical shift** on 1080p and a **$0.87\text{ m}$ height error** at $50\text{ m}$ forward range.
-* **Feature Roadmap:**
+  * Pitch tilt angle ($\theta$) is the most critical and sensitive extrinsic parameter. A $1.0^\circ$ pitch error creates a $\approx 28\text{ px}$ vertical shift on 1080p and a $0.87\text{ m}$ height error at $50\text{ m}$ forward range.
+  * During aggressive braking or acceleration, motorcycle and automotive suspension induces $\pm 1.5^\circ \text{ to } \pm 4.0^\circ$ of pitch swing. Uncompensated, this causes radar target bounding boxes and synthetic horizon lines to jump up/down by 40–110 pixels on the phone screen.
+* **Feature Roadmap & Technical Implementation:**
   1. **One-Tap Level Ground Calibration:**
      * When parked on flat ground, query `Sensor.TYPE_GRAVITY` and 100 Hz `Sensor.TYPE_ACCELEROMETER`.
-     * Closed-form inclination angle: $\theta_{\text{mount}} = \arctan2(-g_z, \sqrt{g_x^2 + g_y^2})$ (rear camera optical boresight is $-Z_{\text{phone}}$).
-     * 100-sample averaging achieves **$\pm 0.03^\circ$ accuracy** ($< 1\text{ px}$ error) with a single tap, eliminating manual slider adjustment.
-  2. **Dynamic In-Drive Pitch Compensation (Suspension Dynamics):**
-     * High-rate 100 Hz `GameRotationVector` and Gyroscope pitch rate ($\omega_y$) compute real-time suspension dynamics:
+     * Closed-form inclination angle:
+       $$\theta_{\text{mount}} = \arctan2(-g_z, \sqrt{g_x^2 + g_y^2})$$
+       (rear camera optical boresight is $-Z_{\text{phone}}$).
+     * 100-sample averaging achieves $\pm 0.03^\circ$ accuracy ($< 1\text{ px}$ error) with a single tap, eliminating manual slider adjustment.
+  2. **Dynamic In-Drive Attitude & Pitch De-Warping (`SpatialProjectionEngine`):**
+     * Query the high-rate 100 Hz IMU orientation quaternion ($\mathbf{q} = [q_w, q_x, q_y, q_z]$) nearest to the incoming camera frame ($|t_{\text{cam}} - t_{\text{imu}}| < 5\text{ ms}$).
+     * Extract dynamic chassis pitch deviation from baseline:
        $$\Delta \theta(t) = \theta_{\text{attitude}}(t) - \theta_{\text{baseline}}$$
-     * Dynamically adjusts the camera projection matrix during hard braking (front nose-dip $-1.5^\circ$ to $-3.0^\circ$) and acceleration squat ($+1.0^\circ$ to $+2.0^\circ$).
-     * Prevents radar footprints and lollipops from jumping upward into the sky during vehicle braking.
-  3. **Mount Slippage & Health Monitoring:**
-     * Detects when the windshield mount shifts or slips over road bumps while stopped at red lights, offering a one-tap `[Auto Re-align]` HUD banner.
+     * Apply real-time rotational compensation inside `SpatialProjectionEngine.project2DRadarToScreen()`:
+       $$\theta_{\text{effective}}(t) = \theta_{\text{calibrated}} + \Delta \theta(t)$$
+     * Prevents radar reticles, road footprints, and lollipops from detaching from target vehicle bumpers during braking nose-dive or acceleration squat.
+  3. **Synthetic Horizon Line Stabilization:**
+     * Project the true astronomical and road horizon onto the camera viewfinder using the IMU gravity vector.
+     * Keeps driver focus aligned with road plane regardless of vehicle roll or pitch changes.
+  4. **Mount Slippage & Health Monitoring:**
+     * Detects when the windshield phone mount slips or vibrates loose over potholes, offering a one-tap `[Auto Re-align]` HUD banner when stopped at traffic lights.
+
+---
+
+## 6. Centralized App-State & Sensor Attachment Registry Architecture [BACKLOG]
+* **Motivation:**
+  * Currently, sensor attachment states (Radar USB connected, Camera permission/stream open, CANedge Wi-Fi reachable, GNSS active, IMU streaming) are managed independently across disparate controllers.
+  * When a sensor is physically unplugged or intentionally disabled by the user, downstream calculations (like cross-sensor sync deltas or projection matrix solvers) must not produce false-positive errors or crash.
+* **Architectural Blueprint:**
+  * **Location:** `com.bajajauto.roadsense.state` (or `com.bajajauto.roadsense.sensors.registry`).
+  * **Core State Container (`RoadSenseAppState.kt`):**
+    * Single source of truth holding reactive `StateFlow<SensorPresenceMap>`:
+      ```kotlin
+      data class SensorPresence(
+          val isHardwareAttached: Boolean,
+          val isStreamActive: Boolean,
+          val lastHeartbeatElapsedNs: Long,
+          val effectiveHz: Float,
+          val faultState: SensorFaultState
+      )
+      ```
+    * Broadcasts unified sensor connectivity events across all modules.
+    * Allows any background processor (e.g. `CrossSensorSyncAssociator`, `SpatialProjectionEngine`, `SessionManager`) to safely query `appState.isAttached(SensorType.RADAR)` before attempting cross-sensor calculations.
+
 

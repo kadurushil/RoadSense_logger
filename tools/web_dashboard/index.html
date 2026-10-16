@@ -976,28 +976,58 @@ Select an operation on the left and click Run.
       span.innerHTML = ansiToHtml(line);
       term.appendChild(span);
 
-      // Inline preview for diagnostic plot artifacts (deduplicated per run)
-      if (line.includes('sync_audit_report.png') && (line.includes('saved') || line.includes('Plot:'))) {
-        const match = line.match(/(logs[\\\/]session_[^\\\/]+[\\\/]sync_audit_report\.png)/i);
-        if (match && !term.querySelector(`img[src^="/${match[1].replace(/\\/g, '/')}"]`)) {
-          const relPath = match[1].replace(/\\/g, '/');
-          const previewDiv = document.createElement('div');
-          previewDiv.className = 'sync-plot-card';
-          previewDiv.style.margin = '10px 0 16px 0';
-          previewDiv.style.padding = '10px';
-          previewDiv.style.background = '#151821';
-          previewDiv.style.border = '1px solid #334155';
-          previewDiv.style.borderRadius = '6px';
-          previewDiv.innerHTML = `
-            <div style="font-weight: 600; color: #38bdf8; margin-bottom: 8px; font-size: 12px; display: flex; justify-content: space-between; align-items: center;">
-              <span>📊 Cross-Sensor Synchronization Diagnostic Chart</span>
-              <a href="/${relPath}" target="_blank" style="color: #4ade80; text-decoration: none; font-size: 11px; padding: 3px 10px; background: rgba(74, 222, 128, 0.1); border-radius: 4px; border: 1px solid rgba(74, 222, 128, 0.25);">↗ Open Full Image</a>
-            </div>
-            <a href="/${relPath}" target="_blank">
-              <img src="/${relPath}?t=${Date.now()}" style="max-width: 100%; border-radius: 4px; display: block; border: 1px solid #1e293b;" alt="Sync Audit Chart"/>
-            </a>
-          `;
-          term.appendChild(previewDiv);
+      // Inline interactive preview for diagnostic plot artifacts (deduplicated per session)
+      if (line.includes('sync_audit_report') && (line.includes('saved') || line.includes('Plot:') || line.includes('Interactive HTML:') || line.includes('Report URL:'))) {
+        const match = line.match(/logs[\\\/](session_[a-zA-Z0-9_]+)[\\\/]sync_audit_report\.(?:html|png)/i);
+        if (match) {
+          const sessId = match[1];
+          const cardId = `sync-audit-card-${sessId}`;
+          if (!term.querySelector(`#${cardId}`)) {
+            const htmlRelPath = `logs/${sessId}/sync_audit_report.html`;
+            const pngRelPath = `logs/${sessId}/sync_audit_report.png`;
+            const previewDiv = document.createElement('div');
+            previewDiv.id = cardId;
+            previewDiv.className = 'sync-plot-card';
+            previewDiv.style.margin = '14px 0 20px 0';
+            previewDiv.style.padding = '12px';
+            previewDiv.style.background = '#131722';
+            previewDiv.style.border = '1px solid #2e384d';
+            previewDiv.style.borderRadius = '8px';
+            previewDiv.style.boxShadow = '0 4px 16px rgba(0,0,0,0.35)';
+            previewDiv.innerHTML = `
+              <div style="font-weight: 600; color: #38bdf8; margin-bottom: 10px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span>📊 Interactive Cross-Sensor Synchronization Audit</span>
+                  <span style="font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px; background: rgba(56, 189, 248, 0.15); color: #38bdf8; border: 1px solid rgba(56, 189, 248, 0.3);">Plotly Dynamic</span>
+                  <span style="font-size: 11px; color: #94a3b8; font-family: monospace;">${sessId}</span>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <button type="button" onclick="toggleSyncPlotView('${sessId}')" id="btn-toggle-${sessId}" style="background: #1e293b; color: #cbd5e1; border: 1px solid #475569; padding: 4px 12px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.15s ease;">🖼️ Switch to Static PNG</button>
+                  <a href="/${htmlRelPath}" target="_blank" id="btn-open-${sessId}" style="color: #4ade80; text-decoration: none; font-size: 11px; font-weight: 600; padding: 4px 12px; background: rgba(74, 222, 128, 0.12); border-radius: 5px; border: 1px solid rgba(74, 222, 128, 0.3); display: inline-flex; align-items: center; gap: 4px;">↗ Open Full Dashboard</a>
+                </div>
+              </div>
+              <div id="view-interactive-${sessId}" style="width: 100%;">
+                <iframe src="/${htmlRelPath}?t=${Date.now()}" id="iframe-${sessId}" style="width: 100%; height: 980px; border: 1px solid #1e2433; border-radius: 6px; background: #0b0c10; display: block;" title="Interactive Sync Audit Report"></iframe>
+              </div>
+              <div id="view-static-${sessId}" style="width: 100%; display: none;">
+                <a href="/${pngRelPath}" target="_blank">
+                  <img src="/${pngRelPath}?t=${Date.now()}" style="max-width: 100%; border-radius: 6px; display: block; border: 1px solid #1e2433;" alt="Sync Audit Chart"/>
+                </a>
+              </div>
+            `;
+            term.appendChild(previewDiv);
+            setTimeout(() => {
+              previewDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }, 100);
+          }
+
+          // If the HTML report specifically was announced, refresh the iframe src to guarantee it loads the finished file
+          if (line.includes('Interactive HTML:') || line.includes('Report URL:')) {
+            const iframe = document.getElementById(`iframe-${sessId}`);
+            if (iframe) {
+              iframe.src = `/${htmlRelPath}?t=${Date.now()}`;
+            }
+          }
         }
       }
 
@@ -1016,6 +1046,32 @@ Select an operation on the left and click Run.
       navigator.clipboard.writeText(term.innerText).then(() => {
         alert("Console output copied to clipboard!");
       });
+    }
+
+    function toggleSyncPlotView(sessId) {
+      const interView = document.getElementById(`view-interactive-${sessId}`);
+      const staticView = document.getElementById(`view-static-${sessId}`);
+      const btn = document.getElementById(`btn-toggle-${sessId}`);
+      const openBtn = document.getElementById(`btn-open-${sessId}`);
+      if (!interView || !staticView || !btn) return;
+
+      if (interView.style.display === 'none') {
+        interView.style.display = 'block';
+        staticView.style.display = 'none';
+        btn.innerHTML = '🖼️ Switch to Static PNG';
+        if (openBtn) {
+          openBtn.href = `/logs/${sessId}/sync_audit_report.html`;
+          openBtn.innerHTML = '↗ Open Full Dashboard';
+        }
+      } else {
+        interView.style.display = 'none';
+        staticView.style.display = 'block';
+        btn.innerHTML = '📊 Switch to Interactive Plot';
+        if (openBtn) {
+          openBtn.href = `/logs/${sessId}/sync_audit_report.png`;
+          openBtn.innerHTML = '↗ Open Static PNG';
+        }
+      }
     }
 
     // --- API Calls ---
