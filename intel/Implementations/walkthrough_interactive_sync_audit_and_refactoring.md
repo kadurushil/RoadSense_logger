@@ -87,3 +87,35 @@ python scripts/audit_cross_sensor_sync.py --latest --no-plot
 ```
 Both commands executed with code `0`, generated expected artifacts, and logged identical scorecards without errors.
 
+---
+
+## 5. Foxglove-Style Mouse-Locked HUD & Sticky Navigation Toolbar
+
+### 5.1 Problems Solved
+1. **Unreachable Modebar on Long Vertical Scroll**:
+   - The multi-panel plot spans 1,250px. Plotly's native modebar is nested inside `.plot-container > .svg-container` with absolute positioning, causing it to scroll out of view when users navigate down to inspect panels 4, 5, or 6.
+2. **Violent Tooltip Jitter in Noisy Data**:
+   - Plotly's default hover architecture anchors tooltip boxes to the nearest discrete point's $(x, y)$ coordinate. In noisy signals (e.g. 100 Hz IMU jittering between 8ms and 18ms), horizontal mouse movement caused the tooltip to jump up and down 50–80px violently.
+3. **Panel 6 (Write Queue Jitter) Zoom Squish**:
+   - A single startup worker initialization spike (401.8ms at $t=0.101\text{s}$) squished steady-state write queue latencies (mean: 24ms).
+
+### 5.2 Implementation Details
+- **Panel 6 Dynamic Scaling**:
+  - Clamped default range to `[-2.0, max(55.0, min(85.0, max_q_core * 1.25))]` (evaluated to 57.9ms), pinning a startup badge `▲ Startup Worker Init: 401.8ms` at $t=0.101\text{s}$.
+- **In-Panel Subplot Title Badges**:
+  - Direct legend-free readability: each subplot contains a title banner with color pills for each trace.
+- **Sticky Navigation Controls**:
+  - Added dedicated navigation controls directly inside `.toolbar` (`position: sticky; top: 0; z-index: 1000;`):
+    - `[ 🔍 Box Zoom ]` -> `setDragMode('zoom', this)`
+    - `[ ✋ Pan ]` -> `setDragMode('pan', this)`
+    - `[ 🔄 Reset View ]` -> `resetPlotView()`
+  - Controls remain pinned to the top of the browser viewport at all scroll depths.
+- **Foxglove-Style Mouse-Locked HUD (`#cursor-hud`)**:
+  - Suppressed Plotly point-anchored SVG tooltips via `hoverinfo: "none"` and `hovermode: false`.
+  - Mounted fixed DOM tooltip (`#cursor-hud`) locked to `(e.clientX + 16, e.clientY + 12)` with zero vertical signal jitter.
+  - Sub-microsecond binary search ($O(\log N)$) extracts values at timeline time $t$ for all 6 panels.
+  - Active panel is highlighted with color pill and metric name; synchronized snapshot rows show other active channels.
+  - Integrated hardware-accelerated zero-latency vertical crosshair line (`#crosshair-bar`) spanning across all 6 panels.
+  - Mirrored live time and metric readout into the sticky top toolbar (`#toolbar-hud`).
+
+

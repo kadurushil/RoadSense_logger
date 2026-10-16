@@ -356,6 +356,19 @@ def generate_sync_plots(sess_dir, t0, records, radar_times, cam_times, imu_mono,
     ax5 = axes[5]
     if q_times:
         ax5.scatter(q_times, q_jitter_ms, color='#fbbf24', s=2.0, alpha=0.6, label=f'Write Queue Buffer Jitter ({len(q_times):,} events)')
+        core_q = [j for t, j in zip(q_times, q_jitter_ms) if t_core_start <= t <= t_core_end]
+        max_q_core = max(core_q) if core_q else 35.0
+        y5_mpl_max = max(55.0, max_q_core * 1.25)
+        ax5.set_ylim(-2.0, y5_mpl_max)
+        
+        # Callout badge for initial worker startup spike
+        q_spikes_init = [(t, j) for t, j in zip(q_times, q_jitter_ms) if t < 1.5 and j > y5_mpl_max]
+        if q_spikes_init:
+            spk = q_spikes_init[0]
+            ax5.annotate(f"▲ Startup Worker Init: {spk[1]:.1f}ms (t={spk[0]:.2f}s)",
+                         xy=(spk[0], y5_mpl_max * 0.90), xytext=(spk[0] + (total_dur_s * 0.05), y5_mpl_max * 0.90),
+                         fontsize=8, fontweight='bold', color='#fbbf24',
+                         bbox=dict(boxstyle="round,pad=0.25", fc="#1e2230", ec="#f59e0b", lw=0.8))
     ax5.set_ylabel('Queue Jitter (ms)')
     ax5.set_xlabel('Elapsed Timeline Time (seconds)')
     ax5.set_title('6. Multithreaded Write Buffer Interleaving Latency', fontsize=10, fontweight='bold', pad=6)
@@ -466,6 +479,10 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
     max_rad_core = max(core_rad_dt) if core_rad_dt else 55.0
     y1_max = round(max(75.0, max(max_cam_core, max_rad_core) * 1.25), 1)
 
+    core_q = [j for t, j in zip(q_t_sub, q_j_sub) if t_core_start <= t <= t_core_end]
+    max_q_core = max(core_q) if core_q else 35.0
+    y5_max = round(max(55.0, min(85.0, max_q_core * 1.25)), 1)
+
     # Load session metadata
     meta_path = os.path.join(sess_dir, "session_metadata.json")
     meta = {}
@@ -495,31 +512,35 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
     imu_hz = round(len(imu_mono) / total_dur_s, 1) if total_dur_s > 0 else 100.0
     rad_hz = round(len(radar_times) / total_dur_s, 1) if total_dur_s > 0 else 20.0
 
-    # Build Plotly Traces
+    # Build Plotly Traces with optimized hover templates & skipping static lines
     traces = []
     # Panel 1: Rad -> Cam
     if rad_t_s:
         traces.append({
             "type": "scatter", "mode": "lines", "name": "Radar -> Nearest Cam Offset",
             "x": rad_t_s, "y": rad_offsets_ms,
-            "line": {"color": "#38bdf8", "width": 1.2}, "yaxis": "y1", "xaxis": "x"
+            "line": {"color": "#38bdf8", "width": 1.2}, "yaxis": "y1", "xaxis": "x",
+            "hoverinfo": "none"
         })
         traces.append({
             "type": "scatter", "mode": "lines", "name": "Nyquist Limit (16.67 ms)",
             "x": [0, total_dur_s], "y": [16.67, 16.67],
-            "line": {"color": "#4ade80", "width": 1.4, "dash": "dash"}, "yaxis": "y1", "xaxis": "x"
+            "line": {"color": "#4ade80", "width": 1.4, "dash": "dash"}, "yaxis": "y1", "xaxis": "x",
+            "hoverinfo": "skip"
         })
         traces.append({
             "type": "scatter", "mode": "lines", "name": "1-Frame Horizon (33.33 ms)",
             "x": [0, total_dur_s], "y": [33.33, 33.33],
-            "line": {"color": "#fbbf24", "width": 1.4, "dash": "dot"}, "yaxis": "y1", "xaxis": "x"
+            "line": {"color": "#fbbf24", "width": 1.4, "dash": "dot"}, "yaxis": "y1", "xaxis": "x",
+            "hoverinfo": "skip"
         })
         spikes_50 = [(t, off) for t, off in zip(rad_t_s, rad_offsets_ms) if off > 50.0]
         if spikes_50:
             traces.append({
                 "type": "scatter", "mode": "markers", "name": f"Sync Spikes >50ms ({len(spikes_50)})",
                 "x": [s[0] for s in spikes_50], "y": [s[1] for s in spikes_50],
-                "marker": {"size": 6, "color": "#f87171", "symbol": "circle"}, "yaxis": "y1", "xaxis": "x"
+                "marker": {"size": 6, "color": "#f87171", "symbol": "circle"}, "yaxis": "y1", "xaxis": "x",
+                "hoverinfo": "none"
             })
 
     # Panel 2: Frame Intervals & Drops
@@ -527,19 +548,22 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
         traces.append({
             "type": "scatter", "mode": "lines", "name": "Camera Frame Interval (33.3ms)",
             "x": cam_t_s, "y": cam_dt_ms,
-            "line": {"color": "#a78bfa", "width": 1.1}, "yaxis": "y2", "xaxis": "x"
+            "line": {"color": "#a78bfa", "width": 1.1}, "yaxis": "y2", "xaxis": "x",
+            "hoverinfo": "none"
         })
     if rad_frame_t_s:
         traces.append({
             "type": "scatter", "mode": "lines", "name": "Radar Frame Interval (50.0ms)",
             "x": rad_frame_t_s, "y": rad_frame_dt_ms,
-            "line": {"color": "#f472b6", "width": 0.9}, "yaxis": "y2", "xaxis": "x"
+            "line": {"color": "#f472b6", "width": 0.9}, "yaxis": "y2", "xaxis": "x",
+            "hoverinfo": "none"
         })
     if cam_drops_t:
         traces.append({
             "type": "scatter", "mode": "markers", "name": f"Camera Drops >50ms ({len(cam_drops_t)})",
             "x": cam_drops_t, "y": cam_drops_dt,
-            "marker": {"size": 9, "color": "#f87171", "symbol": "x"}, "yaxis": "y2", "xaxis": "x"
+            "marker": {"size": 9, "color": "#f87171", "symbol": "x"}, "yaxis": "y2", "xaxis": "x",
+            "hoverinfo": "none"
         })
 
     # Panel 3: UI Events
@@ -547,19 +571,22 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
         traces.append({
             "type": "scatter", "mode": "markers", "name": "Screen Taps",
             "x": taps_t, "y": [0.0] * len(taps_t),
-            "marker": {"size": 8, "color": "#f59e0b", "symbol": "circle"}, "yaxis": "y3", "xaxis": "x"
+            "marker": {"size": 8, "color": "#f59e0b", "symbol": "circle"}, "yaxis": "y3", "xaxis": "x",
+            "hoverinfo": "none"
         })
     if swipes_t:
         traces.append({
             "type": "scatter", "mode": "markers", "name": "Tab Swipes",
             "x": swipes_t, "y": [1.0] * len(swipes_t),
-            "marker": {"size": 9, "color": "#c084fc", "symbol": "triangle-up"}, "yaxis": "y3", "xaxis": "x"
+            "marker": {"size": 9, "color": "#c084fc", "symbol": "triangle-up"}, "yaxis": "y3", "xaxis": "x",
+            "hoverinfo": "none"
         })
     if fs_t:
         traces.append({
             "type": "scatter", "mode": "markers", "name": "Fullscreen Toggles",
             "x": fs_t, "y": [2.0] * len(fs_t),
-            "marker": {"size": 8, "color": "#38bdf8", "symbol": "square"}, "yaxis": "y3", "xaxis": "x"
+            "marker": {"size": 8, "color": "#38bdf8", "symbol": "square"}, "yaxis": "y3", "xaxis": "x",
+            "hoverinfo": "none"
         })
 
     # Panel 4: IMU Stream & Anchors
@@ -567,14 +594,16 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
         traces.append({
             "type": "scatter", "mode": "lines", "name": f"IMU Stream (100 Hz, {len(imu_mono):,} samples)",
             "x": imu_t_s, "y": imu_dt_ms,
-            "line": {"color": "#34d399", "width": 0.9}, "yaxis": "y4", "xaxis": "x"
+            "line": {"color": "#34d399", "width": 0.9}, "yaxis": "y4", "xaxis": "x",
+            "hoverinfo": "none"
         })
     if imu_anchors:
         traces.append({
             "type": "scatter", "mode": "markers", "name": "5s Timeline Sync Anchors",
             "x": [round(a, 3) for a in imu_anchors], "y": [10.0] * len(imu_anchors),
             "marker": {"size": 12, "color": "#38bdf8", "symbol": "line-ns", "line": {"width": 2, "color": "#38bdf8"}},
-            "yaxis": "y4", "xaxis": "x"
+            "yaxis": "y4", "xaxis": "x",
+            "hoverinfo": "none"
         })
 
     # Panel 5: Cam <-> IMU Proximity
@@ -582,17 +611,20 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
         traces.append({
             "type": "scatter", "mode": "lines", "name": f"Camera -> Nearest IMU (Mean: {avg_ci:.2f}ms)",
             "x": cam_to_imu_t_s, "y": cam_to_imu_offsets_ms,
-            "line": {"color": "#38bdf8", "width": 1.2}, "yaxis": "y5", "xaxis": "x"
+            "line": {"color": "#38bdf8", "width": 1.2}, "yaxis": "y5", "xaxis": "x",
+            "hoverinfo": "none"
         })
         traces.append({
             "type": "scatter", "mode": "lines", "name": "Nyquist Limit (5.00 ms @ 100 Hz)",
             "x": [0, total_dur_s], "y": [5.00, 5.00],
-            "line": {"color": "#4ade80", "width": 1.4, "dash": "dash"}, "yaxis": "y5", "xaxis": "x"
+            "line": {"color": "#4ade80", "width": 1.4, "dash": "dash"}, "yaxis": "y5", "xaxis": "x",
+            "hoverinfo": "skip"
         })
         traces.append({
             "type": "scatter", "mode": "lines", "name": "1-Period Horizon (10.00 ms)",
             "x": [0, total_dur_s], "y": [10.00, 10.00],
-            "line": {"color": "#fbbf24", "width": 1.4, "dash": "dot"}, "yaxis": "y5", "xaxis": "x"
+            "line": {"color": "#fbbf24", "width": 1.4, "dash": "dot"}, "yaxis": "y5", "xaxis": "x",
+            "hoverinfo": "skip"
         })
 
     # Panel 6: Queue Jitter
@@ -600,7 +632,68 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
         traces.append({
             "type": "scatter", "mode": "markers", "name": "Write Queue Jitter",
             "x": q_t_sub, "y": q_j_sub,
-            "marker": {"size": 3, "color": "#fbbf24", "opacity": 0.7}, "yaxis": "y6", "xaxis": "x"
+            "marker": {"size": 3, "color": "#fbbf24", "opacity": 0.7}, "yaxis": "y6", "xaxis": "x",
+            "hoverinfo": "none"
+        })
+
+    # Subplot Header In-Panel Badges (Eliminates remote legend scroll problem)
+    annotations = [
+        # Panel 1
+        {
+            "x": 0.005, "y": 1.018, "xref": "paper", "yref": "paper",
+            "text": "<b>1. Radar ↔ Camera Alignment</b> &nbsp; <span style='color:#38bdf8;'>● Offset</span> &nbsp; <span style='color:#4ade80;'>-- Nyquist (16.7ms)</span> &nbsp; <span style='color:#fbbf24;'>·· 1-Frame (33.3ms)</span>",
+            "showarrow": False, "xanchor": "left", "yanchor": "bottom",
+            "font": {"size": 11, "color": "#cbd5e1"}
+        },
+        # Panel 2
+        {
+            "x": 0.005, "y": 0.848, "xref": "paper", "yref": "paper",
+            "text": "<b>2. Sensor Inter-Frame Intervals & Drops</b> &nbsp; <span style='color:#a78bfa;'>― Camera dt (33.3ms)</span> &nbsp; <span style='color:#f472b6;'>― Radar dt (50ms)</span> &nbsp; <span style='color:#f87171;'>✕ Drops (>50ms)</span>",
+            "showarrow": False, "xanchor": "left", "yanchor": "bottom",
+            "font": {"size": 11, "color": "#cbd5e1"}
+        },
+        # Panel 3
+        {
+            "x": 0.005, "y": 0.678, "xref": "paper", "yref": "paper",
+            "text": "<b>3. UI Touch & Gesture Events (Flight Recorder)</b> &nbsp; <span style='color:#f59e0b;'>● Taps</span> &nbsp; <span style='color:#c084fc;'>▲ Swipes</span> &nbsp; <span style='color:#38bdf8;'>■ Fullscreen</span>",
+            "showarrow": False, "xanchor": "left", "yanchor": "bottom",
+            "font": {"size": 11, "color": "#cbd5e1"}
+        },
+        # Panel 4
+        {
+            "x": 0.005, "y": 0.508, "xref": "paper", "yref": "paper",
+            "text": f"<b>4. High-Rate IMU (100 Hz Stream, {len(imu_mono):,} samples)</b> &nbsp; <span style='color:#34d399;'>― IMU dt (10ms)</span> &nbsp; <span style='color:#38bdf8;'>| 5s Anchors</span>",
+            "showarrow": False, "xanchor": "left", "yanchor": "bottom",
+            "font": {"size": 11, "color": "#cbd5e1"}
+        },
+        # Panel 5
+        {
+            "x": 0.005, "y": 0.338, "xref": "paper", "yref": "paper",
+            "text": "<b>5. Camera ↔ Nearest IMU Temporal Proximity</b> &nbsp; <span style='color:#38bdf8;'>― Camera-IMU dt</span> &nbsp; <span style='color:#4ade80;'>-- Nyquist (5ms)</span> &nbsp; <span style='color:#fbbf24;'>·· 1-Period (10ms)</span>",
+            "showarrow": False, "xanchor": "left", "yanchor": "bottom",
+            "font": {"size": 11, "color": "#cbd5e1"}
+        },
+        # Panel 6
+        {
+            "x": 0.005, "y": 0.163, "xref": "paper", "yref": "paper",
+            "text": f"<b>6. Multithreaded Write Buffer Interleaving Latency</b> &nbsp; <span style='color:#fbbf24;'>● Write Queue Jitter ({len(q_times):,} events)</span>",
+            "showarrow": False, "xanchor": "left", "yanchor": "bottom",
+            "font": {"size": 11, "color": "#cbd5e1"}
+        },
+    ]
+
+    # Tag startup queue spike in Panel 6 if outside axis limits
+    q_init_spikes = [(t, j) for t, j in zip(q_t_sub, q_j_sub) if t < 1.5 and j > y5_max]
+    if q_init_spikes:
+        spk = q_init_spikes[0]
+        annotations.append({
+            "x": spk[0], "y": y5_max * 0.90, "xref": "x", "yref": "y6",
+            "text": f"▲ Startup Worker Init: {spk[1]:.1f}ms",
+            "showarrow": False,
+            "font": {"size": 9.5, "color": "#fbbf24", "family": "monospace"},
+            "bgcolor": "rgba(30, 25, 15, 0.9)",
+            "bordercolor": "#f59e0b",
+            "borderwidth": 1
         })
 
     # Plotly Layout with vertical stacking (shared X-axis)
@@ -608,25 +701,24 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
         "paper_bgcolor": "#0b0c10",
         "plot_bgcolor": "#151821",
         "font": {"color": "#cbd5e1", "family": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif"},
-        "hovermode": "closest",
-        "margin": {"l": 65, "r": 25, "t": 60, "b": 45},
-        "legend": {
-            "orientation": "h",
-            "y": 1.055,
-            "x": 0.5,
-            "xanchor": "center",
-            "font": {"size": 9.5},
-            "bgcolor": "rgba(21, 24, 33, 0.85)",
-            "bordercolor": "#2e3446",
-            "borderwidth": 1
+        "hovermode": False,
+        "showlegend": False,
+        "margin": {"l": 65, "r": 25, "t": 35, "b": 45},
+        "xaxis": {
+            "anchor": "y6",
+            "title": "Timeline Elapsed Time (seconds)",
+            "gridcolor": "#232938",
+            "zerolinecolor": "#232938",
+            "range": [0, total_dur_s],
+            "showspikes": False
         },
-        "xaxis": {"anchor": "y6", "title": "Timeline Elapsed Time (seconds)", "gridcolor": "#232938", "zerolinecolor": "#232938", "range": [0, total_dur_s]},
-        "yaxis": {"domain": [0.855, 1.00], "title": "Rad→Cam (ms)", "gridcolor": "#232938", "zerolinecolor": "#232938", "range": [-2.0, y0_max]},
-        "yaxis2": {"domain": [0.685, 0.83], "title": "Interval (ms)", "gridcolor": "#232938", "zerolinecolor": "#232938", "range": [-5.0, y1_max]},
-        "yaxis3": {"domain": [0.515, 0.66], "title": "UI Events", "gridcolor": "#232938", "zerolinecolor": "#232938", "range": [-0.8, 2.8], "tickvals": [0, 1, 2], "ticktext": ["Taps", "Swipes", "Fullscreen"]},
-        "yaxis4": {"domain": [0.345, 0.49], "title": "IMU Δt (ms)", "gridcolor": "#232938", "zerolinecolor": "#232938", "range": [7.0, 19.0]},
-        "yaxis5": {"domain": [0.175, 0.32], "title": "Cam-IMU (ms)", "gridcolor": "#232938", "zerolinecolor": "#232938", "range": [-0.5, 12.0]},
-        "yaxis6": {"domain": [0.00, 0.145], "title": "Queue (ms)", "gridcolor": "#232938", "zerolinecolor": "#232938", "range": [-5.0, max(50.0, max(q_jitter_ms)*1.1 if q_jitter_ms else 50.0)]}
+        "yaxis": {"domain": [0.855, 1.00], "title": "Rad→Cam (ms)", "gridcolor": "#232938", "zerolinecolor": "#232938", "range": [-2.0, y0_max], "showspikes": False},
+        "yaxis2": {"domain": [0.685, 0.83], "title": "Interval (ms)", "gridcolor": "#232938", "zerolinecolor": "#232938", "range": [-5.0, y1_max], "showspikes": False},
+        "yaxis3": {"domain": [0.515, 0.66], "title": "UI Events", "gridcolor": "#232938", "zerolinecolor": "#232938", "range": [-0.8, 2.8], "tickvals": [0, 1, 2], "ticktext": ["Taps", "Swipes", "Fullscreen"], "showspikes": False},
+        "yaxis4": {"domain": [0.345, 0.49], "title": "IMU Δt (ms)", "gridcolor": "#232938", "zerolinecolor": "#232938", "range": [7.0, 19.0], "showspikes": False},
+        "yaxis5": {"domain": [0.175, 0.32], "title": "Cam-IMU (ms)", "gridcolor": "#232938", "zerolinecolor": "#232938", "range": [-0.5, 12.0], "showspikes": False},
+        "yaxis6": {"domain": [0.00, 0.145], "title": "Queue (ms)", "gridcolor": "#232938", "zerolinecolor": "#232938", "range": [-2.0, y5_max], "showspikes": False},
+        "annotations": annotations
     }
 
     # Scorecard Rows HTML
@@ -739,35 +831,179 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
       background: var(--bg-card);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 16px;
+      padding: 0;
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      position: relative;
     }
     .toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: rgba(21, 24, 33, 0.96);
+      backdrop-filter: blur(10px);
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
       flex-wrap: wrap;
-      padding-bottom: 10px;
+      padding: 10px 18px;
+      border-radius: 8px 8px 0 0;
       border-bottom: 1px solid var(--border);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
     }
-    .toolbar-label { font-size: 12px; font-weight: 700; color: var(--text-muted); }
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .toolbar-divider {
+      width: 1px;
+      height: 22px;
+      background: var(--border);
+      margin: 0 4px;
+    }
+    .toolbar-label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
     .btn {
       background: #21262d;
       border: 1px solid #30363d;
       color: #c9d1d9;
-      padding: 5px 12px;
+      padding: 5px 11px;
       border-radius: 6px;
-      font-size: 12px;
+      font-size: 11.5px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: all 0.12s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
     }
     .btn:hover { background: #30363d; color: #f0f6fc; border-color: #8b949e; }
-    .btn-active { background: #1f6feb; border-color: #388bfd; color: #fff; }
-    .toolbar-hint { margin-left: auto; font-size: 11px; color: var(--text-muted); }
+    .btn-active { background: #1f6feb; border-color: #388bfd; color: #fff; box-shadow: 0 0 8px rgba(56, 139, 253, 0.35); }
+    
+    .toolbar-hud {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: monospace;
+      font-size: 11px;
+    }
+    .hud-t-badge {
+      background: rgba(56, 189, 248, 0.15);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+      color: #38bdf8;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-weight: 700;
+    }
+    .hud-v-badge {
+      color: var(--text-muted);
+      max-width: 340px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     #plotly-root { width: 100%; height: 1250px; }
+
+    /* Zero-Latency Crosshair Vertical Bar (Foxglove architecture) */
+    .crosshair-bar {
+      position: absolute;
+      top: 35px;
+      height: calc(100% - 80px);
+      width: 1px;
+      background: #38bdf8;
+      box-shadow: 0 0 6px rgba(56, 189, 248, 0.7);
+      pointer-events: none;
+      z-index: 50;
+      display: none;
+      will-change: transform;
+    }
+
+    /* Mouse-Locked Floating HUD (Foxglove followCursor architecture) */
+    .cursor-hud {
+      position: fixed;
+      pointer-events: none;
+      z-index: 99999;
+      background: rgba(13, 17, 23, 0.95);
+      border: 1px solid #30363d;
+      border-left: 3px solid #38bdf8;
+      border-radius: 6px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(10px);
+      padding: 8px 12px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, monospace;
+      font-size: 11.5px;
+      color: #e6edf3;
+      display: none;
+      min-width: 210px;
+      transition: opacity 0.06s ease;
+      white-space: nowrap;
+    }
+    .hud-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding-bottom: 5px;
+      margin-bottom: 6px;
+    }
+    .hud-time {
+      font-family: monospace;
+      font-weight: 700;
+      color: #38bdf8;
+    }
+    .hud-panel-badge {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .hud-primary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      font-size: 12px;
+    }
+    .hud-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .hud-name {
+      font-weight: 600;
+      color: #f0f6fc;
+    }
+    .hud-val {
+      font-family: monospace;
+      font-weight: 700;
+      margin-left: auto;
+    }
+    .hud-secondary {
+      font-size: 10.5px;
+      color: var(--text-muted);
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      padding-top: 5px;
+      display: flex;
+      flex-direction: column;
+      gap: 2.5px;
+    }
+    .hud-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: monospace;
+    }
+    .hud-row b {
+      color: #cbd5e1;
+      margin-left: auto;
+    }
 
     /* Scorecard Table */
     .scorecard-card {
@@ -855,14 +1091,29 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
     <!-- Interactive Plotly Graph Card -->
     <div class="plot-card">
       <div class="toolbar">
-        <span class="toolbar-label">Interactive Views:</span>
-        <button class="btn btn-active" onclick="setSteadyView(this)">🎯 Steady-State Focus (Approach A)</button>
-        <button class="btn" onclick="setFullView(this)">🔍 Show All Spikes (Full Horizon)</button>
-        <button class="btn" onclick="setStartupView(this)">⚡ Startup Phase (0-5s)</button>
-        <button class="btn" onclick="setTeardownView(this)">🛑 Teardown Phase (Last 5s)</button>
-        <span class="toolbar-hint">💡 Drag horizontally to zoom synchronously across all 6 panels; double-click to reset.</span>
+        <div class="toolbar-group">
+          <span class="toolbar-label">Views:</span>
+          <button id="btn-steady" class="btn btn-view btn-active" onclick="setSteadyView(this)">🎯 Steady-State Focus</button>
+          <button id="btn-full" class="btn btn-view" onclick="setFullView(this)">🔍 All Spikes</button>
+          <button id="btn-start" class="btn btn-view" onclick="setStartupView(this)">⚡ Startup (0-5s)</button>
+          <button id="btn-tear" class="btn btn-view" onclick="setTeardownView(this)">🛑 Teardown</button>
+        </div>
+        <div class="toolbar-divider"></div>
+        <div class="toolbar-group">
+          <span class="toolbar-label">Plot Mode:</span>
+          <button id="btn-tool-zoom" class="btn btn-tool btn-active" onclick="setDragMode('zoom', this)">🔍 Box Zoom</button>
+          <button id="btn-tool-pan" class="btn btn-tool" onclick="setDragMode('pan', this)">✋ Pan</button>
+          <button id="btn-tool-reset" class="btn btn-tool" onclick="resetPlotView()">🔄 Reset View</button>
+        </div>
+        <div id="toolbar-hud" class="toolbar-hud">
+          <span class="hud-t-badge">⏱️ Ready</span>
+          <span class="hud-v-badge">Hover timeline for synced sensor metrics</span>
+        </div>
       </div>
-      <div id="plotly-root"></div>
+      <div class="plot-wrapper" style="position: relative; overflow: hidden;">
+        <div id="plotly-root"></div>
+        <div id="crosshair-bar" class="crosshair-bar"></div>
+      </div>
     </div>
 
     <!-- Scorecard Checklist Table -->
@@ -886,6 +1137,9 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
     </div>
   </div>
 
+  <!-- Foxglove-Style Mouse-Locked Floating HUD Tooltip -->
+  <div id="cursor-hud" class="cursor-hud"></div>
+
   <script>
 __PLOTLY_JS__
   </script>
@@ -895,60 +1149,216 @@ __PLOTLY_JS__
     const layout = __LAYOUT_JSON__;
     const defaultY0 = [-2.0, __Y0_MAX__];
     const defaultY1 = [-5.0, __Y1_MAX__];
+    const defaultY5 = [-2.0, __Y5_MAX__];
     const totalDur = __DUR_SEC__;
+    let currentDragMode = 'zoom';
 
     Plotly.newPlot('plotly-root', traces, layout, {
       responsive: true,
-      displayModeBar: true,
-      displaylogo: false,
-      modeBarButtonsToRemove: ['lasso2d', 'select2d']
+      displayModeBar: false
     });
 
-    function clearActive() {
-      document.querySelectorAll('.toolbar .btn').forEach(b => b.classList.remove('btn-active'));
+    function clearViewActive() {
+      document.querySelectorAll('.btn-view').forEach(b => b.classList.remove('btn-active'));
     }
 
     function setSteadyView(btn) {
-      clearActive();
+      clearViewActive();
       if (btn) btn.classList.add('btn-active');
       Plotly.relayout('plotly-root', {
         'yaxis.range': defaultY0,
         'yaxis.autorange': false,
         'yaxis2.range': defaultY1,
         'yaxis2.autorange': false,
-        'xaxis.range': [0, totalDur]
+        'yaxis6.range': defaultY5,
+        'yaxis6.autorange': false,
+        'xaxis.range': [0, totalDur],
+        'dragmode': currentDragMode
       });
     }
 
     function setFullView(btn) {
-      clearActive();
+      clearViewActive();
       if (btn) btn.classList.add('btn-active');
       Plotly.relayout('plotly-root', {
         'yaxis.autorange': true,
         'yaxis2.autorange': true,
-        'xaxis.range': [0, totalDur]
+        'yaxis6.autorange': true,
+        'xaxis.range': [0, totalDur],
+        'dragmode': currentDragMode
       });
     }
 
     function setStartupView(btn) {
-      clearActive();
+      clearViewActive();
       if (btn) btn.classList.add('btn-active');
       Plotly.relayout('plotly-root', {
         'xaxis.range': [0, Math.min(5, totalDur)],
         'yaxis.autorange': true,
-        'yaxis2.autorange': true
+        'yaxis2.autorange': true,
+        'yaxis6.autorange': true,
+        'dragmode': currentDragMode
       });
     }
 
     function setTeardownView(btn) {
-      clearActive();
+      clearViewActive();
       if (btn) btn.classList.add('btn-active');
       Plotly.relayout('plotly-root', {
         'xaxis.range': [Math.max(0, totalDur - 5), totalDur],
         'yaxis.autorange': true,
-        'yaxis2.autorange': true
+        'yaxis2.autorange': true,
+        'yaxis6.autorange': true,
+        'dragmode': currentDragMode
       });
     }
+
+    function setDragMode(mode, btn) {
+      currentDragMode = mode;
+      document.querySelectorAll('.btn-tool').forEach(b => {
+        if (b.id !== 'btn-tool-reset') b.classList.remove('btn-active');
+      });
+      if (btn) btn.classList.add('btn-active');
+      Plotly.relayout('plotly-root', { dragmode: mode });
+    }
+
+    function resetPlotView() {
+      setSteadyView(document.getElementById('btn-steady'));
+    }
+
+    // Index primary signals for sub-microsecond binary search
+    const panelTraces = {
+      p1: traces.find(t => t.yaxis === 'y1' && t.mode === 'lines'),
+      p2_cam: traces.find(t => t.name && t.name.includes('Camera Frame Interval')),
+      p2_rad: traces.find(t => t.name && t.name.includes('Radar Frame Interval')),
+      p4: traces.find(t => t.yaxis === 'y4' && t.mode === 'lines'),
+      p5: traces.find(t => t.yaxis === 'y5' && t.name && t.name.includes('Camera -> Nearest IMU')),
+      p6: traces.find(t => t.yaxis === 'y6' && t.mode === 'markers')
+    };
+
+    function getNearestSample(trace, targetT) {
+      if (!trace || !trace.x || trace.x.length === 0) return null;
+      const x = trace.x;
+      const y = trace.y;
+      let low = 0, high = x.length - 1;
+      while (low <= high) {
+        const mid = (low + high) >> 1;
+        if (x[mid] < targetT) low = mid + 1;
+        else high = mid - 1;
+      }
+      let idx = Math.max(0, Math.min(x.length - 1, low));
+      if (idx > 0 && Math.abs(x[idx - 1] - targetT) < Math.abs(x[idx] - targetT)) {
+        idx--;
+      }
+      if (Math.abs(x[idx] - targetT) > 0.6) return null;
+      return { t: x[idx], val: y[idx] };
+    }
+
+    const plotEl = document.getElementById('plotly-root');
+    const hud = document.getElementById('cursor-hud');
+    const crosshair = document.getElementById('crosshair-bar');
+    const toolbarHudT = document.querySelector('#toolbar-hud .hud-t-badge');
+    const toolbarHudV = document.querySelector('#toolbar-hud .hud-v-badge');
+
+    plotEl.addEventListener('mousemove', function(e) {
+      const rect = plotEl.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const plotLeft = 65;
+      const plotRight = rect.width - 25;
+      const plotTop = 35;
+      const plotBottom = rect.height - 45;
+
+      if (mouseX < plotLeft || mouseX > plotRight || mouseY < plotTop || mouseY > plotBottom) {
+        hud.style.display = 'none';
+        crosshair.style.display = 'none';
+        return;
+      }
+
+      const fracX = (mouseX - plotLeft) / (plotRight - plotLeft);
+      const xRange = (plotEl._fullLayout && plotEl._fullLayout.xaxis && plotEl._fullLayout.xaxis.range) || [0, totalDur];
+      const curT = xRange[0] + fracX * (xRange[1] - xRange[0]);
+      if (curT < 0 || curT > totalDur) {
+        hud.style.display = 'none';
+        crosshair.style.display = 'none';
+        return;
+      }
+
+      // 1. Position Hardware-Accelerated Crosshair Bar (Zero CPU redraw)
+      crosshair.style.display = 'block';
+      crosshair.style.transform = `translateX(${mouseX}px)`;
+
+      // 2. Sample Signals via Instant Binary Search
+      const s1 = getNearestSample(panelTraces.p1, curT);
+      const s2c = getNearestSample(panelTraces.p2_cam, curT);
+      const s2r = getNearestSample(panelTraces.p2_rad, curT);
+      const s4 = getNearestSample(panelTraces.p4, curT);
+      const s5 = getNearestSample(panelTraces.p5, curT);
+      const s6 = getNearestSample(panelTraces.p6, curT);
+
+      // 3. Identify Hovered Panel from Y
+      const fracY = 1.0 - ((mouseY - plotTop) / (plotBottom - plotTop));
+      let pNum = 1, pColor = "#38bdf8", pMetric = "Radar-Cam Offset", pValText = "--";
+
+      if (fracY >= 0.84) {
+        pNum = 1; pColor = "#38bdf8"; pMetric = "Radar ↔ Cam Offset";
+        pValText = s1 ? s1.val.toFixed(2) + " ms" : "--";
+      } else if (fracY >= 0.67) {
+        pNum = 2; pColor = "#a78bfa"; pMetric = "Frame Intervals";
+        pValText = `Cam: ${s2c ? s2c.val.toFixed(1) + 'ms' : '--'} | Rad: ${s2r ? s2r.val.toFixed(1) + 'ms' : '--'}`;
+      } else if (fracY >= 0.50) {
+        pNum = 3; pColor = "#f59e0b"; pMetric = "UI Gesture Domain";
+        pValText = "Flight Recorder Active";
+      } else if (fracY >= 0.33) {
+        pNum = 4; pColor = "#34d399"; pMetric = "IMU Interval Δt (100 Hz)";
+        pValText = s4 ? s4.val.toFixed(2) + " ms" : "--";
+      } else if (fracY >= 0.16) {
+        pNum = 5; pColor = "#38bdf8"; pMetric = "Camera ↔ IMU Proximity";
+        pValText = s5 ? s5.val.toFixed(2) + " ms" : "--";
+      } else {
+        pNum = 6; pColor = "#fbbf24"; pMetric = "Write Queue Latency";
+        pValText = s6 ? s6.val.toFixed(1) + " ms" : "--";
+      }
+
+      // 4. Update Foxglove-Style Cursor HUD (Locked to mouseX/mouseY, ZERO vertical jitter!)
+      hud.innerHTML = `
+        <div class="hud-header">
+          <span class="hud-time">⏱️ ${curT.toFixed(3)}s</span>
+          <span class="hud-panel-badge" style="color:${pColor}; border:1px solid ${pColor}40;">Panel ${pNum}</span>
+        </div>
+        <div class="hud-primary">
+          <span class="hud-dot" style="background:${pColor};"></span>
+          <span class="hud-name">${pMetric}:</span>
+          <span class="hud-val" style="color:${pColor};">${pValText}</span>
+        </div>
+        <div class="hud-secondary">
+          <div class="hud-row"><span class="hud-dot" style="background:#38bdf8;"></span> Rad↔Cam: <b>${s1 ? s1.val.toFixed(1) + 'ms' : '--'}</b></div>
+          <div class="hud-row"><span class="hud-dot" style="background:#34d399;"></span> IMU Δt: <b>${s4 ? s4.val.toFixed(2) + 'ms' : '--'}</b></div>
+          <div class="hud-row"><span class="hud-dot" style="background:#38bdf8;"></span> Cam↔IMU: <b>${s5 ? s5.val.toFixed(2) + 'ms' : '--'}</b></div>
+          <div class="hud-row"><span class="hud-dot" style="background:#fbbf24;"></span> Queue: <b>${s6 ? s6.val.toFixed(1) + 'ms' : '--'}</b></div>
+        </div>
+      `;
+
+      let hudX = e.clientX + 16;
+      let hudY = e.clientY + 12;
+      if (hudX + 230 > window.innerWidth) hudX = e.clientX - 230;
+      if (hudY + 180 > window.innerHeight) hudY = e.clientY - 170;
+      hud.style.left = hudX + 'px';
+      hud.style.top = hudY + 'px';
+      hud.style.display = 'block';
+
+      // 5. Update Sticky Toolbar Header Readout
+      if (toolbarHudT) toolbarHudT.textContent = `⏱️ ${curT.toFixed(3)}s`;
+      if (toolbarHudV) toolbarHudV.textContent = `[P${pNum}] ${pMetric}: ${pValText}`;
+    });
+
+    plotEl.addEventListener('mouseleave', function() {
+      hud.style.display = 'none';
+      crosshair.style.display = 'none';
+      if (toolbarHudT) toolbarHudT.textContent = `⏱️ Ready`;
+      if (toolbarHudV) toolbarHudV.textContent = `Hover timeline for synced sensor metrics`;
+    });
   </script>
 </body>
 </html>"""
@@ -975,6 +1385,7 @@ __PLOTLY_JS__
         .replace("__SCORECARD_ROWS__", scorecard_rows_html)\
         .replace("__Y0_MAX__", str(y0_max))\
         .replace("__Y1_MAX__", str(y1_max))\
+        .replace("__Y5_MAX__", str(y5_max))\
         .replace("__TRACES_JSON__", traces_json)\
         .replace("__LAYOUT_JSON__", layout_json)\
         .replace("__PLOTLY_JS__", plotly_js)
