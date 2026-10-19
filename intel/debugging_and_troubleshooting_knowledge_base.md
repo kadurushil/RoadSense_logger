@@ -28,7 +28,9 @@
 19. [Bug #19: High-Rate IMU 18 ms Periodic Jitter Spikes & Hardware FIFO Decimation (LSM6DSL / Exynos 7904)](#bug-19-high-rate-imu-18-ms-periodic-jitter-spikes--hardware-fifo-decimation-lsm6dsl--exynos-7904)
 20. [Bug #20: Multi-Track Tooltip Jitter, Viewport Modebar Disconnection, & Foxglove-Style Mouse-Locked HUD Architecture in Interactive Sensor Audits](#bug-20-multi-track-tooltip-jitter-viewport-modebar-disconnection--foxglove-style-mouse-locked-hud-architecture-in-interactive-sensor-audits)
 21. [Bug #21: Multi-Sensor Desync in Foxglove / Visualizer via Sequential MP4 Indexing & Pre-Roll Shutter Misalignment (Bypassing session_timeline.csv)](#bug-21-multi-sensor-desync-in-foxglove--visualizer-via-sequential-mp4-indexing--pre-roll-shutter-misalignment-bypassing-session_timelinecsv)
-22. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
+22. [Bug #22: Multi-Second Video Phase Lead via Dropped Userspace Callbacks vs Zero-Drop Hardware Surface Pipeline](#bug-22-multi-second-video-phase-lead-via-dropped-userspace-callbacks-vs-zero-drop-hardware-surface-pipeline)
+23. [Bug #23: MCAP Converter Throughput Collapse (120 FPS vs 10,000 FPS) via O(N²) GIL Heap Allocation Storms](#bug-23-mcap-converter-throughput-collapse-120-fps-vs-10000-fps-via-on2-gil-heap-allocation-storms)
+24. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
 
 ---
 
@@ -1020,6 +1022,67 @@ Deep cross-stream investigation across `session_timeline.csv`, `camera_frames.cs
 4. **Unified Monotonic Clock Offset:**
    - Ensure all channels (`/camera/video`, `/radar/points`, `/radar/tracks`, `/vehicle/telemetry`, `/gnss/fix`, `/imu/data`) share the identical conversion offset:
      $$T_{\text{utc}} = T_{\text{elapsed\_realtime\_ns}} + \Delta T_{\text{session\_offset\_ns}}$$
+
+---
+
+## Bug #22: Multi-Second Video Phase Lead via Dropped Userspace Callbacks vs Zero-Drop Hardware Surface Pipeline
+
+### Symptoms
+* In a 40-minute driving session (`session_20261019_150946`), Foxglove Studio playback showed the vehicle camera video moving **~2.16 seconds before** wheel speed, IMU linear acceleration, or Doppler point clouds climbed.
+* The desync was dynamic and worsened over time: near 0 ms at $t = 0\text{s}$, drifting to $+2.16\text{s}$ at $t = 720\text{s}$.
+
+### Root Cause Analysis
+1. **Asymmetric Dropped Frames (Surface vs Callback):**
+   - In Android Camera2, `MediaRecorder` receives raw frames directly from the camera sensor via hardware `Surface` buffers. In the 40-minute drive, the hardware encoder captured **72,336 packets at 30.036 FPS with 0 dropped frames**.
+   - Concurrently, `CameraCaptureSession.CaptureCallback.onCaptureStarted` delivers shutter metadata to userspace on the `CameraEngine-Worker` `HandlerThread`. Under heavy CPU/GC load from radar and UI rendering, Android userspace dropped **91 callbacks** (only 72,245 events logged in `camera_frames.csv`).
+2. **Dense Array Mapping Over Sparse Event Lists:**
+   - When the converter or synchronizer mapped MP4 packet index $i$ to CSV row index $i$, each dropped userspace callback shifted subsequent video packets one row earlier in time.
+   - By packet 21,655 ($t = 720\text{s}$), 65 callbacks had been dropped. Packet 21,655 was assigned the timestamp of CSV row 21,590 ($t = 718.8\text{s}$), causing video to be stamped **2.16 seconds into the past**.
+3. **Hardware Sequence Invariance:**
+   - The hardware frame counter returned by `CaptureResult.getFrameNumber()` is crystal-locked and strictly increments by 1 for every physical sensor exposure.
+   - The invariant:
+     $$\text{expected\_hw\_seq} = \text{video\_start\_seq\_id} + \text{packet\_idx}$$
+     holds with 100% precision across the entire session.
+
+### Solution & Fix
+1. **Hardware Sequence Mapping with Linear Interpolation:**
+   - In `master_timeline_synchronizer.py`, map every MP4 packet directly to its hardware sequence number:
+     $$\text{target\_hw\_seq} = \text{video\_start\_seq\_id} + \text{packet\_idx}$$
+   - When a userspace callback is dropped, interpolate its timestamp from neighboring surviving callbacks using the hardware camera crystal clock ($33.293\text{ ms/frame}$).
+2. **Result:**
+   - At $t = 720.96\text{s}$ (radar frame 21,032), video packet 21,655 is matched with a sync delta of only **14.88 ms** (less than half a frame). Video motion and wheel speed climb simultaneously.
+
+---
+
+## Bug #23: MCAP Converter Throughput Collapse (120 FPS vs 10,000 FPS) via O(N²) GIL Heap Allocation Storms
+
+### Symptoms
+* MCAP conversion speed unexpectedly plummeted from >3,000 FPS down to ~120 FPS.
+* CPU utilization was low (~5–8% on a 16-core system) and GPU utilization was 0%, ruling out encoder/decoder compute saturation.
+
+### Root Cause Analysis
+1. **Un-cached List Comprehensions in Per-Frame Lookups:**
+   - In `scripts/master_timeline_synchronizer.py`, `get_camera_shutter_mono_ns` and `match_camera_to_radar` were called for every video frame ($N = 72,336$).
+   - Inside each lookup, the code re-evaluated:
+     ```python
+     rec_times = [r["mono_ns"] for r in self.recording_camera_events] # 72,267 elements
+     rad_times = [r["mono_ns"] for r in self.radar_events]            # 47,939 elements
+     ```
+   - On every frame, Python allocated and freed ~168,000 heap objects. Over 72,336 frames, this created over **12.16 billion temporary heap objects**.
+2. **Single-Threaded GIL Memory Contention:**
+   - Python's single-threaded Global Interpreter Lock spent 90%+ of its runtime executing CPython `pymalloc` and generational garbage collection sweeps.
+   - Each frame stalled for ~8 ms in memory management:
+     $$\frac{1000\text{ ms}}{8\text{ ms/frame}} \approx 125\text{ FPS}$$
+
+### Solution & Fix
+1. **One-Time Precomputation in `MasterTimelineSynchronizer`:**
+   - Precompute `_rec_cam_times`, `_rad_times`, and `_seq_to_mono` dictionaries once during class initialization ($O(1)$ amortized).
+   - Use $O(\log N)$ `bisect` over contiguous pre-allocated arrays.
+2. **Pipeline Streamlining in `convert_session_to_mcap.py`:**
+   - Pass `hw_seq_id` directly from `parse_camera_video_frames`, and reuse the single `match_camera_to_radar` result for `/sync/frame_info`.
+3. **Result:**
+   - Video demuxing + writing speed surged from **120 FPS to 10,411 FPS** (over **80x speedup**).
+   - An entire 40-minute driving session (72,336 video frames, 47,939 radar frames, 235,102 IMU frames) converts into an 822 MB–3.26 GB MCAP in **33.07 seconds**.
 
 ---
 

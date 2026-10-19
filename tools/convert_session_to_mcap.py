@@ -770,14 +770,17 @@ def parse_camera_video_frames(video_mp4_path, frames_csv_path, sync_master=None,
                     raw_bytes = bytes(p)
                     pts_sec = float(frame.pts * stream.time_base) if frame.pts is not None else (frame_idx / 30.0)
                     if sync_master:
-                        mono_ns = sync_master.get_camera_shutter_mono_ns(pts_sec, frame_idx)
+                        mono_ns, hw_seq_id = sync_master.get_camera_frame_details(pts_sec, frame_idx)
                     elif frame_idx < len(shutter_timestamps):
                         mono_ns = shutter_timestamps[frame_idx]
+                        hw_seq_id = frame_idx
                     else:
                         mono_ns = shutter_timestamps[-1] + (frame_idx - len(shutter_timestamps) + 1) * 33_333_333
+                        hw_seq_id = frame_idx
 
                     yield {
                         "mono_ns": mono_ns,
+                        "hw_seq_id": hw_seq_id,
                         "pts_sec": pts_sec,
                         "frame_idx": frame_idx,
                         "data": raw_bytes,
@@ -822,14 +825,17 @@ def parse_camera_video_frames(video_mp4_path, frames_csv_path, sync_master=None,
                 for p in annexb_packets:
                     raw_bytes = bytes(p)
                     if sync_master:
-                        mono_ns = sync_master.get_camera_shutter_mono_ns(pts_sec, frame_idx)
+                        mono_ns, hw_seq_id = sync_master.get_camera_frame_details(pts_sec, frame_idx)
                     elif frame_idx < len(shutter_timestamps):
                         mono_ns = shutter_timestamps[frame_idx]
+                        hw_seq_id = frame_idx
                     else:
                         mono_ns = shutter_timestamps[-1] + (frame_idx - len(shutter_timestamps) + 1) * 33_333_333
+                        hw_seq_id = frame_idx
 
                     yield {
                         "mono_ns": mono_ns,
+                        "hw_seq_id": hw_seq_id,
                         "pts_sec": pts_sec,
                         "frame_idx": frame_idx,
                         "data": raw_bytes,
@@ -1783,14 +1789,16 @@ def convert_session_to_mcap(
 
                 # Emit Live Ground-Truth Frame Sync Metadata for Foxglove Verification
                 if sync_master:
-                    matched_rad_abs = sync_master.match_camera_to_radar(v_frame["mono_ns"])[1]
+                    rel_id, matched_rad_abs, delta_ms = sync_master.match_camera_to_radar(v_frame["mono_ns"])
                     speed_val = radar_speed_by_abs.get(matched_rad_abs, 0.0)
-                    sync_info = sync_master.get_sync_frame_info(
-                        video_frame_index=v_frame["frame_idx"],
-                        pts_sec=v_frame.get("pts_sec"),
-                        cam_mono_ns=v_frame["mono_ns"],
-                        speed_kmph=speed_val
-                    )
+                    sync_info = {
+                        "video_frame_index": v_frame["frame_idx"],
+                        "camera_hw_frame_number": v_frame.get("hw_seq_id", v_frame["frame_idx"]),
+                        "radar_frame_id_rel": rel_id,
+                        "radar_frame_id_abs": matched_rad_abs,
+                        "sync_delta_ms": round(delta_ms, 2),
+                        "speed_kmph": round(speed_val, 2)
+                    }
                     writer._writer.add_message(
                         channel_id=sync_chan_id,
                         log_time=utc_ns,

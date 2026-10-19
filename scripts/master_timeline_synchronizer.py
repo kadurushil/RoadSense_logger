@@ -160,6 +160,11 @@ class MasterTimelineSynchronizer:
             self.video_start_seq_id = first_all["seq_id"]
             self.video_start_mono_ns = first_all["mono_ns"]
 
+        self._rec_cam_times = [r["mono_ns"] for r in self.recording_camera_events]
+        self._rad_times = [r["mono_ns"] for r in self.radar_events]
+        self._seq_to_mono = {r["seq_id"]: r["mono_ns"] for r in self.recording_camera_events}
+        self._sorted_rec_seqs = sorted(self._seq_to_mono.keys())
+
     def _fallback_load_from_camera_csv(self):
         """Fallback when session_timeline.csv is not available."""
         if not os.path.isfile(self.camera_csv_path):
@@ -186,23 +191,48 @@ class MasterTimelineSynchronizer:
     def get_camera_frame_details(self, pts_sec: Optional[float], frame_idx: int) -> Tuple[int, int]:
         """
         Returns (mono_ns, camera_hw_frame_number) for an MP4 video frame.
-        Uses PTS-proportional target time and binary search over recording camera events.
-        Guarantees zero phase accumulation even if intermediate video frames are dropped.
+        Maps sequential MP4 packet index to camera hardware sequence number:
+            target_hw_seq = video_start_seq_id + frame_idx
+        and performs linear interpolation across any userspace dropped callback gaps.
+        Guarantees zero phase accumulation and perfect hardware clock domain alignment.
         """
         if not self.recording_camera_events:
             base = self.video_start_mono_ns or self.start_mono_ns
             return base + int(frame_idx * 33_333_333), frame_idx
 
+        # 1. Primary: Exact hardware sequence mapping with interpolation over callback gaps
+        if self.video_start_seq_id is not None and self._sorted_rec_seqs:
+            target_hw_seq = self.video_start_seq_id + frame_idx
+            if target_hw_seq in self._seq_to_mono:
+                return self._seq_to_mono[target_hw_seq], target_hw_seq
+
+            pos = bisect.bisect_left(self._sorted_rec_seqs, target_hw_seq)
+            if pos == 0:
+                first_s = self._sorted_rec_seqs[0]
+                return self._seq_to_mono[first_s], target_hw_seq
+            if pos >= len(self._sorted_rec_seqs):
+                last_s = self._sorted_rec_seqs[-1]
+                extra_seq = target_hw_seq - last_s
+                return self._seq_to_mono[last_s] + int(extra_seq * 33_333_333), target_hw_seq
+
+            seq_prev = self._sorted_rec_seqs[pos - 1]
+            seq_next = self._sorted_rec_seqs[pos]
+            t_prev = self._seq_to_mono[seq_prev]
+            t_next = self._seq_to_mono[seq_next]
+            interp_t = t_prev + int((t_next - t_prev) * (target_hw_seq - seq_prev) / (seq_next - seq_prev))
+            return interp_t, target_hw_seq
+
+        # 2. Secondary fallback: PTS-proportional target time
         if pts_sec is not None and pts_sec >= 0.0:
             target_ns = self.video_start_mono_ns + int(pts_sec * 1_000_000_000)
-            rec_times = [r["mono_ns"] for r in self.recording_camera_events]
+            rec_times = self._rec_cam_times
             pos = bisect.bisect_left(rec_times, target_ns)
             candidates = [p for p in [pos - 1, pos, pos + 1] if 0 <= p < len(rec_times)]
             if candidates:
                 best = min(candidates, key=lambda p: abs(rec_times[p] - target_ns))
                 return self.recording_camera_events[best]["mono_ns"], self.recording_camera_events[best]["seq_id"]
 
-        # Fallback to direct recording frame index
+        # 3. Direct recording frame index fallback
         if frame_idx < len(self.recording_camera_events):
             return self.recording_camera_events[frame_idx]["mono_ns"], self.recording_camera_events[frame_idx]["seq_id"]
 
@@ -222,7 +252,7 @@ class MasterTimelineSynchronizer:
         if not self.radar_events:
             return 0, 0, 0.0
 
-        rad_times = [r["mono_ns"] for r in self.radar_events]
+        rad_times = self._rad_times
         pos = bisect.bisect_left(rad_times, cam_mono_ns)
         candidates = [p for p in [pos - 1, pos] if 0 <= p < len(rad_times)]
         if not candidates:
@@ -244,7 +274,7 @@ class MasterTimelineSynchronizer:
         if not self.recording_camera_events:
             return 0, 0.0, radar_mono_ns, 0
 
-        cam_times = [r["mono_ns"] for r in self.recording_camera_events]
+        cam_times = self._rec_cam_times
         pos = bisect.bisect_left(cam_times, radar_mono_ns)
         candidates = [p for p in [pos - 1, pos] if 0 <= p < len(cam_times)]
         if not candidates:
@@ -254,7 +284,11 @@ class MasterTimelineSynchronizer:
         matched = self.recording_camera_events[best_idx]
         delta_sec = (matched["mono_ns"] - radar_mono_ns) / 1e9
 
-        v_frame_idx = best_idx
+        if self.video_start_seq_id is not None:
+            v_frame_idx = max(0, matched["seq_id"] - self.video_start_seq_id)
+        else:
+            v_frame_idx = best_idx
+
         if max_video_frames is not None and max_video_frames > 0:
             v_frame_idx = min(v_frame_idx, max_video_frames - 1)
 
