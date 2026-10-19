@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -95,9 +96,19 @@
       height: 8px;
       border-radius: 50%;
     }
-    .pill-dot.green { background-color: var(--accent-green); box-shadow: 0 0 6px var(--accent-green); }
-    .pill-dot.gray { background-color: #64748b; }
-    .pill-dot.amber { background-color: var(--accent-orange); }
+
+    .pill-dot.green {
+      background-color: var(--accent-green);
+      box-shadow: 0 0 6px var(--accent-green);
+    }
+
+    .pill-dot.gray {
+      background-color: #64748b;
+    }
+
+    .pill-dot.amber {
+      background-color: var(--accent-orange);
+    }
 
     .header-actions {
       display: flex;
@@ -124,6 +135,7 @@
       color: var(--text-main);
       border-color: var(--border-color);
     }
+
     .btn-secondary:hover {
       background-color: #333a4e;
     }
@@ -132,6 +144,7 @@
       background-color: var(--primary);
       color: #ffffff;
     }
+
     .btn-primary:hover {
       background-color: var(--primary-hover);
     }
@@ -141,6 +154,7 @@
       color: #f87171;
       border-color: rgba(239, 68, 68, 0.3);
     }
+
     .btn-danger:hover {
       background-color: rgba(239, 68, 68, 0.3);
       color: #fff;
@@ -186,10 +200,12 @@
       border-radius: 0;
       justify-content: center;
     }
+
     .tab-btn:hover {
       color: var(--text-main);
       background-color: rgba(255, 255, 255, 0.02);
     }
+
     .tab-btn.active {
       color: var(--accent-cyan);
       border-bottom-color: var(--accent-cyan);
@@ -203,6 +219,7 @@
       flex-direction: column;
       gap: 18px;
     }
+
     .tab-panel.active {
       display: flex;
     }
@@ -210,6 +227,7 @@
     .panel-header {
       margin-bottom: 4px;
     }
+
     .panel-header h2 {
       font-size: 16px;
       font-weight: 700;
@@ -218,6 +236,7 @@
       align-items: center;
       gap: 8px;
     }
+
     .panel-header p {
       font-size: 12px;
       color: var(--text-muted);
@@ -239,7 +258,9 @@
       letter-spacing: 0.5px;
     }
 
-    select, input[type="text"], input[type="number"] {
+    select,
+    input[type="text"],
+    input[type="number"] {
       background-color: #10121a;
       border: 1px solid var(--border-color);
       border-radius: 6px;
@@ -250,7 +271,10 @@
       outline: none;
       transition: border-color 0.15s ease;
     }
-    select:focus, input[type="text"]:focus, input[type="number"]:focus {
+
+    select:focus,
+    input[type="text"]:focus,
+    input[type="number"]:focus {
       border-color: var(--primary);
     }
 
@@ -265,7 +289,8 @@
       padding: 10px 14px;
     }
 
-    .radio-item, .checkbox-item {
+    .radio-item,
+    .checkbox-item {
       display: flex;
       align-items: center;
       gap: 8px;
@@ -273,7 +298,8 @@
       font-size: 13px;
     }
 
-    .radio-item input, .checkbox-item input {
+    .radio-item input,
+    .checkbox-item input {
       accent-color: var(--primary);
       cursor: pointer;
     }
@@ -289,6 +315,7 @@
       display: flex;
       gap: 10px;
     }
+
     .action-row .btn-primary {
       flex: 1;
       padding: 10px 16px;
@@ -332,10 +359,26 @@
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
-    .status-idle { background: #262b3a; color: #94a3b8; }
-    .status-running { background: rgba(6, 182, 212, 0.15); color: var(--accent-cyan); }
-    .status-done { background: rgba(16, 185, 129, 0.15); color: var(--accent-green); }
-    .status-error { background: rgba(239, 68, 68, 0.15); color: var(--accent-red); }
+
+    .status-idle {
+      background: #262b3a;
+      color: #94a3b8;
+    }
+
+    .status-running {
+      background: rgba(6, 182, 212, 0.15);
+      color: var(--accent-cyan);
+    }
+
+    .status-done {
+      background: rgba(16, 185, 129, 0.15);
+      color: var(--accent-green);
+    }
+
+    .status-error {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--accent-red);
+    }
 
     .execution-timer {
       font-family: var(--font-mono);
@@ -369,12 +412,35 @@
     }
 
     /* Colorized line styles */
-    .log-line { display: block; }
-    .log-success { color: #4ade80; }       /* [+] */
-    .log-warning { color: #fbbf24; }       /* [-] */
-    .log-error { color: #f87171; font-weight: 600; }  /* [!] or Error */
-    .log-header { color: #38bdf8; font-weight: 700; } /* === or --- */
-    .log-info { color: #cbd5e1; }
+    .log-line {
+      display: block;
+    }
+
+    .log-success {
+      color: #4ade80;
+    }
+
+    /* [+] */
+    .log-warning {
+      color: #fbbf24;
+    }
+
+    /* [-] */
+    .log-error {
+      color: #f87171;
+      font-weight: 600;
+    }
+
+    /* [!] or Error */
+    .log-header {
+      color: #38bdf8;
+      font-weight: 700;
+    }
+
+    /* === or --- */
+    .log-info {
+      color: #cbd5e1;
+    }
 
     /* Footer info */
     .console-footer {
@@ -389,14 +455,25 @@
 
     /* Progress Indicator Animation */
     @keyframes pulseGlow {
-      0%, 100% { opacity: 1; transform: scale(1); }
-      50% { opacity: 0.35; transform: scale(0.85); }
+
+      0%,
+      100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      50% {
+        opacity: 0.35;
+        transform: scale(0.85);
+      }
     }
+
     .pulse-indicator {
       animation: pulseGlow 1.4s infinite ease-in-out;
     }
   </style>
 </head>
+
 <body>
 
   <!-- Top Bar -->
@@ -493,7 +570,9 @@
             </label>
             <label class="checkbox-item">
               <input type="checkbox" id="syncOptFlip">
-              <span>Physically re-encode & rotate video 180° (--flip-video) <span style="font-size:11px; color:#94a3b8;">(Optional; unchecked uses instant ~2s zero-copy export with auto-aligned 2D/3D views)</span></span>
+              <span>Physically re-encode & rotate video 180° (--flip-video) <span
+                  style="font-size:11px; color:#94a3b8;">(Optional; unchecked uses instant ~2s zero-copy export with
+                  auto-aligned 2D/3D views)</span></span>
             </label>
           </div>
         </div>
@@ -544,7 +623,9 @@
             </label>
             <label class="checkbox-item">
               <input type="checkbox" id="mcapOptFlip">
-              <span>Physically re-encode & rotate video 180° (--flip-video) <span style="font-size:11px; color:#94a3b8;">(Optional; unchecked uses instant ~2s zero-copy export with auto-aligned 2D/3D views)</span></span>
+              <span>Physically re-encode & rotate video 180° (--flip-video) <span
+                  style="font-size:11px; color:#94a3b8;">(Optional; unchecked uses instant ~2s zero-copy export with
+                  auto-aligned 2D/3D views)</span></span>
             </label>
           </div>
         </div>
@@ -565,9 +646,11 @@
           <label>Diagnostic Tool</label>
           <select id="diagToolSelect" onchange="onDiagToolChanged()">
             <option value="session_health_check.py">Master 7-Point Health Check (session_health_check.py)</option>
-            <option value="audit_cross_sensor_sync.py">Cross-Sensor Monotonic Sync Audit (audit_cross_sensor_sync.py)</option>
+            <option value="audit_cross_sensor_sync.py">Cross-Sensor Monotonic Sync Audit (audit_cross_sensor_sync.py)
+            </option>
             <option value="validate_radar_stream.py">Radar Binary Stream Validator (validate_radar_stream.py)</option>
-            <option value="validate_camera_video.py">Camera Video & Shutter Timing Validator (validate_camera_video.py)</option>
+            <option value="validate_camera_video.py">Camera Video & Shutter Timing Validator (validate_camera_video.py)
+            </option>
             <option value="validate_gnss_fixes.py">GNSS Fixes & CEP Accuracy Validator (validate_gnss_fixes.py)</option>
             <option value="validate_canedge_staging.py">CANedge MDF4 Validator (validate_canedge_staging.py)</option>
           </select>
@@ -580,6 +663,10 @@
               <input type="radio" name="diagTargetMode" value="latest" checked onchange="toggleDiagSessionDropdown()">
               <span>Latest Session (--latest)</span>
             </label>
+            <label class="radio-item" id="diagTargetModeAllItem" style="display: none;">
+              <input type="radio" name="diagTargetMode" value="all" onchange="toggleDiagSessionDropdown()">
+              <span>All Sessions (--all)</span>
+            </label>
             <label class="radio-item">
               <input type="radio" name="diagTargetMode" value="specific" onchange="toggleDiagSessionDropdown()">
               <span>Specific Local Session:</span>
@@ -588,6 +675,20 @@
           <select id="diagSessionSelect" style="margin-top: 6px; display: none;">
             <option value="">Select a local session...</option>
           </select>
+        </div>
+
+        <div class="form-group" id="auditSyncOptGroup" style="display: none;">
+          <label>Sync Audit Options</label>
+          <div class="checkbox-list">
+            <label class="checkbox-item">
+              <input type="checkbox" id="auditOptNoPlot" checked>
+              <span>Fast Mode: Skip PNG diagnostic plot (HTML report is standard) (--no-plot)</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="auditOptQuiet" checked>
+              <span>Quiet Mode: Show aggregate batch summary only (--quiet)</span>
+            </label>
+          </div>
         </div>
 
         <div class="form-group" id="canPoolGroup" style="display: none;">
@@ -600,6 +701,8 @@
 
         <div class="action-row">
           <button class="btn-primary" onclick="runDiagnostics()">▶ Run Diagnostic</button>
+          <button class="btn-secondary" id="batchAuditQuickBtn" onclick="runBatchSyncAudit()"
+            style="display: none; margin-left: 8px;">⚡ Audit All Logs (--all)</button>
         </div>
       </div>
 
@@ -653,7 +756,8 @@
           <label>Inspector Utility</label>
           <select id="inspectToolSelect">
             <option value="inspect_session.py">Inspect Session Metadata & Radar Frames (inspect_session.py)</option>
-            <option value="analyze_gnss_trajectory.py">Analyze GNSS Trajectory & Haversine Distance (analyze_gnss_trajectory.py)</option>
+            <option value="analyze_gnss_trajectory.py">Analyze GNSS Trajectory & Haversine Distance
+              (analyze_gnss_trajectory.py)</option>
             <option value="inspect_raw_uart.py">Inspect Raw UART Stream Dump (inspect_raw_uart.py)</option>
           </select>
         </div>
@@ -690,30 +794,38 @@
           <button class="btn-secondary" onclick="clearConsole()">🗑 Clear</button>
         </div>
       </div>
- 
+
       <!-- Progress Bar Widget -->
-      <div id="progressWidget" style="display: none; background: #131722; border-bottom: 1px solid var(--border-color); padding: 12px 18px;">
+      <div id="progressWidget"
+        style="display: none; background: #131722; border-bottom: 1px solid var(--border-color); padding: 12px 18px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
           <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
-            <div id="progressPulse" class="pulse-indicator" style="width: 9px; height: 9px; border-radius: 50%; background: var(--accent-cyan); box-shadow: 0 0 8px var(--accent-cyan); flex-shrink: 0;"></div>
-            <span id="progressTask" style="font-weight: 600; font-size: 13px; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Processing...</span>
-            <span id="progressDetails" style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap;"></span>
+            <div id="progressPulse" class="pulse-indicator"
+              style="width: 9px; height: 9px; border-radius: 50%; background: var(--accent-cyan); box-shadow: 0 0 8px var(--accent-cyan); flex-shrink: 0;">
+            </div>
+            <span id="progressTask"
+              style="font-weight: 600; font-size: 13px; color: #f1f5f9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Processing...</span>
+            <span id="progressDetails"
+              style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap;"></span>
           </div>
-          <div style="display: flex; align-items: center; gap: 14px; font-family: var(--font-mono); font-size: 12px; flex-shrink: 0;">
+          <div
+            style="display: flex; align-items: center; gap: 14px; font-family: var(--font-mono); font-size: 12px; flex-shrink: 0;">
             <span id="progressSpeed" style="color: var(--accent-cyan);"></span>
             <span id="progressEta" style="color: var(--accent-orange); font-weight: 600;"></span>
             <span id="progressPercent" style="color: #fff; font-weight: 700; font-size: 13px;">0%</span>
           </div>
         </div>
         <div style="width: 100%; height: 7px; background: #1e2230; border-radius: 4px; overflow: hidden;">
-          <div id="progressBarFill" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent-cyan)); border-radius: 4px; transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);"></div>
+          <div id="progressBarFill"
+            style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent-cyan)); border-radius: 4px; transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);">
+          </div>
         </div>
       </div>
 
       <!-- Output Box -->
       <div id="terminalOutput">RoadSense Web Automation Terminal Ready.
-Select an operation on the left and click Run.
-</div>
+        Select an operation on the left and click Run.
+      </div>
 
       <div class="console-footer">
         <span id="scriptPathLabel">Ready</span>
@@ -734,7 +846,7 @@ Select an operation on the left and click Run.
     function switchTab(tabId) {
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-      
+
       const idx = ['syncTab', 'mcapTab', 'diagTab', 'searchTab', 'inspectTab'].indexOf(tabId);
       if (idx >= 0) {
         document.querySelectorAll('.tab-btn')[idx].classList.add('active');
@@ -752,7 +864,33 @@ Select an operation on the left and click Run.
     function onDiagToolChanged() {
       const tool = document.getElementById('diagToolSelect').value;
       const poolGroup = document.getElementById('canPoolGroup');
+      const syncGroup = document.getElementById('auditSyncOptGroup');
+      const allItem = document.getElementById('diagTargetModeAllItem');
+      const batchBtn = document.getElementById('batchAuditQuickBtn');
+
       poolGroup.style.display = (tool === 'validate_canedge_staging.py') ? 'block' : 'none';
+      const isSyncAudit = (tool === 'audit_cross_sensor_sync.py');
+      if (syncGroup) syncGroup.style.display = isSyncAudit ? 'block' : 'none';
+      if (allItem) {
+        allItem.style.display = isSyncAudit ? 'inline-flex' : 'none';
+        if (!isSyncAudit) {
+          const checked = document.querySelector('input[name="diagTargetMode"]:checked');
+          if (checked && checked.value === 'all') {
+            document.querySelector('input[name="diagTargetMode"][value="latest"]').checked = true;
+            toggleDiagSessionDropdown();
+          }
+        }
+      }
+      if (batchBtn) batchBtn.style.display = isSyncAudit ? 'inline-block' : 'none';
+    }
+
+    function runBatchSyncAudit() {
+      document.getElementById('diagToolSelect').value = 'audit_cross_sensor_sync.py';
+      onDiagToolChanged();
+      const allRadio = document.querySelector('input[name="diagTargetMode"][value="all"]');
+      if (allRadio) allRadio.checked = true;
+      toggleDiagSessionDropdown();
+      runDiagnostics();
     }
 
     // --- SSE Stream Connection ---
@@ -762,20 +900,20 @@ Select an operation on the left and click Run.
       }
       eventSource = new EventSource('/api/stream');
 
-      eventSource.onmessage = function(e) {
+      eventSource.onmessage = function (e) {
         appendLogLine(e.data);
       };
 
-      eventSource.addEventListener('process_status', function(e) {
+      eventSource.addEventListener('process_status', function (e) {
         try {
           const data = JSON.parse(e.data);
           updateProcessState(data);
-        } catch(err) {
+        } catch (err) {
           console.error("Invalid status JSON:", err);
         }
       });
 
-      eventSource.onerror = function() {
+      eventSource.onerror = function () {
         // SSE handles reconnection automatically
       };
     }
@@ -794,7 +932,7 @@ Select an operation on the left and click Run.
       widget.style.display = 'block';
 
       if (p.desc) taskEl.textContent = p.desc;
-      
+
       if (p.current != null && p.total != null && p.total > 0) {
         detailsEl.textContent = `(${p.current.toLocaleString()} / ${p.total.toLocaleString()})`;
       } else if (p.current != null) {
@@ -883,14 +1021,14 @@ Select an operation on the left and click Run.
       const ms = Math.floor((elapsed % 1000) / 100);
       const mins = Math.floor(s / 60);
       const secs = s % 60;
-      document.getElementById('timerLabel').innerText = 
+      document.getElementById('timerLabel').innerText =
         `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${ms}`;
     }
 
     // --- Logging & Colorizing ---
     function ansiToHtml(text) {
       let html = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      
+
       const colors = {
         '30': '#1e293b', '31': '#f87171', '32': '#4ade80', '33': '#fbbf24', '34': '#60a5fa', '35': '#c084fc', '36': '#38bdf8', '37': '#f1f5f9',
         '90': '#64748b', '91': '#f87171', '92': '#4ade80', '93': '#fbbf24', '94': '#60a5fa', '95': '#c084fc', '96': '#38bdf8', '97': '#ffffff'
@@ -1079,7 +1217,7 @@ Select an operation on the left and click Run.
       try {
         const res = await fetch('/api/status');
         const data = await res.json();
-        
+
         // Populate GPU Status
         const gpuText = document.getElementById('gpuText');
         const gpuDot = document.getElementById('gpuDot');
@@ -1203,7 +1341,7 @@ Select an operation on the left and click Run.
       const args = [];
       if (mode === 'sync-only') args.push('--sync-only');
       if (mode === 'process-only') args.push('--process-only');
-      
+
       if (scope !== 'all') {
         args.push('--session', scope);
         if (optForce) args.push('--force');
@@ -1241,18 +1379,26 @@ Select an operation on the left and click Run.
       const targetMode = document.querySelector('input[name="diagTargetMode"]:checked').value;
       const sess = document.getElementById('diagSessionSelect').value;
       const canPool = document.getElementById('canOptPool').checked;
+      const auditNoPlot = document.getElementById('auditOptNoPlot') && document.getElementById('auditOptNoPlot').checked;
+      const auditQuiet = document.getElementById('auditOptQuiet') && document.getElementById('auditOptQuiet').checked;
 
       const args = [];
       if (tool === 'validate_canedge_staging.py' && canPool) {
         args.push('--pool');
+      } else if (targetMode === 'all') {
+        args.push('--all');
+        if (auditNoPlot) args.push('--no-plot');
+        if (auditQuiet) args.push('--quiet');
       } else if (targetMode === 'latest') {
         args.push('--latest');
+        if (tool === 'audit_cross_sensor_sync.py' && auditNoPlot) args.push('--no-plot');
       } else {
         if (!sess) {
           alert("Please select a session to audit.");
           return;
         }
         args.push(sess);
+        if (tool === 'audit_cross_sensor_sync.py' && auditNoPlot) args.push('--no-plot');
       }
 
       executeCommand(`scripts/${tool}`, args);
@@ -1302,4 +1448,5 @@ Select an operation on the left and click Run.
     });
   </script>
 </body>
+
 </html>

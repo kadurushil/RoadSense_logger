@@ -26,7 +26,8 @@
 17. [Bug #17: 1-Byte Offset in TLV Type 6 (CAN 0x320) FCW Telemetry Decoding & Track ID Aliasing](#bug-17-1-byte-offset-in-tlv-type-6-can-0x320-fcw-telemetry-decoding--track-id-aliasing)
 18. [Bug #18: Foxglove User Script Anonymous Schema Hash (`0bb4508b`) & Rejected Calibration Overlay](#bug-18-foxglove-user-script-anonymous-schema-hash-0bb4508b--rejected-calibration-overlay)
 19. [Bug #19: High-Rate IMU 18 ms Periodic Jitter Spikes & Hardware FIFO Decimation (LSM6DSL / Exynos 7904)](#bug-19-high-rate-imu-18-ms-periodic-jitter-spikes--hardware-fifo-decimation-lsm6dsl--exynos-7904)
-20. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
+20. [Bug #20: Multi-Track Tooltip Jitter, Viewport Modebar Disconnection, & Foxglove-Style Mouse-Locked HUD Architecture in Interactive Sensor Audits](#bug-20-multi-track-tooltip-jitter-viewport-modebar-disconnection--foxglove-style-mouse-locked-hud-architecture-in-interactive-sensor-audits)
+21. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
 
 ---
 
@@ -902,6 +903,78 @@ On this Samsung Exynos platform, all camera properties were queried via `getprop
 
 ---
 
+## Bug #20: Multi-Track Tooltip Jitter, Viewport Modebar Disconnection, & Foxglove-Style Mouse-Locked HUD Architecture in Interactive Sensor Audits
+
+### Symptoms
+* In the 6-panel cross-sensor timing audit report (`sync_audit_report.html`):
+  1. **Tooltip Jitter / Violent Bouncing:** While moving the mouse horizontally along noisy or high-rate sensor signals (such as 100 Hz IMU interval fluctuating between 8 ms and 18 ms or mmWave Radar latency offsets), the hovering tooltip box violently jerked 50–80 pixels vertically on every micro-movement of the mouse, severely obstructing visibility and causing user visual fatigue.
+  2. **Unreachable Modebar on Long Vertical Scroll:** The multi-panel plot spans 1,250 px. When scrolling down to inspect lower tracks (e.g., Panel 4 IMU, Panel 5 Camera-IMU proximity, or Panel 6 Write Buffer queue jitter), Plotly's native zoom and pan toolbar scrolled out of the browser viewport and became completely unreachable.
+  3. **Panel 6 (Write Queue Jitter) Zoom Squish:** A single startup worker initialization spike (401.8 ms at $t = 0.101\text{ s}$) forced the y-axis to $0\text{--}420\text{ ms}$, compressing nominal steady-state queue latencies (mean: 24 ms) into a flat line.
+
+### Root Cause Analysis
+1. **Plotly Point-Anchored SVG Hover Architecture:**
+   - Plotly's default hover engine computes the nearest discrete data point $(x_i, y_i)$ on the hovered SVG line and translates an SVG `<g class="hovertext">` element to that exact screen pixel coordinate.
+   - For high-frequency signals with natural noise, moving the mouse horizontally by only 2 pixels ($x$-axis) causes the corresponding signal sample $y_i$ to fluctuate by dozens of pixels. Consequently, the tooltip box anchors to the jumping signal curve rather than the user's hand/pointer.
+2. **CSS `position: sticky` Failure Inside Nested SVG Divs:**
+   - Plotly creates `.modebar-container` with inline style `position: absolute; top: 0px; right: 0px;` inside `.plot-container > .svg-container`.
+   - In CSS specifications, `position: sticky` only sticks within its nearest scroll-container ancestor. Because `.plot-container` has default overflow and is sized to the full 1,250 px height, the modebar does not stick when the document window scrolls, scrolling off-screen immediately.
+3. **Absence of Transient Boundary Windowing on Multithreaded Queues:**
+   - Multithreaded file loggers exhibit a single warmup latency during first worker thread creation ($t < 1.0\text{ s}$). Auto-ranging across the full dataset allowed a single transient initialization spike to determine the y-axis scale.
+
+### Solution & Fix: The Foxglove Architectural Pattern
+
+Following learnings from Foxglove Studio's plot panel architecture (`intel/plot-panel-replication-guide/PLOT_PANEL_REPLICATION_GUIDE.md` and `Plot.tsx`):
+
+1. **Suppression of Point-Anchored SVG Tooltips:**
+   - Set `"hoverinfo": "none"` on all signal traces and `"hovermode": False` in the Plotly layout. This completely stops Plotly from rendering frantic, jumping SVG tooltip boxes.
+2. **Mouse-Locked Floating HUD Tooltip (`#cursor-hud`):**
+   - Implemented a dedicated DOM floating HUD element styled with frosted-glass backdrop blur (`backdrop-filter: blur(10px)`), monospace telemetry, and panel color pills.
+   - Positioned strictly relative to the user's mouse cursor `(clientX, clientY)`:
+     ```javascript
+     hud.style.display = 'block';
+     const hudW = hud.offsetWidth || 230;
+     const hudH = hud.offsetHeight || 160;
+
+     // Smart horizontal positioning: right of cursor, or flip cleanly to left if overflowing viewport
+     let hudX;
+     if (e.clientX + 16 + hudW > window.innerWidth - 12) {
+       hudX = e.clientX - hudW - 16;
+       if (hudX < 12) hudX = 12;
+     } else {
+       hudX = e.clientX + 16;
+     }
+
+     // Smart vertical positioning: below cursor, or flip cleanly above if overflowing viewport
+     let hudY;
+     if (e.clientY + 12 + hudH > window.innerHeight - 12) {
+       hudY = e.clientY - hudH - 12;
+       if (hudY < 12) hudY = 12;
+     } else {
+       hudY = e.clientY + 12;
+     }
+
+     hud.style.left = hudX + 'px';
+     hud.style.top = hudY + 'px';
+     ```
+   - **Zero Vertical Jitter:** The tooltip position depends purely on mouse coordinates and never hops vertically with signal noise.
+   - Automatically detects active subplot domain from $Y$ and displays a highlighted metric row along with synchronized readouts for all 6 active sensor channels.
+3. **Sub-Microsecond Binary Search Sampling:**
+   - Pre-indexes primary traces on page load. Uses an $O(\log N)$ binary search (`bisect`) taking $< 1\ \mu\text{s}$ to retrieve exact signal values at cursor timestamp $t$.
+4. **Hardware-Accelerated Vertical Crosshair (`#crosshair-bar`):**
+   - Replaced heavy canvas/SVG redraws with a zero-latency DOM overlay (`.crosshair-bar`) spanning across all 6 subplots using GPU transform `transform: translateX(${mouseX}px); will-change: transform;`.
+5. **Sticky Top Navigation Controls (`.toolbar`):**
+   - Added `[ 🔍 Box Zoom ]`, `[ ✋ Pan ]`, and `[ 🔄 Reset View ]` directly into `.toolbar` (`position: sticky; top: 0; z-index: 1000;`).
+   - Controls remain pinned to the top of the viewport at all scroll depths, accompanied by a live synchronized HUD badge (`#toolbar-hud`).
+6. **Panel 6 Approach A Dynamic Scaling:**
+   - Clamped default range to `[-2.0, max(55.0, min(85.0, max_q_core * 1.25))]`, pinning an amber badge `▲ Startup Worker Init: 401.8ms` at $t = 0.101\text{ s}$ while preserving high-resolution visibility of steady-state buffer latency.
+
+### Result & Verification
+* Tooltip motion is completely decoupled from signal noise, floating smoothly with the pointer.
+* Navigation tools are 100% accessible anywhere along the 1,250 px multi-panel scroll.
+* Tested and verified across multiple RoadSense sessions with zero regressions and clean pre-commit validation.
+
+---
+
 ## Summary of Core Engineering Rules
 
 1. **Never pass high-frequency raw byte streams through `StateFlow`:** Always use direct callbacks or channels to background workers.
@@ -926,3 +999,5 @@ On this Samsung Exynos platform, all camera properties were queried via `getprop
     - Standalone equations must be placed in isolated block display format (`$$...$$`) with empty blank lines before and after to ensure math parsers (KaTeX/MathJax) cleanly tokenize them.
     - Never place raw LaTeX fractions (`\frac`) or unescaped subscripts with underscores (`_`) directly inside Markdown table headers or cells, as Markdown table parsers treat `|` and `_` as column delimiters and italics, corrupting the LaTeX syntax.
     - For inline text, tables, and quick timing metrics, use clean Unicode/ASCII characters (`Δt`, `·`, `<=`, `->`) or code spans to guarantee flawless, legible rendering across all IDE previewers and Git diffs.
+20. **Decouple interactive tooltips from signal noise ($y$-coordinates) in high-rate telemetry plots:** Never anchor SVG/canvas tooltip elements to discrete data sample coordinates on noisy channels (e.g. 100 Hz IMU or radar latencies), as vertical signal jitter will cause tooltips to violently bounce. Follow the Foxglove pattern: anchor the HUD directly to cursor viewport coordinates `(clientX, clientY)`, use $O(\log N)$ binary search to sample values at timestamp $t$, and employ a GPU-accelerated DOM vertical crosshair overlay (`transform: translateX`).
+21. **Batch Diagnostic Pipeline Execution with Resilient Error Containment:** When building CLI diagnostic auditors to evaluate archives of recording sessions, always design core engines as exception-throwing libraries rather than invoking `sys.exit()` internally. Implement discovery mechanisms that filter for essential stream manifests (`session_timeline.csv`), catch per-session exceptions to prevent single corrupted artifacts from aborting batch runs, and output an aggregate scorecard summary table with colorized badges and clickable `file:///` URLs.

@@ -44,13 +44,33 @@ def colorize_status(status_str):
         return f"{ANSI_GREEN}{ANSI_BOLD}{status_str}{ANSI_RESET}"
     return status_str
 
+def get_all_session_dirs():
+    """
+    Returns a sorted list of absolute paths to all valid session directories
+    in logs/ that contain a session_timeline.csv file.
+    """
+    base_logs = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+    if not os.path.isdir(base_logs):
+        return []
+
+    sessions = []
+    for d in sorted(os.listdir(base_logs)):
+        if d.startswith("session_"):
+            full_path = os.path.join(base_logs, d)
+            if os.path.isdir(full_path) and os.path.isfile(os.path.join(full_path, "session_timeline.csv")):
+                sessions.append(full_path)
+    return sessions
+
 def resolve_session_dir(target):
     base_logs = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
 
     if not target or target in ["--latest", "latest"]:
-        sessions = sorted([d for d in os.listdir(base_logs) if d.startswith("session_") and os.path.isdir(os.path.join(base_logs, d))])
+        sessions = [
+            d for d in sorted(os.listdir(base_logs))
+            if d.startswith("session_") and os.path.isdir(os.path.join(base_logs, d))
+        ]
         if not sessions:
-            sys.exit("Error: No sessions found in logs/")
+            raise FileNotFoundError("Error: No sessions found in logs/")
         target = os.path.join(base_logs, sessions[-1])
 
     if not os.path.exists(target):
@@ -61,7 +81,7 @@ def resolve_session_dir(target):
     if os.path.isdir(target):
         return target
 
-    sys.exit(f"Error: Cannot find session directory {target}")
+    raise FileNotFoundError(f"Error: Cannot find session directory {target}")
 
 def extract_ui_events_from_log(sess_dir, total_dur_s):
     """
@@ -724,7 +744,9 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
     # Scorecard Rows HTML
     scorecard_rows_html = ""
     for label, val in scorecard.items():
-        v_up = val.upper()
+        if label.startswith("_"):
+            continue
+        v_up = str(val).upper()
         if any(k in v_up for k in ["FAIL", "CRITICAL", "ERROR"]):
             b_cls = "badge-fail"
         elif any(k in v_up for k in ["WARN", "ACCEPTABLE"]):
@@ -921,6 +943,21 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
       will-change: transform;
     }
 
+    /* Hovered Sample Glowing Highlight Marker */
+    .sample-marker {
+      position: absolute;
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      border: 2px solid #ffffff;
+      pointer-events: none;
+      z-index: 60;
+      display: none;
+      transform: translate(-50%, -50%);
+      will-change: left, top;
+      transition: background-color 0.08s ease;
+    }
+
     /* Mouse-Locked Floating HUD (Foxglove followCursor architecture) */
     .cursor-hud {
       position: fixed;
@@ -1113,6 +1150,7 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
       <div class="plot-wrapper" style="position: relative; overflow: hidden;">
         <div id="plotly-root"></div>
         <div id="crosshair-bar" class="crosshair-bar"></div>
+        <div id="sample-marker" class="sample-marker"></div>
       </div>
     </div>
 
@@ -1228,15 +1266,18 @@ __PLOTLY_JS__
 
     // Index primary signals for sub-microsecond binary search
     const panelTraces = {
-      p1: traces.find(t => t.yaxis === 'y1' && t.mode === 'lines'),
+      p1: traces.find(t => (t.yaxis === 'y1' || t.yaxis === 'y' || (t.name && t.name.includes('Radar -> Nearest Cam Offset'))) && t.mode === 'lines'),
       p2_cam: traces.find(t => t.name && t.name.includes('Camera Frame Interval')),
       p2_rad: traces.find(t => t.name && t.name.includes('Radar Frame Interval')),
-      p4: traces.find(t => t.yaxis === 'y4' && t.mode === 'lines'),
-      p5: traces.find(t => t.yaxis === 'y5' && t.name && t.name.includes('Camera -> Nearest IMU')),
-      p6: traces.find(t => t.yaxis === 'y6' && t.mode === 'markers')
+      p3_taps: traces.find(t => t.name && t.name.includes('Screen Taps')),
+      p3_swipes: traces.find(t => t.name && t.name.includes('Tab Swipes')),
+      p3_fs: traces.find(t => t.name && t.name.includes('Fullscreen Toggles')),
+      p4: traces.find(t => (t.yaxis === 'y4' || (t.name && t.name.includes('IMU Stream'))) && t.mode === 'lines'),
+      p5: traces.find(t => (t.yaxis === 'y5' || (t.name && t.name.includes('Camera -> Nearest IMU'))) && t.mode === 'lines'),
+      p6: traces.find(t => (t.yaxis === 'y6' || (t.name && t.name.includes('Write Queue Jitter'))) && t.mode === 'markers')
     };
 
-    function getNearestSample(trace, targetT) {
+    function getNearestSample(trace, targetT, maxDt = 0.6) {
       if (!trace || !trace.x || trace.x.length === 0) return null;
       const x = trace.x;
       const y = trace.y;
@@ -1250,13 +1291,14 @@ __PLOTLY_JS__
       if (idx > 0 && Math.abs(x[idx - 1] - targetT) < Math.abs(x[idx] - targetT)) {
         idx--;
       }
-      if (Math.abs(x[idx] - targetT) > 0.6) return null;
+      if (Math.abs(x[idx] - targetT) > maxDt) return null;
       return { t: x[idx], val: y[idx] };
     }
 
     const plotEl = document.getElementById('plotly-root');
     const hud = document.getElementById('cursor-hud');
     const crosshair = document.getElementById('crosshair-bar');
+    const sampleMarker = document.getElementById('sample-marker');
     const toolbarHudT = document.querySelector('#toolbar-hud .hud-t-badge');
     const toolbarHudV = document.querySelector('#toolbar-hud .hud-v-badge');
 
@@ -1273,6 +1315,7 @@ __PLOTLY_JS__
       if (mouseX < plotLeft || mouseX > plotRight || mouseY < plotTop || mouseY > plotBottom) {
         hud.style.display = 'none';
         crosshair.style.display = 'none';
+        if (sampleMarker) sampleMarker.style.display = 'none';
         return;
       }
 
@@ -1282,6 +1325,7 @@ __PLOTLY_JS__
       if (curT < 0 || curT > totalDur) {
         hud.style.display = 'none';
         crosshair.style.display = 'none';
+        if (sampleMarker) sampleMarker.style.display = 'none';
         return;
       }
 
@@ -1293,31 +1337,86 @@ __PLOTLY_JS__
       const s1 = getNearestSample(panelTraces.p1, curT);
       const s2c = getNearestSample(panelTraces.p2_cam, curT);
       const s2r = getNearestSample(panelTraces.p2_rad, curT);
+      const uiMaxDt = Math.max(1.2, (xRange[1] - xRange[0]) * 0.04);
+      const s3_taps = getNearestSample(panelTraces.p3_taps, curT, uiMaxDt);
+      const s3_swipes = getNearestSample(panelTraces.p3_swipes, curT, uiMaxDt);
+      const s3_fs = getNearestSample(panelTraces.p3_fs, curT, uiMaxDt);
       const s4 = getNearestSample(panelTraces.p4, curT);
       const s5 = getNearestSample(panelTraces.p5, curT);
       const s6 = getNearestSample(panelTraces.p6, curT);
 
-      // 3. Identify Hovered Panel from Y
+      // 3. Identify Hovered Panel from Y and Determine Active Sample Target
       const fracY = 1.0 - ((mouseY - plotTop) / (plotBottom - plotTop));
       let pNum = 1, pColor = "#38bdf8", pMetric = "Radar-Cam Offset", pValText = "--";
+      let activeSample = null, yaxisKey = 'yaxis', yDomain = [0.855, 1.00], defaultY = defaultY0;
 
       if (fracY >= 0.84) {
         pNum = 1; pColor = "#38bdf8"; pMetric = "Radar ↔ Cam Offset";
+        activeSample = s1; yaxisKey = 'yaxis'; yDomain = [0.855, 1.00]; defaultY = defaultY0;
         pValText = s1 ? s1.val.toFixed(2) + " ms" : "--";
       } else if (fracY >= 0.67) {
-        pNum = 2; pColor = "#a78bfa"; pMetric = "Frame Intervals";
-        pValText = `Cam: ${s2c ? s2c.val.toFixed(1) + 'ms' : '--'} | Rad: ${s2r ? s2r.val.toFixed(1) + 'ms' : '--'}`;
+        pNum = 2; yaxisKey = 'yaxis2'; yDomain = [0.685, 0.83]; defaultY = defaultY1;
+        // In Panel 2, determine whether cursor is closer to Radar dt (~50ms) or Camera dt (~33ms)
+        const subTopPx = plotTop + (1.0 - yDomain[1]) * (plotBottom - plotTop);
+        const subBottomPx = plotTop + (1.0 - yDomain[0]) * (plotBottom - plotTop);
+        const yaxis2 = plotEl._fullLayout && (plotEl._fullLayout.yaxis2 || plotEl._fullLayout['yaxis2']);
+        const yRange2 = (yaxis2 && yaxis2.range) || defaultY1;
+        const cursorDataY = yRange2[0] + ((subBottomPx - mouseY) / (subBottomPx - subTopPx)) * (yRange2[1] - yRange2[0]);
+
+        let isRadarCloser = false;
+        if (s2r && s2c) {
+          isRadarCloser = Math.abs(cursorDataY - s2r.val) < Math.abs(cursorDataY - s2c.val);
+        } else if (s2r && !s2c) {
+          isRadarCloser = true;
+        }
+
+        if (isRadarCloser) {
+          activeSample = s2r;
+          pColor = "#f472b6";
+          pMetric = "Radar Frame Interval (50ms)";
+          pValText = s2r.val.toFixed(1) + " ms";
+        } else if (s2c) {
+          activeSample = s2c;
+          pColor = "#a78bfa";
+          pMetric = "Camera Frame Interval (33ms)";
+          pValText = s2c.val.toFixed(1) + " ms";
+        } else {
+          activeSample = null;
+          pColor = "#a78bfa";
+          pMetric = "Frame Intervals";
+          pValText = "--";
+        }
       } else if (fracY >= 0.50) {
-        pNum = 3; pColor = "#f59e0b"; pMetric = "UI Gesture Domain";
-        pValText = "Flight Recorder Active";
+        pNum = 3; yaxisKey = 'yaxis3'; yDomain = [0.515, 0.66]; defaultY = [-0.8, 2.8];
+        const uiCands = [];
+        if (s3_taps) uiCands.push({ sample: s3_taps, color: '#f59e0b', type: 'Screen Tap' });
+        if (s3_swipes) uiCands.push({ sample: s3_swipes, color: '#c084fc', type: 'Tab Swipe' });
+        if (s3_fs) uiCands.push({ sample: s3_fs, color: '#38bdf8', type: 'Fullscreen Toggle' });
+
+        if (uiCands.length > 0) {
+          uiCands.sort((a, b) => Math.abs(a.sample.t - curT) - Math.abs(b.sample.t - curT));
+          const bestUI = uiCands[0];
+          activeSample = bestUI.sample;
+          pColor = bestUI.color;
+          pMetric = "UI Flight Recorder";
+          pValText = `${bestUI.type} @ ${bestUI.sample.t.toFixed(2)}s`;
+        } else {
+          activeSample = null;
+          pColor = "#f59e0b";
+          pMetric = "UI Gesture Domain";
+          pValText = "Flight Recorder Active (No event nearby)";
+        }
       } else if (fracY >= 0.33) {
         pNum = 4; pColor = "#34d399"; pMetric = "IMU Interval Δt (100 Hz)";
+        activeSample = s4; yaxisKey = 'yaxis4'; yDomain = [0.345, 0.49]; defaultY = [7.0, 19.0];
         pValText = s4 ? s4.val.toFixed(2) + " ms" : "--";
       } else if (fracY >= 0.16) {
         pNum = 5; pColor = "#38bdf8"; pMetric = "Camera ↔ IMU Proximity";
+        activeSample = s5; yaxisKey = 'yaxis5'; yDomain = [0.175, 0.32]; defaultY = [-0.5, 12.0];
         pValText = s5 ? s5.val.toFixed(2) + " ms" : "--";
       } else {
         pNum = 6; pColor = "#fbbf24"; pMetric = "Write Queue Latency";
+        activeSample = s6; yaxisKey = 'yaxis6'; yDomain = [0.00, 0.145]; defaultY = defaultY5;
         pValText = s6 ? s6.val.toFixed(1) + " ms" : "--";
       }
 
@@ -1340,15 +1439,58 @@ __PLOTLY_JS__
         </div>
       `;
 
-      let hudX = e.clientX + 16;
-      let hudY = e.clientY + 12;
-      if (hudX + 230 > window.innerWidth) hudX = e.clientX - 230;
-      if (hudY + 180 > window.innerHeight) hudY = e.clientY - 170;
+      hud.style.display = 'block';
+      const hudW = hud.offsetWidth || 230;
+      const hudH = hud.offsetHeight || 160;
+
+      // Smart horizontal positioning: right of cursor, or flip cleanly to left if overflowing viewport
+      let hudX;
+      if (e.clientX + 16 + hudW > window.innerWidth - 12) {
+        hudX = e.clientX - hudW - 16;
+        if (hudX < 12) hudX = 12;
+      } else {
+        hudX = e.clientX + 16;
+      }
+
+      // Smart vertical positioning: below cursor, or flip cleanly above if overflowing viewport
+      let hudY;
+      if (e.clientY + 12 + hudH > window.innerHeight - 12) {
+        hudY = e.clientY - hudH - 12;
+        if (hudY < 12) hudY = 12;
+      } else {
+        hudY = e.clientY + 12;
+      }
+
       hud.style.left = hudX + 'px';
       hud.style.top = hudY + 'px';
-      hud.style.display = 'block';
 
-      // 5. Update Sticky Toolbar Header Readout
+      // 5. Highlight Exact Hovered Sample on Active Signal Curve
+      if (sampleMarker && activeSample && activeSample.val != null) {
+        const yaxis = plotEl._fullLayout && (plotEl._fullLayout[yaxisKey] || (yaxisKey === 'yaxis' ? (plotEl._fullLayout.yaxis || plotEl._fullLayout.yaxis1) : null));
+        const xaxis = plotEl._fullLayout && plotEl._fullLayout.xaxis;
+        const yRange = (yaxis && yaxis.range) || defaultY;
+
+        let samplePx, samplePy;
+        if (xaxis && typeof xaxis.d2p === 'function' && yaxis && typeof yaxis.d2p === 'function') {
+          samplePx = (xaxis._offset != null ? xaxis._offset : plotLeft) + xaxis.d2p(activeSample.t);
+          samplePy = (yaxis._offset != null ? yaxis._offset : (plotTop + (1.0 - yDomain[1]) * (plotBottom - plotTop))) + yaxis.d2p(activeSample.val);
+        } else {
+          const subTopPx = plotTop + (1.0 - yDomain[1]) * (plotBottom - plotTop);
+          const subBottomPx = plotTop + (1.0 - yDomain[0]) * (plotBottom - plotTop);
+          samplePx = plotLeft + ((activeSample.t - xRange[0]) / (xRange[1] - xRange[0])) * (plotRight - plotLeft);
+          samplePy = subBottomPx - ((activeSample.val - yRange[0]) / (yRange[1] - yRange[0])) * (subBottomPx - subTopPx);
+        }
+
+        sampleMarker.style.left = samplePx + 'px';
+        sampleMarker.style.top = samplePy + 'px';
+        sampleMarker.style.backgroundColor = pColor;
+        sampleMarker.style.boxShadow = `0 0 10px ${pColor}, 0 0 3px #fff`;
+        sampleMarker.style.display = 'block';
+      } else if (sampleMarker) {
+        sampleMarker.style.display = 'none';
+      }
+
+      // 6. Update Sticky Toolbar Header Readout
       if (toolbarHudT) toolbarHudT.textContent = `⏱️ ${curT.toFixed(3)}s`;
       if (toolbarHudV) toolbarHudV.textContent = `[P${pNum}] ${pMetric}: ${pValText}`;
     });
@@ -1356,6 +1498,7 @@ __PLOTLY_JS__
     plotEl.addEventListener('mouseleave', function() {
       hud.style.display = 'none';
       crosshair.style.display = 'none';
+      if (sampleMarker) sampleMarker.style.display = 'none';
       if (toolbarHudT) toolbarHudT.textContent = `⏱️ Ready`;
       if (toolbarHudV) toolbarHudV.textContent = `Hover timeline for synced sensor metrics`;
     });
@@ -1396,7 +1539,7 @@ __PLOTLY_JS__
 
     return out_html
 
-def audit_timeline(sess_dir, make_plot=True, make_html=True, show_gui=False):
+def audit_timeline(sess_dir, make_plot=False, make_html=True, show_gui=False):
     sess_name = os.path.basename(sess_dir)
     tl_file = os.path.join(sess_dir, "session_timeline.csv")
 
@@ -1406,7 +1549,7 @@ def audit_timeline(sess_dir, make_plot=True, make_html=True, show_gui=False):
     print("=" * 80)
 
     if not os.path.exists(tl_file):
-        sys.exit(f"{ANSI_RED}Error: session_timeline.csv not found!{ANSI_RESET}")
+        raise FileNotFoundError(f"session_timeline.csv not found in {sess_dir}")
 
     scorecard = {}
 
@@ -1429,7 +1572,7 @@ def audit_timeline(sess_dir, make_plot=True, make_html=True, show_gui=False):
                     continue
 
     if not records:
-        sys.exit(f"{ANSI_RED}Error: session_timeline.csv has no valid records!{ANSI_RESET}")
+        raise ValueError(f"session_timeline.csv in {sess_dir} has no valid records!")
 
     # Check interleaving jitter
     reorder_deltas_ms = []
@@ -1833,8 +1976,9 @@ def audit_timeline(sess_dir, make_plot=True, make_html=True, show_gui=False):
         print(f"  {label:30s}: {colorize_status(val)}")
 
     print("-" * 80)
-    any_fail = any("FAIL" in v.upper() for v in scorecard.values())
-    any_warn = any("WARN" in v.upper() for v in scorecard.values())
+    scorecard["_duration_s"] = total_dur_s
+    any_fail = any("FAIL" in str(v).upper() for k, v in scorecard.items() if not k.startswith("_"))
+    any_warn = any("WARN" in str(v).upper() for k, v in scorecard.items() if not k.startswith("_"))
 
     if any_fail:
         overall = "FAIL (Critical cross-sensor desynchronization detected)"

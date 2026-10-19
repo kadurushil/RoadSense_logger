@@ -117,5 +117,46 @@ Both commands executed with code `0`, generated expected artifacts, and logged i
   - Active panel is highlighted with color pill and metric name; synchronized snapshot rows show other active channels.
   - Integrated hardware-accelerated zero-latency vertical crosshair line (`#crosshair-bar`) spanning across all 6 panels.
   - Mirrored live time and metric readout into the sticky top toolbar (`#toolbar-hud`).
+- **Smart Screen-Space Viewport Bounding**:
+  - Dynamically measures rendered HUD dimensions (`hudW`, `hudH`) and flips cleanly:
+    - Flips horizontally to the left of the pointer (`clientX - hudW - 16`) when nearing the right viewport boundary.
+    - Flips vertically above the pointer (`clientY - hudH - 12`) when nearing the bottom viewport boundary.
+- **Active Curve Sample Glowing Highlight Marker (`#sample-marker`)**:
+  - Overlays a glowing 9px reticle directly on the sampled $(x, y)$ data point on the active panel's curve.
+  - Matches the hovered trace color with an illuminated outer halo (`box-shadow: 0 0 10px <color>, 0 0 3px #fff`).
+  - Visually links the exact discrete data point being inspected on the plot to the numerical values shown in the floating HUD.
+  - **Panel 1 Fix**: Normalized Plotly axis lookup (`t.yaxis === 'y1' || t.yaxis === 'y'`) preventing selector misses.
+  - **Panel 2 Fix**: Dynamic vertical proximity snapping between Camera frame interval (33ms, `#a78bfa` purple) and Radar frame interval (50ms, `#f472b6` pink).
+  - **Panel 3 Fix**: Subplot lock-on for discrete UI user gestures (Screen Taps, Tab Swipes, Fullscreen Toggles) within adaptive temporal snap radii (`~45px`), illuminating exact touch event locations on the timeline.
+
+---
+
+## 6. Batch Cross-Sensor Synchronization Audit Pipeline (`--all`)
+
+### 6.1 Motivation & Capability
+Auditing single sessions manually is useful for deep-dive investigation, but validating archive-wide synchronization health across dozens of test sessions requires batch processing. Because standalone interactive HTML generation executes in $<1.5\text{ s}$ per session, processing the entire archive of recorded drives completes in seconds.
+
+### 6.2 CLI Usage
+```powershell
+# Audit all recorded sessions in logs/ (with full scorecard prints & HTML generation)
+python scripts/audit_cross_sensor_sync.py --all
+
+# Fast batch audit in quiet mode (suppresses individual prints, displays progress and summary table)
+python scripts/audit_cross_sensor_sync.py --all -q --no-plot
+
+# Audit latest session
+python scripts/audit_cross_sensor_sync.py --latest
+```
+
+### 6.3 Batch Audit Output Features
+1. **Automated Discovery**:
+   - `get_all_session_dirs()` scans `logs/`, automatically discovering all valid `session_*` folders containing `session_timeline.csv` (ignoring auxiliary folders such as `app_logs`, `calibration`, `IMU_DEBUG`).
+2. **Resilient Exception Containment**:
+   - Individual session parse issues or missing files are safely caught and flagged in the summary table without terminating the batch runner.
+3. **Executive Aggregate Summary Table**:
+   - Prints a formatted, aligned table listing each session's sequence number, folder name, duration in seconds, colorized certification status (`PASS`, `WARN`, `FAIL`), and clickable `file:///` URLs to the generated interactive HTML report.
+4. **Aggregate Batch Metrics**:
+   - Summarizes total audited sessions, pass counts/percentages, warnings, and failures. Exits with return code `0` if all sessions pass, or `1` if critical desynchronization is detected in any session.
+
 
 
