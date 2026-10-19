@@ -27,7 +27,8 @@
 18. [Bug #18: Foxglove User Script Anonymous Schema Hash (`0bb4508b`) & Rejected Calibration Overlay](#bug-18-foxglove-user-script-anonymous-schema-hash-0bb4508b--rejected-calibration-overlay)
 19. [Bug #19: High-Rate IMU 18 ms Periodic Jitter Spikes & Hardware FIFO Decimation (LSM6DSL / Exynos 7904)](#bug-19-high-rate-imu-18-ms-periodic-jitter-spikes--hardware-fifo-decimation-lsm6dsl--exynos-7904)
 20. [Bug #20: Multi-Track Tooltip Jitter, Viewport Modebar Disconnection, & Foxglove-Style Mouse-Locked HUD Architecture in Interactive Sensor Audits](#bug-20-multi-track-tooltip-jitter-viewport-modebar-disconnection--foxglove-style-mouse-locked-hud-architecture-in-interactive-sensor-audits)
-21. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
+21. [Bug #21: Multi-Sensor Desync in Foxglove / Visualizer via Sequential MP4 Indexing & Pre-Roll Shutter Misalignment (Bypassing session_timeline.csv)](#bug-21-multi-sensor-desync-in-foxglove--visualizer-via-sequential-mp4-indexing--pre-roll-shutter-misalignment-bypassing-session_timelinecsv)
+22. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
 
 ---
 
@@ -975,6 +976,53 @@ Following learnings from Foxglove Studio's plot panel architecture (`intel/plot-
 
 ---
 
+## Bug #21: Multi-Sensor Desync in Foxglove / Visualizer via Sequential MP4 Indexing & Pre-Roll Shutter Misalignment (Bypassing `session_timeline.csv`)
+
+### Symptoms
+* In Foxglove Studio or the web visualizer during session replay (e.g. `session_20261012_164153`), the vehicle speed plot in the telemetry panel appeared to rise (e.g., $0 \rightarrow 0.8 \rightarrow 3.9\text{ km/h}$) **before** the ego vehicle was observed moving in the camera frame.
+* The video display appeared to lag behind real-time wheel speed and CAN telemetry by approximately 1 second ($\sim 900\text{ ms}$), creating the false impression that telemetry led physical motion.
+
+### Root Cause Analysis
+Deep cross-stream investigation across `session_timeline.csv`, `camera_frames.csv`, `session_debug.log`, `camera_video.mp4`, and `radar_frames.bin` revealed three interconnected factors:
+
+1. **Pre-Roll Preview Frame Logging in `camera_frames.csv`:**
+   - In `CameraEngine.kt`, when video recording begins, the camera capture session is reconfigured (`restartSession()`), and `MediaRecorder.start()` is deliberately delayed by 300 ms (`backgroundHandler?.postDelayed({ mediaRecorder?.start() }, 300)`) to ensure the surface pipeline stabilizes.
+   - However, `CameraSessionRecorder.kt` was already attached and logging incoming frames from `onCaptureStarted` during the preceding preview session.
+   - In `session_20261012_164153`, rows 0 to 12 (frames 2924 to 2936) were logged between `16:41:54.004` and `16:41:54.645`.
+   - `MediaRecorder` did not start encoding into `camera_video.mp4` until `16:41:54.915`, beginning with frame 2937 (row 13 in `camera_frames.csv`).
+   - Consequently, **rows 0 to 12 in `camera_frames.csv` had no corresponding video frames in `camera_video.mp4`**.
+2. **Naive Sequential Indexing in `convert_session_to_mcap.py` & `sync_and_process_sessions.py`:**
+   - In `tools/convert_session_to_mcap.py`:
+     ```python
+     # PROBLEMATIC CODE
+     frame_idx = 0
+     for packet in container.demux(stream):
+         annexb_packets = bsf.filter(packet)
+         for p in annexb_packets:
+             if frame_idx < len(shutter_timestamps):
+                 mono_ns = shutter_timestamps[frame_idx]
+             frame_idx += 1
+     ```
+   - The converter assumed that packet $i$ in `camera_video.mp4` strictly corresponded to row $i$ in `camera_frames.csv`.
+   - As a result, MP4 packet 0 (recorded at $t \approx 16:41:54.902$) was assigned `shutter_timestamps[0]` ($16:41:54.004$), **shifting every video frame in MCAP ~911 ms into the past**!
+   - Similarly, in `tools/sync_and_process_sessions.py`, `v_frame_idx = best_idx` mapped video indices directly to CSV row indices without subtracting the pre-roll offset.
+3. **`session_timeline.csv` Was Completely Bypassed:**
+   - Despite `session_timeline.csv` being recorded by Android as the master cross-sensor synchronization manifest, the offline conversion engines never ingested it, parsing individual raw files in isolated silos and accumulating timing offsets.
+
+### Solution & Fix
+1. **Master Timeline Ingestion:**
+   - Structure `convert_session_to_mcap.py` and visualizer generators to ingest and follow `session_timeline.csv` as ground truth.
+2. **Pre-Roll Boundary Detection & Sequence ID Alignment:**
+   - Detect the preview-to-record reconfiguration gap in `camera_frames.csv` ($\Delta t > 250\text{ ms}$) or correlate against the `MediaRecorder` startup timestamp in `session_debug.log`.
+   - Anchor MP4 packet 0 to the actual recording start sequence ID ($S_{\text{record}}$) rather than row 0.
+3. **PTS-Bounded Nearest Timestamp Matching:**
+   - For every video packet $k$, compute its relative presentation timestamp ($PTS_k$) and match it to the nearest `CAMERA:FRAME` event in `session_timeline.csv` using $O(\log N)$ binary search (`bisect`), ensuring dropped frames do not cause cumulative phase drift.
+4. **Unified Monotonic Clock Offset:**
+   - Ensure all channels (`/camera/video`, `/radar/points`, `/radar/tracks`, `/vehicle/telemetry`, `/gnss/fix`, `/imu/data`) share the identical conversion offset:
+     $$T_{\text{utc}} = T_{\text{elapsed\_realtime\_ns}} + \Delta T_{\text{session\_offset\_ns}}$$
+
+---
+
 ## Summary of Core Engineering Rules
 
 1. **Never pass high-frequency raw byte streams through `StateFlow`:** Always use direct callbacks or channels to background workers.
@@ -1002,4 +1050,6 @@ Following learnings from Foxglove Studio's plot panel architecture (`intel/plot-
 20. **Decouple interactive tooltips from signal noise ($y$-coordinates) in high-rate telemetry plots:** Never anchor SVG/canvas tooltip elements to discrete data sample coordinates on noisy channels (e.g. 100 Hz IMU or radar latencies), as vertical signal jitter will cause tooltips to violently bounce. Follow the Foxglove pattern: anchor the HUD directly to cursor viewport coordinates `(clientX, clientY)`, use $O(\log N)$ binary search to sample values at timestamp $t$, and employ a GPU-accelerated DOM vertical crosshair overlay (`transform: translateX`).
 21. **Batch Diagnostic Pipeline Execution with Resilient Error Containment:** When building CLI diagnostic auditors to evaluate archives of recording sessions, always design core engines as exception-throwing libraries rather than invoking `sys.exit()` internally. Implement discovery mechanisms that filter for essential stream manifests (`session_timeline.csv`), catch per-session exceptions to prevent single corrupted artifacts from aborting batch runs, and output an aggregate scorecard summary table with colorized badges and clickable `file:///` URLs.
 22. **Default-Recalculate with Opt-In Incremental Skip for Diagnostic Suites:** In automated health and synchronization audit pipelines, default execution must re-calculate metrics across all sessions to ensure reports immediately reflect updated algorithms and calibration thresholds. Incremental skipping (`--skip-processed`) should be strictly opt-in and require existence of both domain manifests (e.g., `health_scorecard.json` AND `sync_audit_report.html`) before bypassing evaluation.
+23. **Ground Multimodal Replay & Converters in Master Timeline (`session_timeline.csv`):** Never assume raw video MP4 container packet indices map 1-to-1 to camera CSV row indices ($0, 1, 2, \dots$). Hardware camera capture pipelines commonly log preview frames before the hardware video encoder starts, or suffer occasional dropped frames. Always parse and align streams against `session_timeline.csv` using hardware sequence numbers and presentation timestamps (PTS), guaranteeing microsecond-accurate cross-sensor synchronization without startup phase drift.
+
 

@@ -34,6 +34,10 @@ import struct
 import argparse
 from datetime import datetime, timezone
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
 # Ensure local dependencies are present
 try:
     from mcap_protobuf.writer import Writer as ProtobufWriter
@@ -652,10 +656,11 @@ def parse_gnss_csv(gnss_csv_path):
                 continue
 
 
-def parse_camera_video_frames(video_mp4_path, frames_csv_path, flip_video=False, hwaccel="auto"):
+def parse_camera_video_frames(video_mp4_path, frames_csv_path, sync_master=None, flip_video=False, hwaccel="auto"):
     """
     Generator yielding Annex B H.264 video frame packets from camera_video.mp4,
-    synchronized with exact shutter monotonic timestamps from camera_frames.csv.
+    synchronized with exact shutter monotonic timestamps from MasterTimelineSynchronizer
+    or camera_frames.csv.
     If flip_video is True, frames are physically rotated 180° (vflip + hflip) and re-encoded
     using GPU hardware acceleration (NVDEC h264_cuvid + NVENC h264_nvenc) when available,
     or software CPU libx264 as fallback.
@@ -673,7 +678,7 @@ def parse_camera_video_frames(video_mp4_path, frames_csv_path, flip_video=False,
             except (ValueError, KeyError):
                 continue
 
-    if not shutter_timestamps:
+    if not shutter_timestamps and sync_master is None:
         return
 
     try:
@@ -692,7 +697,8 @@ def parse_camera_video_frames(video_mp4_path, frames_csv_path, flip_video=False,
 
         stream = container.streams.video[0]
         stream.thread_type = "AUTO"
-        total_frames = len(shutter_timestamps) if shutter_timestamps else (stream.frames or 1)
+        rec_count = len(sync_master.recording_camera_events) if (sync_master and sync_master.recording_camera_events) else len(shutter_timestamps)
+        total_frames = rec_count if rec_count > 0 else (stream.frames or 1)
         t_vid_start = time.time()
         last_report_t = t_vid_start
 
@@ -762,13 +768,18 @@ def parse_camera_video_frames(video_mp4_path, frames_csv_path, flip_video=False,
                 packets = out_stream.encode(out_frame)
                 for p in packets:
                     raw_bytes = bytes(p)
-                    if frame_idx < len(shutter_timestamps):
+                    pts_sec = float(frame.pts * stream.time_base) if frame.pts is not None else (frame_idx / 30.0)
+                    if sync_master:
+                        mono_ns = sync_master.get_camera_shutter_mono_ns(pts_sec, frame_idx)
+                    elif frame_idx < len(shutter_timestamps):
                         mono_ns = shutter_timestamps[frame_idx]
                     else:
                         mono_ns = shutter_timestamps[-1] + (frame_idx - len(shutter_timestamps) + 1) * 33_333_333
 
                     yield {
                         "mono_ns": mono_ns,
+                        "pts_sec": pts_sec,
+                        "frame_idx": frame_idx,
                         "data": raw_bytes,
                         "is_keyframe": p.is_keyframe,
                         "width": stream.width,
@@ -789,8 +800,11 @@ def parse_camera_video_frames(video_mp4_path, frames_csv_path, flip_video=False,
             # Flush encoder
             for p in out_stream.encode(None):
                 raw_bytes = bytes(p)
+                last_mono = sync_master.recording_camera_events[-1]["mono_ns"] if (sync_master and sync_master.recording_camera_events) else shutter_timestamps[-1]
                 yield {
-                    "mono_ns": shutter_timestamps[-1],
+                    "mono_ns": last_mono,
+                    "pts_sec": float(frame_idx / 30.0),
+                    "frame_idx": frame_idx,
                     "data": raw_bytes,
                     "is_keyframe": p.is_keyframe,
                     "width": stream.width,
@@ -803,16 +817,21 @@ def parse_camera_video_frames(video_mp4_path, frames_csv_path, flip_video=False,
             for packet in container.demux(stream):
                 if packet.dts is None:
                     continue
+                pts_sec = float(packet.pts * stream.time_base) if packet.pts is not None else (frame_idx / 30.0)
                 annexb_packets = bsf.filter(packet)
                 for p in annexb_packets:
                     raw_bytes = bytes(p)
-                    if frame_idx < len(shutter_timestamps):
+                    if sync_master:
+                        mono_ns = sync_master.get_camera_shutter_mono_ns(pts_sec, frame_idx)
+                    elif frame_idx < len(shutter_timestamps):
                         mono_ns = shutter_timestamps[frame_idx]
                     else:
                         mono_ns = shutter_timestamps[-1] + (frame_idx - len(shutter_timestamps) + 1) * 33_333_333
 
                     yield {
                         "mono_ns": mono_ns,
+                        "pts_sec": pts_sec,
+                        "frame_idx": frame_idx,
                         "data": raw_bytes,
                         "is_keyframe": p.is_keyframe,
                         "width": stream.width,
@@ -1093,6 +1112,15 @@ def convert_session_to_mcap(
     if not os.path.isfile(imu_csv):
         imu_csv = os.path.join(session_dir, "imu_frames.csv")
 
+    # 3.1 Initialize Master Timeline Synchronizer
+    sync_master = None
+    try:
+        from scripts.master_timeline_synchronizer import MasterTimelineSynchronizer
+        sync_master = MasterTimelineSynchronizer(session_dir)
+        print(f"    [+] MasterTimelineSynchronizer active (recording video start sequence #{sync_master.video_start_seq_id}, {sync_master.pre_roll_count} pre-roll frames skipped).")
+    except Exception as e:
+        print(f"    [!] Note: MasterTimelineSynchronizer could not be initialized ({e}). Using fallback timing.")
+
     # 4. Open MCAP Writer with Zstandard Compression
     temp_output = output_path + ".tmp"
     message_counts = {}
@@ -1112,6 +1140,8 @@ def convert_session_to_mcap(
                 "type": "object",
                 "properties": {
                     "speed_kmph": {"type": "number"},
+                    "radar_frame_id_rel": {"type": "integer"},
+                    "radar_frame_id_abs": {"type": "integer"},
                     "yaw_rate_radps": {"type": "number"},
                     "pitch_rate_radps": {"type": "number"},
                     "roll_rate_radps": {"type": "number"},
@@ -1134,6 +1164,8 @@ def convert_session_to_mcap(
                 "type": "object",
                 "properties": {
                     "num_inliers": {"type": "integer"},
+                    "radar_frame_id_rel": {"type": "integer"},
+                    "radar_frame_id_abs": {"type": "integer"},
                     "ransac_ok": {"type": "boolean"},
                     "motion_state": {"type": "integer"},
                     "filtered_vx_iir": {"type": "number"},
@@ -1153,6 +1185,28 @@ def convert_session_to_mcap(
             topic="/radar/diagnostics",
             message_encoding="json",
             schema_id=diags_schema_id
+        )
+
+        # Register Sync Ground Truth Frame Info Schema
+        sync_schema_id = writer._writer.register_schema(
+            name="roadsense.SyncFrameInfo",
+            encoding="jsonschema",
+            data=json.dumps({
+                "type": "object",
+                "properties": {
+                    "video_frame_index": {"type": "integer"},
+                    "camera_hw_frame_number": {"type": "integer"},
+                    "radar_frame_id_rel": {"type": "integer"},
+                    "radar_frame_id_abs": {"type": "integer"},
+                    "sync_delta_ms": {"type": "number"},
+                    "speed_kmph": {"type": "number"}
+                }
+            }).encode("utf-8")
+        )
+        sync_chan_id = writer._writer.register_channel(
+            topic="/sync/frame_info",
+            message_encoding="json",
+            schema_id=sync_schema_id
         )
 
         adas_schema_id = writer._writer.register_schema(
@@ -1406,6 +1460,7 @@ def convert_session_to_mcap(
         ]
 
         # Ingest Radar Frames
+        radar_speed_by_abs = {}
         if os.path.isfile(radar_bin):
             print(f"    - Ingesting Radar Point Clouds & EKF Tracks: {radar_bin}")
             print(f"[PROGRESS] {json.dumps({'step': 'radar_start', 'desc': 'Ingesting Radar Point Clouds & EKF Tracks', 'pct': 5, 'eta_s': 0})}", flush=True)
@@ -1627,6 +1682,9 @@ def convert_session_to_mcap(
 
                 # 6.3 Vehicle Powertrain CAN Inputs (TLV 5)
                 if r_frame["can_inputs"]:
+                    r_frame["can_inputs"]["radar_frame_id_rel"] = radar_count
+                    r_frame["can_inputs"]["radar_frame_id_abs"] = r_frame["hw_frame_num"]
+                    radar_speed_by_abs[r_frame["hw_frame_num"]] = r_frame["can_inputs"].get("speed_kmph", 0.0)
                     writer._writer.add_message(
                         channel_id=telemetry_chan_id,
                         log_time=utc_ns,
@@ -1637,6 +1695,8 @@ def convert_session_to_mcap(
 
                 # 6.4 Radar Tracker Diagnostics (TLV 4)
                 if r_frame["diags"]:
+                    r_frame["diags"]["radar_frame_id_rel"] = radar_count
+                    r_frame["diags"]["radar_frame_id_abs"] = r_frame["hw_frame_num"]
                     writer._writer.add_message(
                         channel_id=diags_chan_id,
                         log_time=utc_ns,
@@ -1709,7 +1769,7 @@ def convert_session_to_mcap(
             else:
                 print(f"    - Demuxing H.264 Video Stream: {video_mp4}")
             from foxglove_schemas_protobuf.CompressedVideo_pb2 import CompressedVideo
-            for v_frame in parse_camera_video_frames(video_mp4, frames_csv, flip_video=flip_video, hwaccel=hwaccel):
+            for v_frame in parse_camera_video_frames(video_mp4, frames_csv, sync_master=sync_master, flip_video=flip_video, hwaccel=hwaccel):
                 utc_ns = v_frame["mono_ns"] + time_offset_ns
                 vid_msg = CompressedVideo()
                 vid_msg.timestamp.seconds = utc_ns // 1_000_000_000
@@ -1720,6 +1780,24 @@ def convert_session_to_mcap(
 
                 writer.write_message("/camera/video", vid_msg, log_time=utc_ns)
                 count_msg("/camera/video")
+
+                # Emit Live Ground-Truth Frame Sync Metadata for Foxglove Verification
+                if sync_master:
+                    matched_rad_abs = sync_master.match_camera_to_radar(v_frame["mono_ns"])[1]
+                    speed_val = radar_speed_by_abs.get(matched_rad_abs, 0.0)
+                    sync_info = sync_master.get_sync_frame_info(
+                        video_frame_index=v_frame["frame_idx"],
+                        pts_sec=v_frame.get("pts_sec"),
+                        cam_mono_ns=v_frame["mono_ns"],
+                        speed_kmph=speed_val
+                    )
+                    writer._writer.add_message(
+                        channel_id=sync_chan_id,
+                        log_time=utc_ns,
+                        data=json.dumps(sync_info).encode("utf-8"),
+                        publish_time=utc_ns
+                    )
+                    count_msg("/sync/frame_info")
 
         # Ingest Diagnostic Logs
         if os.path.isfile(session_log):

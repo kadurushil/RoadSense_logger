@@ -28,6 +28,10 @@ import struct
 import shutil
 import argparse
 import subprocess
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
 from datetime import datetime
 
 # Default paths
@@ -213,7 +217,7 @@ def get_mp4_frame_count(mp4_path):
     except Exception:
         return None
 
-def find_nearest_camera_frame(cam_frames, radar_mono_ns, max_video_frames=None):
+def find_nearest_camera_frame(cam_frames, radar_mono_ns, max_video_frames=None, preroll_offset=0):
     """
     Binary searches nearest camera frame by monotonic timestamp.
     Returns (video_frame_index, video_time_delta_sec, video_frame_ts_sec, camera_hw_frame_num).
@@ -241,11 +245,11 @@ def find_nearest_camera_frame(cam_frames, radar_mono_ns, max_video_frames=None):
     delta_sec = (matched["mono_ns"] - radar_mono_ns) / 1e9
     
     # 0-based relative index into MP4 container
-    v_frame_idx = best_idx
+    v_frame_idx = max(0, best_idx - preroll_offset)
     if max_video_frames is not None and max_video_frames > 0:
         v_frame_idx = min(v_frame_idx, max_video_frames - 1)
         
-    return v_frame_idx, delta_sec, matched["mono_ns"], matched["frame_number"]
+    return v_frame_idx, delta_sec, matched["mono_ns"], matched.get("frame_number", matched.get("seq_id", 0))
 
 def parse_radar_frames_bin(radar_bin_path):
     """
@@ -679,6 +683,14 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
             return ref_wall_s + (m_ns - ref_mono_ns) / 1e9
         return m_ns / 1e9
 
+    sync_master = None
+    try:
+        from scripts.master_timeline_synchronizer import MasterTimelineSynchronizer
+        sync_master = MasterTimelineSynchronizer(session_dir)
+        print(f"    [+] MasterTimelineSynchronizer active ({len(sync_master.recording_camera_events)} recording frames, {sync_master.pre_roll_count} pre-roll frames skipped).")
+    except Exception as e:
+        print(f"    [!] MasterTimelineSynchronizer not available ({e}).")
+
     mapping_records = []
     viz_radar_frames = []
     tracks_trajectory_map = {}
@@ -693,9 +705,14 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
         mono_ns = rf["mono_ns"]
         timestamp_ms = (mono_ns - start_mono_ns) / 1e6
 
-        v_frame_idx, v_time_delta, v_cam_mono_ns, cam_hw_fn = find_nearest_camera_frame(
-            cam_frames, mono_ns, max_video_frames=mp4_frame_count
-        )
+        if sync_master and sync_master.recording_camera_events:
+            v_frame_idx, v_time_delta, v_cam_mono_ns, cam_hw_fn = sync_master.match_radar_to_camera(
+                mono_ns, max_video_frames=mp4_frame_count
+            )
+        else:
+            v_frame_idx, v_time_delta, v_cam_mono_ns, cam_hw_fn = find_nearest_camera_frame(
+                cam_frames, mono_ns, max_video_frames=mp4_frame_count
+            )
 
         if v_frame_idx is not None:
             mapping_records.append({
@@ -704,7 +721,8 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
                 "radar_timestamp": safe_float(mono_to_epoch_s(mono_ns), round_digits=None),
                 "video_frame_index": v_frame_idx,
                 "video_frame_ts": safe_float(mono_to_epoch_s(v_cam_mono_ns), round_digits=None),
-                "video_time_delta": safe_float(v_time_delta, round_digits=None)
+                "video_time_delta": safe_float(v_time_delta, round_digits=None),
+                "camera_hw_frame_number": cam_hw_fn
             })
 
         # Fallback ego speed from GNSS

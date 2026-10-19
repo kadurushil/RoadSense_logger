@@ -14,6 +14,10 @@ import re
 import argparse
 from datetime import datetime
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO_ROOT not in sys.path:
+    sys.path.insert(0, REPO_ROOT)
+
 # Reconfigure stdout for UTF-8 on Windows
 if hasattr(sys.stdout, "reconfigure"):
     try:
@@ -1946,6 +1950,32 @@ def audit_timeline(sess_dir, make_plot=False, make_html=True, show_gui=False):
         print(f"    Status:              {colorize_status(status_gnss)}")
         scorecard["GNSS-Camera Alignment"] = status_gnss
 
+    # Master Timeline Video & Speed Dynamics Alignment
+    print(f"\n  Master Timeline Video & Speed Dynamics Alignment:")
+    sync_master_status = "SKIP (session_timeline.csv absent)"
+    try:
+        try:
+            from scripts.master_timeline_synchronizer import MasterTimelineSynchronizer
+        except ImportError:
+            from master_timeline_synchronizer import MasterTimelineSynchronizer
+        syncer = MasterTimelineSynchronizer(sess_dir)
+        if syncer.recording_camera_events:
+            start_seq = syncer.video_start_seq_id
+            pre_roll = syncer.pre_roll_count
+            total_events = len(syncer.all_camera_events) + len(syncer.radar_events) + len(syncer.gnss_events) + len(syncer.imu_events)
+            sync_master_status = f"PASS (Recording seq #{start_seq}, {pre_roll} pre-roll frames isolated)"
+            print(f"    Timeline Ground Truth: {total_events:,} indexed events")
+            print(f"    Video Start Sequence:  Sequence #{start_seq} (Pre-roll: {pre_roll} frames)")
+            print(f"    Recording Duration:    {len(syncer.recording_camera_events):,} video frames synchronized")
+            print(f"    Status:                {colorize_status(sync_master_status)}")
+        else:
+            sync_master_status = "WARN (No recording frames detected)"
+            print(f"    Status:                {colorize_status(sync_master_status)}")
+    except Exception as e:
+        sync_master_status = f"WARN (Sync verification failed: {e})"
+        print(f"    Status:                {colorize_status(sync_master_status)}")
+    scorecard["Master Timeline Video & Speed Sync"] = sync_master_status
+
     # [4/5] TIMING ANOMALIES & UI INTERACTION CORRELATION
     print(f"\n[4/5] TIMING ANOMALIES & UI INTERACTION CORRELATION:")
     
@@ -2043,6 +2073,7 @@ def audit_timeline(sess_dir, make_plot=False, make_html=True, show_gui=False):
         ("Radar-IMU Temporal Proximity", scorecard.get("Radar-IMU Temporal Proximity", "UNKNOWN")),
         ("IMU Anchors (Timeline 5s)", scorecard.get("IMU Anchors (Timeline 5s)", "UNKNOWN")),
         ("GNSS-Camera Alignment", scorecard.get("GNSS-Camera Alignment", "UNKNOWN")),
+        ("Master Timeline Video & Speed Sync", scorecard.get("Master Timeline Video & Speed Sync", "UNKNOWN")),
         ("Camera Frame Stability", scorecard.get("Camera Frame Stability", "UNKNOWN")),
         ("UI Desync Correlation", scorecard.get("UI Desync Correlation", "UNKNOWN")),
         ("Diagnostic Plot Generation", scorecard.get("Diagnostic Plot Generation", "UNKNOWN")),
