@@ -158,5 +158,41 @@ python scripts/audit_cross_sensor_sync.py --latest
 4. **Aggregate Batch Metrics**:
    - Summarizes total audited sessions, pass counts/percentages, warnings, and failures. Exits with return code `0` if all sessions pass, or `1` if critical desynchronization is detected in any session.
 
+---
+
+## 7. Unified Master Health Check & Cross-Sensor Sync Suite
+
+### 7.1 Single-Click Architecture
+To eliminate manual multi-step audits, the diagnostic suite unifies:
+1. **8-Point Subsystem Health Check (`session_health_check.py`)**:
+   - Lifecycle & Metadata, Camera (H.264 video), Radar (3.125 MBaud), GNSS (Fixes & CEP), IMU (100 Hz consolidated), CANedge2 (MDF4 chunks), Timeline Sync Index, and Flight Recorder Log.
+   - Automatically writes `health_scorecard.json` in each session directory.
+2. **Microsecond Timeline Synchronization Audit (`cross_sensor_sync_engine.py`)**:
+   - Monotonic queue integrity, high-rate IMU continuity, Camera-IMU sub-4ms temporal proximity, Radar-Camera latency offsets, periodic 5s anchor verification, and UI touch interaction desync correlation.
+   - Embeds both the 8-domain Subsystem Health Scorecard and the Sync Checklist side-by-side into `sync_audit_report.html`.
+
+### 7.2 Unified CLI Runner (`scripts/batch_audit_and_health_check.py`)
+```powershell
+# 1-Command Batch Suite: Process and recalculate all sessions in logs/ (Default)
+python scripts/batch_audit_and_health_check.py --all -q
+
+# Incremental Batch Suite: Skip sessions where both reports already exist
+python scripts/batch_audit_and_health_check.py --all --skip-processed -q
+
+# Run on most recent session only
+python scripts/batch_audit_and_health_check.py --latest
+
+# Run on a specific session folder
+python scripts/batch_audit_and_health_check.py logs/session_20261016_144844
+```
+
+### 7.3 Web Dashboard 1-Click Integration (`tools/web_dashboard/index.html`)
+- **Prominent 1-Click Banner**: A cyan/blue gradient action card in Tab 3 ("Diagnostics & Sensor Health") allows engineers to trigger the complete suite across all recorded logs with a single click (`⚡ Run Suite on All Logs`).
+- **Recalculate vs Skip Option**:
+  - `[ ] Skip already processed sessions` checkbox (unchecked by default).
+  - Unchecked (default): Re-calculates and re-validates all session logs so metrics and HTML reports always reflect the latest synchronization algorithms.
+  - Checked: Instantly skips sessions that already contain both `health_scorecard.json` and `sync_audit_report.html` for ultra-fast incremental checks.
+
+
 
 

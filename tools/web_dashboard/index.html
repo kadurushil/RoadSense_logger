@@ -437,9 +437,68 @@
       font-weight: 700;
     }
 
-    /* === or --- */
     .log-info {
       color: #cbd5e1;
+    }
+
+    /* Interactive Console Links */
+    .console-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 1px 7px;
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 11px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", monospace;
+      margin: 0 4px;
+      transition: all 0.15s ease;
+      vertical-align: middle;
+      cursor: pointer;
+    }
+
+    .console-link-html {
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.12);
+      border: 1px solid rgba(56, 189, 248, 0.35);
+    }
+
+    .console-link-html:hover {
+      background: rgba(56, 189, 248, 0.28);
+      color: #ffffff;
+      border-color: #38bdf8;
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+      text-decoration: none;
+    }
+
+    .console-link-folder {
+      color: #fbbf24;
+      background: rgba(251, 191, 36, 0.12);
+      border: 1px solid rgba(251, 191, 36, 0.35);
+    }
+
+    .console-link-folder:hover {
+      background: rgba(251, 191, 36, 0.28);
+      color: #ffffff;
+      border-color: #fbbf24;
+      box-shadow: 0 0 8px rgba(251, 191, 36, 0.4);
+      text-decoration: none;
+    }
+
+    .console-link-session {
+      color: #e2e8f0;
+      border-bottom: 1px dashed rgba(148, 163, 184, 0.6);
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.12s ease;
+    }
+
+    .console-link-session:hover {
+      color: #38bdf8;
+      border-bottom-color: #38bdf8;
+      background: rgba(56, 189, 248, 0.08);
+      border-radius: 2px;
+      text-decoration: none;
     }
 
     /* Footer info */
@@ -639,18 +698,40 @@
       <div class="tab-panel" id="diagTab">
         <div class="panel-header">
           <h2>🩺 Sensor Diagnostics & Validation Suite</h2>
-          <p>Zero-dependency sensor validation and timing jitter verification.</p>
+          <p>Zero-dependency sensor validation, subsystem health, and microsecond timing jitter verification.</p>
+        </div>
+
+        <!-- 1-Click Master Suite Card -->
+        <div style="background: linear-gradient(135deg, rgba(6, 182, 212, 0.12), rgba(59, 130, 246, 0.12)); border: 1px solid rgba(6, 182, 212, 0.35); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+            <div>
+              <span style="font-size: 13.5px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
+                ⚡ Complete Health & Sync Suite
+              </span>
+              <p style="font-size: 11.5px; color: #94a3b8; margin-top: 3px;">
+                Single-click automated health check (8 domains) and cross-sensor sync audit across all logs.
+              </p>
+            </div>
+            <button class="btn-primary" style="background: linear-gradient(135deg, #0284c7, #06b6d4); font-weight: 700; padding: 8px 16px; font-size: 12.5px;" onclick="runOneClickMasterSuite()">
+              ⚡ Run Suite on All Logs
+            </button>
+          </div>
+          <div style="display: flex; gap: 16px; flex-wrap: wrap; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 8px;">
+            <label class="checkbox-item" style="font-size: 12px; margin: 0;">
+              <input type="checkbox" id="oneClickSkipProcessed">
+              <span>Skip already processed sessions <span style="font-size: 11px; color: #94a3b8;">(Default unchecked: recalculates and validates all logs)</span></span>
+            </label>
+          </div>
         </div>
 
         <div class="form-group">
           <label>Diagnostic Tool</label>
           <select id="diagToolSelect" onchange="onDiagToolChanged()">
-            <option value="session_health_check.py">Master 7-Point Health Check (session_health_check.py)</option>
-            <option value="audit_cross_sensor_sync.py">Cross-Sensor Monotonic Sync Audit (audit_cross_sensor_sync.py)
-            </option>
+            <option value="batch_audit_and_health_check.py" selected>⚡ Complete Health & Sync Suite (batch_audit_and_health_check.py)</option>
+            <option value="session_health_check.py">Master 8-Point Health Check (session_health_check.py)</option>
+            <option value="audit_cross_sensor_sync.py">Cross-Sensor Monotonic Sync Audit (audit_cross_sensor_sync.py)</option>
             <option value="validate_radar_stream.py">Radar Binary Stream Validator (validate_radar_stream.py)</option>
-            <option value="validate_camera_video.py">Camera Video & Shutter Timing Validator (validate_camera_video.py)
-            </option>
+            <option value="validate_camera_video.py">Camera Video & Shutter Timing Validator (validate_camera_video.py)</option>
             <option value="validate_gnss_fixes.py">GNSS Fixes & CEP Accuracy Validator (validate_gnss_fixes.py)</option>
             <option value="validate_canedge_staging.py">CANedge MDF4 Validator (validate_canedge_staging.py)</option>
           </select>
@@ -659,13 +740,13 @@
         <div class="form-group">
           <label>Target Session</label>
           <div class="radio-group">
-            <label class="radio-item">
-              <input type="radio" name="diagTargetMode" value="latest" checked onchange="toggleDiagSessionDropdown()">
-              <span>Latest Session (--latest)</span>
-            </label>
-            <label class="radio-item" id="diagTargetModeAllItem" style="display: none;">
-              <input type="radio" name="diagTargetMode" value="all" onchange="toggleDiagSessionDropdown()">
+            <label class="radio-item" id="diagTargetModeAllItem">
+              <input type="radio" name="diagTargetMode" value="all" checked onchange="toggleDiagSessionDropdown()">
               <span>All Sessions (--all)</span>
+            </label>
+            <label class="radio-item">
+              <input type="radio" name="diagTargetMode" value="latest" onchange="toggleDiagSessionDropdown()">
+              <span>Latest Session (--latest)</span>
             </label>
             <label class="radio-item">
               <input type="radio" name="diagTargetMode" value="specific" onchange="toggleDiagSessionDropdown()">
@@ -677,16 +758,20 @@
           </select>
         </div>
 
-        <div class="form-group" id="auditSyncOptGroup" style="display: none;">
-          <label>Sync Audit Options</label>
+        <div class="form-group" id="auditSyncOptGroup">
+          <label>Audit & Suite Options</label>
           <div class="checkbox-list">
             <label class="checkbox-item">
               <input type="checkbox" id="auditOptNoPlot" checked>
-              <span>Fast Mode: Skip PNG diagnostic plot (HTML report is standard) (--no-plot)</span>
+              <span>Fast Mode: Skip PNG diagnostic plot (Interactive HTML report is standard) (--no-plot)</span>
             </label>
             <label class="checkbox-item">
               <input type="checkbox" id="auditOptQuiet" checked>
               <span>Quiet Mode: Show aggregate batch summary only (--quiet)</span>
+            </label>
+            <label class="checkbox-item" id="auditOptSkipGroup">
+              <input type="checkbox" id="auditOptSkip">
+              <span>Skip already processed sessions (--skip-processed)</span>
             </label>
           </div>
         </div>
@@ -701,8 +786,8 @@
 
         <div class="action-row">
           <button class="btn-primary" onclick="runDiagnostics()">▶ Run Diagnostic</button>
-          <button class="btn-secondary" id="batchAuditQuickBtn" onclick="runBatchSyncAudit()"
-            style="display: none; margin-left: 8px;">⚡ Audit All Logs (--all)</button>
+          <button class="btn-secondary" id="batchAuditQuickBtn" onclick="runOneClickMasterSuite()"
+            style="margin-left: 8px;">⚡ Run Suite on All Logs</button>
         </div>
       </div>
 
@@ -867,13 +952,18 @@
       const syncGroup = document.getElementById('auditSyncOptGroup');
       const allItem = document.getElementById('diagTargetModeAllItem');
       const batchBtn = document.getElementById('batchAuditQuickBtn');
+      const skipGroup = document.getElementById('auditOptSkipGroup');
 
       poolGroup.style.display = (tool === 'validate_canedge_staging.py') ? 'block' : 'none';
-      const isSyncAudit = (tool === 'audit_cross_sensor_sync.py');
-      if (syncGroup) syncGroup.style.display = isSyncAudit ? 'block' : 'none';
+      const isBatchSupported = (tool === 'batch_audit_and_health_check.py' || tool === 'audit_cross_sensor_sync.py' || tool === 'session_health_check.py');
+      const isSyncSuite = (tool === 'batch_audit_and_health_check.py' || tool === 'audit_cross_sensor_sync.py');
+
+      if (syncGroup) syncGroup.style.display = isSyncSuite ? 'block' : 'none';
+      if (skipGroup) skipGroup.style.display = (tool === 'batch_audit_and_health_check.py' || tool === 'session_health_check.py') ? 'flex' : 'none';
+
       if (allItem) {
-        allItem.style.display = isSyncAudit ? 'inline-flex' : 'none';
-        if (!isSyncAudit) {
+        allItem.style.display = isBatchSupported ? 'inline-flex' : 'none';
+        if (!isBatchSupported) {
           const checked = document.querySelector('input[name="diagTargetMode"]:checked');
           if (checked && checked.value === 'all') {
             document.querySelector('input[name="diagTargetMode"][value="latest"]').checked = true;
@@ -881,7 +971,16 @@
           }
         }
       }
-      if (batchBtn) batchBtn.style.display = isSyncAudit ? 'inline-block' : 'none';
+      if (batchBtn) batchBtn.style.display = (tool === 'batch_audit_and_health_check.py' || tool === 'audit_cross_sensor_sync.py') ? 'inline-block' : 'none';
+    }
+
+    function runOneClickMasterSuite() {
+      const skip = document.getElementById('oneClickSkipProcessed') && document.getElementById('oneClickSkipProcessed').checked;
+      const args = ['--all', '--quiet'];
+      if (skip) {
+        args.push('--skip-processed');
+      }
+      executeCommand('scripts/batch_audit_and_health_check.py', args);
     }
 
     function runBatchSyncAudit() {
@@ -1081,6 +1180,17 @@
         html = html.replace(/\b(FAIL|CRITICAL|ERROR)\b/g, '<span style="color: #f87171; font-weight: bold;">$1</span>');
       }
 
+      // Convert sync_audit_report.html paths into rich clickable links + open folder buttons
+      const reportPathRegex = /(?:file:\/\/\/)?(?:[a-zA-Z]:[\\\/].*?[\\\/]logs[\\\/]|logs[\\\/])(session_[a-zA-Z0-9_]+)[\\\/]sync_audit_report\.html/gi;
+      html = html.replace(reportPathRegex, (match, sessId) => {
+        return `<a href="/logs/${sessId}/sync_audit_report.html" target="_blank" class="console-link console-link-html" title="Open full interactive HTML dashboard in a new tab">📊 sync_audit_report.html ↗</a><a href="javascript:void(0)" onclick="openFolder('${sessId}')" class="console-link console-link-folder" title="Open session folder in File Explorer">📁 Folder</a>`;
+      });
+
+      // Convert session folder names (e.g. session_20261016_144844) into folder opening links if not already inside an anchor tag
+      html = html.replace(/(?<!["'/=])\b(session_\d{8}_\d{6})\b(?!["'])/g, (match, sessId) => {
+        return `<a href="javascript:void(0)" onclick="openFolder('${sessId}')" class="console-link-session" title="Click to open ${sessId} in File Explorer">${sessId}</a>`;
+      });
+
       return html;
     }
 
@@ -1184,6 +1294,23 @@
       navigator.clipboard.writeText(term.innerText).then(() => {
         alert("Console output copied to clipboard!");
       });
+    }
+
+    async function openFolder(sessId) {
+      if (!sessId) return;
+      try {
+        const res = await fetch('/api/open_folder', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session: sessId })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          alert("Could not open folder: " + (data.error || "Unknown error"));
+        }
+      } catch (err) {
+        console.error("Failed to open folder:", err);
+      }
     }
 
     function toggleSyncPlotView(sessId) {
@@ -1381,24 +1508,38 @@
       const canPool = document.getElementById('canOptPool').checked;
       const auditNoPlot = document.getElementById('auditOptNoPlot') && document.getElementById('auditOptNoPlot').checked;
       const auditQuiet = document.getElementById('auditOptQuiet') && document.getElementById('auditOptQuiet').checked;
+      const skipProcessed = document.getElementById('auditOptSkip') && document.getElementById('auditOptSkip').checked;
 
       const args = [];
+      const isSyncSuite = (tool === 'batch_audit_and_health_check.py' || tool === 'audit_cross_sensor_sync.py');
+
       if (tool === 'validate_canedge_staging.py' && canPool) {
         args.push('--pool');
       } else if (targetMode === 'all') {
         args.push('--all');
-        if (auditNoPlot) args.push('--no-plot');
-        if (auditQuiet) args.push('--quiet');
+        if (skipProcessed && (tool === 'batch_audit_and_health_check.py' || tool === 'session_health_check.py')) {
+          args.push('--skip-processed');
+        }
+        if (auditNoPlot && isSyncSuite) {
+          args.push('--no-plot');
+        }
+        if (auditQuiet) {
+          args.push('--quiet');
+        }
       } else if (targetMode === 'latest') {
         args.push('--latest');
-        if (tool === 'audit_cross_sensor_sync.py' && auditNoPlot) args.push('--no-plot');
+        if (auditNoPlot && isSyncSuite) {
+          args.push('--no-plot');
+        }
       } else {
         if (!sess) {
           alert("Please select a session to audit.");
           return;
         }
         args.push(sess);
-        if (tool === 'audit_cross_sensor_sync.py' && auditNoPlot) args.push('--no-plot');
+        if (auditNoPlot && isSyncSuite) {
+          args.push('--no-plot');
+        }
       }
 
       executeCommand(`scripts/${tool}`, args);
@@ -1444,6 +1585,7 @@
     window.addEventListener('load', () => {
       initEventStream();
       refreshStatus();
+      onDiagToolChanged();
       setInterval(refreshStatus, 6000);
     });
   </script>

@@ -24,6 +24,8 @@ import csv
 import math
 import struct
 import argparse
+import io
+import contextlib
 from datetime import datetime
 
 DEFAULT_LOGS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
@@ -56,6 +58,21 @@ def colorize_status(status_str):
         return f"{ANSI_GREEN}{ANSI_BOLD}{status_str}{ANSI_RESET}"
     return status_str
 
+def get_all_session_dirs():
+    """
+    Returns an alphabetically sorted list of full absolute paths to all session folders
+    in logs/ that start with 'session_'.
+    """
+    if not os.path.isdir(DEFAULT_LOGS_DIR):
+        return []
+    sessions = []
+    for d in sorted(os.listdir(DEFAULT_LOGS_DIR)):
+        if d.startswith("session_"):
+            full_path = os.path.join(DEFAULT_LOGS_DIR, d)
+            if os.path.isdir(full_path):
+                sessions.append(full_path)
+    return sessions
+
 def resolve_session_dir(target):
     if not target or target == "--latest" or target == "latest":
         sessions = sorted([d for d in os.listdir(DEFAULT_LOGS_DIR) if d.startswith("session_") and os.path.isdir(os.path.join(DEFAULT_LOGS_DIR, d))])
@@ -72,12 +89,13 @@ def resolve_session_dir(target):
 
     sys.exit(f"Error: Could not resolve session directory: {target}")
 
-def audit_session(sess_dir):
+def audit_session(sess_dir, quiet=False, save_json=True):
     sess_name = os.path.basename(sess_dir)
-    print("=" * 80)
-    print(f"ROADSENSE SESSION HEALTH AUDIT: {sess_name}")
-    print(f"Path: {sess_dir}")
-    print("=" * 80)
+    if not quiet:
+        print("=" * 80)
+        print(f"ROADSENSE SESSION HEALTH AUDIT: {sess_name}")
+        print(f"Path: {sess_dir}")
+        print("=" * 80)
 
     scorecard = {}
 
@@ -385,10 +403,116 @@ def audit_session(sess_dir):
     print(f"OVERALL AUDIT VERDICT: {colorize_status(overall)}")
     print("=" * 80)
 
+    if save_json:
+        json_path = os.path.join(sess_dir, "health_scorecard.json")
+        out_data = {
+            "session": sess_name,
+            "timestampIso": datetime.now().isoformat(),
+            "durationSeconds": meta.get("durationMs", 0) / 1000.0 if meta else 0.0,
+            "scorecard": scorecard,
+            "overall": overall
+        }
+        try:
+            with open(json_path, "w", encoding="utf-8") as f:
+                json.dump(out_data, f, indent=2)
+            if not quiet:
+                print(f"Saved Health Scorecard: {json_path}")
+        except Exception as e:
+            if not quiet:
+                print(f"Warning: Failed to save health_scorecard.json: {e}")
+
+    return scorecard, overall
+
+def run_batch_health_check(args):
+    session_dirs = get_all_session_dirs()
+    if not session_dirs:
+        print("Error: No recorded sessions found in logs/")
+        sys.exit(1)
+
+    total_sessions = len(session_dirs)
+    print("=" * 100)
+    print("ROADSENSE BATCH SUBSYSTEM HEALTH CHECK")
+    print(f"Discovered {total_sessions} recorded sessions in logs/")
+    print("=" * 100)
+
+    results = []
+    skipped_count = 0
+    for idx, sess_dir in enumerate(session_dirs, 1):
+        sess_name = os.path.basename(sess_dir)
+        json_path = os.path.join(sess_dir, "health_scorecard.json")
+
+        if args.skip_processed and os.path.exists(json_path):
+            skipped_count += 1
+            if args.quiet:
+                print(f"  [{idx:2d}/{total_sessions}] {sess_name:<30s} -> {colorize_status('SKIP (Already processed)')}")
+            else:
+                print(f"\n>>> [{idx}/{total_sessions}] Skipping already processed session: {sess_name}")
+            continue
+
+        if not args.quiet:
+            print(f"\n{'=' * 80}")
+            print(f">>> [{idx}/{total_sessions}] Auditing Session: {sess_name}")
+            print(f"{'=' * 80}")
+
+        try:
+            if args.quiet:
+                trap_out = io.StringIO()
+                with contextlib.redirect_stdout(trap_out):
+                    scorecard, overall = audit_session(sess_dir, quiet=True, save_json=True)
+            else:
+                scorecard, overall = audit_session(sess_dir, quiet=False, save_json=True)
+
+            status = "PASS" if "PASS" in overall.upper() else ("WARN" if "WARN" in overall.upper() else "FAIL")
+            results.append({
+                "index": idx,
+                "name": sess_name,
+                "overall": overall,
+                "status": status,
+                "scorecard": scorecard
+            })
+            if args.quiet:
+                print(f"  [{idx:2d}/{total_sessions}] {sess_name:<30s} -> {colorize_status(status)}")
+        except Exception as e:
+            if args.quiet:
+                print(f"  [{idx:2d}/{total_sessions}] {sess_name:<30s} -> {colorize_status('FAIL')} ({e})")
+            else:
+                print(f"Error auditing session {sess_name}: {e}")
+            results.append({
+                "index": idx,
+                "name": sess_name,
+                "overall": f"FAIL ({e})",
+                "status": "FAIL",
+                "scorecard": {}
+            })
+
+    # Summary table
+    print("\n" + "=" * 100)
+    print("BATCH SUBSYSTEM HEALTH SUMMARY")
+    print("=" * 100)
+    print(f"{'#':<4s} {'Session Name':<32s} {'Health Status':<12s} {'Overall Verdict'}")
+    print("-" * 100)
+    for r in results:
+        stat_color = colorize_status(r["status"])
+        print(f"{r['index']:<4d} {r['name']:<32s} {stat_color:<20s} {r['overall']}")
+    print("-" * 100)
+
+    pass_cnt = sum(1 for r in results if r["status"] == "PASS")
+    warn_cnt = sum(1 for r in results if r["status"] == "WARN")
+    fail_cnt = sum(1 for r in results if r["status"] == "FAIL")
+    print(f"Total Evaluated: {len(results)} | Skipped: {skipped_count} | PASS: {pass_cnt} | WARN: {warn_cnt} | FAIL: {fail_cnt}")
+    print("=" * 100)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="RoadSense Session Health Audit Tool")
     parser.add_argument("--latest", action="store_true", help="Audit latest session")
+    parser.add_argument("--all", action="store_true", help="Audit all sessions in logs/")
+    parser.add_argument("--skip-processed", action="store_true", help="Skip sessions that already have health_scorecard.json")
+    parser.add_argument("-q", "--quiet", action="store_true", help="Quiet mode: show summary table only")
     parser.add_argument("session", nargs="?", default="latest", help="Session folder name, full path, or 'latest'")
     args = parser.parse_args()
-    target_dir = resolve_session_dir("latest" if args.latest else args.session)
-    audit_session(target_dir)
+
+    if args.all:
+        run_batch_health_check(args)
+    else:
+        target_dir = resolve_session_dir("latest" if args.latest else args.session)
+        audit_session(target_dir, quiet=args.quiet, save_json=True)

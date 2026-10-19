@@ -32,6 +32,19 @@ LOGS_DIR = os.path.join(REPO_DIR, "logs")
 WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web_dashboard")
 INDEX_HTML = os.path.join(WEB_DIR, "index.html")
 
+def open_system_folder(target_dir):
+    """Opens a directory in the host system's native file explorer."""
+    try:
+        if sys.platform == "win32":
+            os.startfile(target_dir)
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", target_dir])
+        else:
+            subprocess.Popen(["xdg-open", target_dir])
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
 # Global Process Supervisor State
 class ProcessSupervisor:
     def __init__(self):
@@ -276,6 +289,20 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self.serve_json(get_local_sessions())
         elif path == "/api/stream":
             self.serve_sse_stream()
+        elif path == "/api/open_folder":
+            qs = parse_qs(parsed.query)
+            sess = qs.get("session", [""])[0]
+            target_dir = os.path.normpath(os.path.join(LOGS_DIR, sess))
+            norm_logs = os.path.normcase(os.path.abspath(LOGS_DIR))
+            norm_target = os.path.normcase(os.path.abspath(target_dir))
+            if norm_target.startswith(norm_logs) and os.path.isdir(target_dir):
+                ok, err = open_system_folder(target_dir)
+                if ok:
+                    self.serve_json({"success": True, "path": target_dir})
+                else:
+                    self.serve_json({"success": False, "error": err}, status=500)
+            else:
+                self.serve_json({"success": False, "error": f"Folder not found: {sess}"}, status=404)
         elif path.startswith("/logs/"):
             from urllib.parse import unquote
             rel = unquote(path[6:])  # strip /logs/ and decode URL encoding
@@ -322,6 +349,28 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             args = data.get("args", [])
             success, msg = SUPERVISOR.start_process(script, args)
             self.serve_json({"success": success, "message" if success else "error": msg})
+
+        elif path == "/api/open_folder":
+            length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(length) if length > 0 else b"{}"
+            try:
+                data = json.loads(body.decode("utf-8")) if body else {}
+            except Exception as e:
+                self.serve_json({"success": False, "error": f"Invalid JSON payload: {e}"}, status=400)
+                return
+
+            sess = data.get("session", "")
+            target_dir = os.path.normpath(os.path.join(LOGS_DIR, sess))
+            norm_logs = os.path.normcase(os.path.abspath(LOGS_DIR))
+            norm_target = os.path.normcase(os.path.abspath(target_dir))
+            if norm_target.startswith(norm_logs) and os.path.isdir(target_dir):
+                ok, err = open_system_folder(target_dir)
+                if ok:
+                    self.serve_json({"success": True, "path": target_dir})
+                else:
+                    self.serve_json({"success": False, "error": err}, status=500)
+            else:
+                self.serve_json({"success": False, "error": f"Folder not found: {sess}"}, status=404)
 
         elif path == "/api/stop":
             success, msg = SUPERVISOR.stop_process()

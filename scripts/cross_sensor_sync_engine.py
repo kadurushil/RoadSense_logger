@@ -425,15 +425,17 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
     # 1. Radar-to-Camera offsets
     rad_t_s = []
     rad_offsets_ms = []
-    for r in radar_times:
-        pos = bisect.bisect_left(camera_times, r)
-        cands = []
-        if pos < len(camera_times):
-            cands.append(abs(camera_times[pos] - r))
-        if pos > 0:
-            cands.append(abs(camera_times[pos - 1] - r))
-        rad_t_s.append(round((r - t0) / 1e9, 3))
-        rad_offsets_ms.append(round(min(cands) / 1e6, 2))
+    if camera_times:
+        for r in radar_times:
+            pos = bisect.bisect_left(camera_times, r)
+            cands = []
+            if pos < len(camera_times):
+                cands.append(abs(camera_times[pos] - r))
+            if pos > 0:
+                cands.append(abs(camera_times[pos - 1] - r))
+            if cands:
+                rad_t_s.append(round((r - t0) / 1e9, 3))
+                rad_offsets_ms.append(round(min(cands) / 1e6, 2))
 
     # 2. Camera intervals & drops
     cam_t_s = [round((camera_times[i] - t0) / 1e9, 3) for i in range(1, len(camera_times))]
@@ -760,6 +762,76 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
           <td class="metric-cell">{label}</td>
           <td class="val-cell"><span class="badge {b_cls}">{val}</span></td>
         </tr>"""
+
+    # Subsystem Health Scorecard Section (from health_scorecard.json if present)
+    health_json_path = os.path.join(sess_dir, "health_scorecard.json")
+    health_scorecard_section = ""
+    if os.path.isfile(health_json_path):
+        try:
+            with open(health_json_path, "r", encoding="utf-8") as f:
+                h_data = json.load(f)
+            h_sc = h_data.get("scorecard", {})
+            h_overall = h_data.get("overall", "")
+
+            h_up = h_overall.upper()
+            if "FAIL" in h_up:
+                h_badge_cls = "badge-fail"
+                h_ov_short = "HEALTH FAIL"
+            elif "WARN" in h_up:
+                h_badge_cls = "badge-warn"
+                h_ov_short = "HEALTH WARN"
+            else:
+                h_badge_cls = "badge-pass"
+                h_ov_short = "HEALTH PASS"
+
+            h_order = [
+                ("Lifecycle & Metadata", h_sc.get("Metadata", "UNKNOWN")),
+                ("Camera (H.264 Video)", h_sc.get("Camera", "UNKNOWN")),
+                ("Radar (3.125 MBaud)", h_sc.get("Radar", "UNKNOWN")),
+                ("GNSS (Fixes & CEP)", h_sc.get("GNSS", "UNKNOWN")),
+                ("IMU (100 Hz Consolidated)", h_sc.get("IMU", "UNKNOWN")),
+                ("CANedge2 (MDF4 Chunks)", h_sc.get("CANedge2", "UNKNOWN")),
+                ("Timeline Sync Index", h_sc.get("Timeline", "UNKNOWN")),
+                ("Flight Recorder Log", h_sc.get("FlightRecorder", "UNKNOWN")),
+            ]
+
+            h_rows_html = ""
+            for h_label, h_val in h_order:
+                v_up = str(h_val).upper()
+                if any(k in v_up for k in ["FAIL", "CRITICAL", "ERROR"]):
+                    b_cls = "badge-fail"
+                elif any(k in v_up for k in ["WARN", "ACCEPTABLE"]):
+                    b_cls = "badge-warn"
+                elif any(k in v_up for k in ["SKIP", "N/A"]):
+                    b_cls = "badge-skip"
+                else:
+                    b_cls = "badge-pass"
+                h_rows_html += f"""
+                <tr>
+                  <td class="metric-cell">{h_label}</td>
+                  <td class="val-cell"><span class="badge {b_cls}">{h_val}</span></td>
+                </tr>"""
+
+            health_scorecard_section = f"""
+      <div class="scorecard-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+          <h2>Subsystem Health Scorecard (8 Domains)</h2>
+          <span class="badge {h_badge_cls}">{h_ov_short}</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>Subsystem Verification Domain</th>
+              <th style="text-align: right;">Health Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {h_rows_html}
+          </tbody>
+        </table>
+      </div>"""
+        except Exception:
+            health_scorecard_section = ""
 
     # Certification grade badge
     grade_up = cert_grade.upper()
@@ -1154,20 +1226,23 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
       </div>
     </div>
 
-    <!-- Scorecard Checklist Table -->
-    <div class="scorecard-card">
-      <h2>Cross-Sensor Synchronization Scorecard Checklist</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Audit Verification Domain</th>
-            <th style="text-align: right;">Certification Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          __SCORECARD_ROWS__
-        </tbody>
-      </table>
+    <!-- Scorecards Section -->
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 20px;">
+      __HEALTH_SCORECARD_SECTION__
+      <div class="scorecard-card">
+        <h2>Cross-Sensor Synchronization Scorecard Checklist</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Audit Verification Domain</th>
+              <th style="text-align: right;">Certification Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            __SCORECARD_ROWS__
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <div class="meta-footer">
@@ -1525,6 +1600,7 @@ __PLOTLY_JS__
         .replace("__TOTAL_IMU__", str(len(imu_mono)))\
         .replace("__RAD_HZ__", str(rad_hz))\
         .replace("__TOTAL_RAD__", str(len(radar_times)))\
+        .replace("__HEALTH_SCORECARD_SECTION__", health_scorecard_section)\
         .replace("__SCORECARD_ROWS__", scorecard_rows_html)\
         .replace("__Y0_MAX__", str(y0_max))\
         .replace("__Y1_MAX__", str(y1_max))\
