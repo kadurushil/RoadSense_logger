@@ -1385,7 +1385,7 @@ def convert_session_to_mcap(
         else:
             effective_roll = calib_params.get("rollDeg", 0.0)
 
-        camera_yaw_deg = float(calib_params.get("yawDeg", 0.0))
+        camera_yaw_deg = float(calib_params.get("cameraYawDeg", 0.0))
         cam_quat, cam_trans = compute_camera_optical_tf(
             pitch_deg=calib_params.get("pitchDeg", 7.0),
             yaw_deg=camera_yaw_deg,

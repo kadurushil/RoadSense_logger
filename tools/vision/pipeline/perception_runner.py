@@ -332,6 +332,11 @@ def main():
         default=None,
         help="Path to pre-existing 2D detections JSON (e.g. baseline_yolo_tracking.json) for instant 3D projection without re-running YOLO",
     )
+    parser.add_argument(
+        "--mcap",
+        action="store_true",
+        help="Automatically generate enriched Foxglove MCAP with /vision/geo_tracks in one single run",
+    )
     args = parser.parse_args()
 
     runner = PerceptionRunner(
@@ -340,14 +345,19 @@ def main():
         use_optical_sizing=(not args.priors_only),
     )
     if args.from_2d:
-        runner.run_from_2d_detections(
+        out_json = runner.run_from_2d_detections(
             detections_json_path=args.from_2d,
             max_frames=args.num_frames,
             output_json_path=args.output,
         )
     else:
-        runner.run(max_frames=args.num_frames, output_json_path=args.output)
+        out_json = runner.run(max_frames=args.num_frames, output_json_path=args.output)
+
+    if args.mcap:
+        from tools.vision.mcap.inject_vision_tracks import inject_vision_tracks_to_mcap
+        inject_vision_tracks_to_mcap(input_source=out_json)
 
 
 if __name__ == "__main__":
     main()
+

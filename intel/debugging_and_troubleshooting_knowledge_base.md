@@ -31,7 +31,8 @@
 22. [Bug #22: Multi-Second Video Phase Lead via Dropped Userspace Callbacks vs Zero-Drop Hardware Surface Pipeline](#bug-22-multi-second-video-phase-lead-via-dropped-userspace-callbacks-vs-zero-drop-hardware-surface-pipeline)
 23. [Bug #23: MCAP Converter Throughput Collapse (120 FPS vs 10,000 FPS) via O(N²) GIL Heap Allocation Storms](#bug-23-mcap-converter-throughput-collapse-120-fps-vs-10000-fps-via-on2-gil-heap-allocation-storms)
 24. [Bug #24: Optical Pitch Sign Inversion ($R_x(-P)$) in MCAP `/tf` Transform & $2\times$ Pitch Discrepancy ($+10.5^\circ$) in Foxglove 3D Visualization](#bug-24-optical-pitch-sign-inversion-r_x-p-in-mcap-tf-transform--2x-pitch-discrepancy-105-in-foxglove-3d-visualization)
-25. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
+25. [Bug #25: Vision Track Yaw Tilt Due to Conflated Radar Squint in Camera Optical `/tf` Transform](#bug-25-vision-track-yaw-tilt-due-to-conflated-radar-squint-in-camera-optical-tf-transform)
+26. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
 
 ---
 
@@ -1154,6 +1155,48 @@ Deep cross-stream investigation across `session_timeline.csv`, `camera_frames.cs
 
 ---
 
+## Bug #25: Vision Track Yaw Tilt Due to Conflated Radar Squint in Camera Optical `/tf` Transform
+
+### Symptoms
+* In Foxglove Studio 3D visualization (e.g. `session_20261021_112414` around frame 6030, $X \approx 35\text{ m}$), 3D vision bounding boxes exhibited a small but noticeable **yaw tilt of $\approx 1.0^\circ$** and lateral shift of $\approx 17\text{ px}$ relative to the vehicle silhouette in the camera video.
+* The physical camera was mounted straight along the vehicle centerline, and the 2D YOLO detections were well centered on the lead vehicle.
+
+### Root Cause Analysis
+1. **Calibration Parameter Semantics:**
+   In `radar_camera_calib.json`:
+   ```json
+   "yawDeg": 1.0000001192092896,
+   "cameraYawDeg": 0,
+   "radarYawOffsetDeg": 1.0000001192092896
+   ```
+   - In physical reality:
+     - `cameraYawDeg = 0.0`: The windshield camera points directly along the vehicle forward axis.
+     - `radarYawOffsetDeg = 1.0`: The front bumper radar bracket has a physical mounting squint of $+1.0^\circ$.
+     - `yawDeg = 1.0`: Legacy single-parameter field capturing relative squint angle.
+2. **Transform Discrepancy:**
+   - In `convert_session_to_mcap.py` (line 1388):
+     ```python
+     # PROBLEMATIC CODE
+     camera_yaw_deg = float(calib_params.get("yawDeg", 0.0)) # Evaluated to 1.0°!
+     ```
+     `convert_session_to_mcap.py` inadvertently assigned the radar's mounting squint ($1.0^\circ$) to the camera optical `/tf` transform (`base_link -> camera_optical`), rotating the Foxglove 3D camera frustum by $+1.0^\circ$ to the right.
+   - Meanwhile, `GroundPlaneProjector` ([`camera_extrinsics.py`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/vision/geometry/camera_extrinsics.py)) correctly read `cameraYawDeg = 0.0°`, projecting 2D bounding boxes into `base_link` assuming $0.0^\circ$ yaw.
+   - In `mcap_scene_writer.py`, bounding box orientation was published with identity quaternion `w = 1.0` ($0.0^\circ$ heading).
+3. **Quantitative Impact at Frame 6030 ($D = 35.0\text{ m}$):**
+   - Lateral 3D drift: $\Delta Y = 35.0 \cdot \tan(1.0^\circ) = \mathbf{0.61\text{ meters}}$.
+   - Lateral 2D pixel skew ($f_x = 991.0$): $\Delta u = 991.0 \cdot \tan(1.0^\circ) = \mathbf{17.3\text{ pixels}}$.
+   - When viewed from the $+1.0^\circ$ rotated camera frustum, the $0.0^\circ$ bounding box appeared tilted in yaw by $-1.0^\circ$ relative to the camera line of sight.
+
+### Solution & Fix
+* In [`convert_session_to_mcap.py`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/convert_session_to_mcap.py), decoupled camera `/tf` yaw from the radar squint:
+  ```python
+  # VERIFIED FIX in convert_session_to_mcap.py line 1388
+  camera_yaw_deg = float(calib_params.get("cameraYawDeg", 0.0))
+  ```
+* When `cameraYawDeg = 0.0`, the camera optical frame in `/tf`, the `GroundPlaneProjector`, and `McapSceneWriter` are in 100% mutual alignment at $0.0^\circ$, eliminating the $1.0^\circ$ visual yaw tilt and the 17 px lateral skew completely.
+
+---
+
 ## Summary of Core Engineering Rules
 
 1. **Never pass high-frequency raw byte streams through `StateFlow`:** Always use direct callbacks or channels to background workers.
@@ -1185,6 +1228,8 @@ Deep cross-stream investigation across `session_timeline.csv`, `camera_frames.cs
 24. **Verify Optical $R_x$ Against Upright World Boresight Vector ($Z_{\text{base}} = -\sin\theta$):** Whenever defining optical pitch matrices transforming world/vehicle coordinates (FLU: Forward, Left, Up) to camera optical frames (RDF: Right, Down, Forward), always verify the sign of the camera optical boresight vector $\vec{v}_c = [0, 0, 1]^T$ transformed back to vehicle space:
     $$\vec{v}_{\text{base}} = R_{\text{total}}^T \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix} = \begin{bmatrix} \cos\theta \\ 0 \\ -\sin\theta \end{bmatrix}$$
     For positive downward pitch ($\theta > 0$), $Z_{\text{base}}$ MUST be strictly negative ($-\sin\theta < 0$). If $Z_{\text{base}} = +\sin\theta$, the camera is pointing into the sky, creating a $2 \times \theta$ angular inversion error in visualizers that manifests as projected ground targets floating hundreds of pixels too high.
+25. **Decouple Camera Boresight (`cameraYawDeg`) from Radar Squint (`radarSquintDeg`) in Static `/tf` Trees:** Never apply a relative cross-sensor calibration angle (e.g. `yawDeg`) directly onto the camera optical `/tf` unless the camera is physically panned on the mount. If the camera is aligned with the vehicle body ($0.0^\circ$), applying a $1.0^\circ$ radar mounting squint to `camera_optical` tilts the 3D frustum away from the road, causing 3D bounding boxes to appear tilted by $1.0^\circ$ and shifted laterally by $D \cdot \tan(\psi)$ ($0.61\text{ m}$ / $17.3\text{ px}$ at $35\text{ m}$) against the video.
+
 
 
 

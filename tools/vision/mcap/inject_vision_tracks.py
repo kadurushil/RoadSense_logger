@@ -351,6 +351,24 @@ def inject_vision_tracks_to_mcap(
             if candidates:
                 source_mcap = candidates[0]
 
+    # Stale / Missing Base MCAP Guard:
+    calib_json = os.path.join(session_dir, "radar_camera_calib.json")
+    should_auto_generate = False
+    if (not source_mcap or not os.path.isfile(source_mcap)) and os.path.isdir(session_dir):
+        print(f"[MCAP Writer] Base MCAP not found for {session_name}. Generating fresh base MCAP automatically...")
+        should_auto_generate = True
+    elif source_mcap and os.path.isfile(source_mcap) and os.path.isfile(calib_json):
+        if os.path.getmtime(calib_json) > os.path.getmtime(source_mcap):
+            print(f"[MCAP Writer] Calibration file is newer than base MCAP. Regenerating to ensure active /tf extrinsics...")
+            should_auto_generate = True
+
+    if should_auto_generate and os.path.isdir(session_dir):
+        try:
+            from tools.convert_session_to_mcap import convert_session_to_mcap
+            source_mcap = convert_session_to_mcap(session_dir=session_dir)
+        except Exception as e:
+            print(f"[-] Auto-generation of base MCAP failed ({e}). Proceeding with fallback resolution.")
+
     # 3. Resolve destination output path
     out_dir = os.path.join("tools", "vision", "output", "mcap")
     os.makedirs(out_dir, exist_ok=True)
