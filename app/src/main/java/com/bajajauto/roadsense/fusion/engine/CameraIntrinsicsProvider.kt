@@ -204,7 +204,8 @@ object CameraIntrinsicsProvider {
     }
 
     /**
-     * Extracts pure video stream buffer intrinsics without on-screen display letterbox/pillarbox offsets.
+     * Extracts pure video stream buffer intrinsics directly for the recording stream buffer.
+     * Guaranteed 100% full-raster without on-screen display letterbox/pillarbox offsets or display rotation transpositions.
      */
     fun getStreamIntrinsics(
         context: Context,
@@ -212,14 +213,116 @@ object CameraIntrinsicsProvider {
         streamWidth: Int = 1920,
         streamHeight: Int = 1080
     ): CameraIntrinsics {
-        return getIntrinsics(
-            context = context,
-            cameraId = cameraId,
-            viewWidth = streamWidth,
-            viewHeight = streamHeight,
-            streamWidth = streamWidth,
-            streamHeight = streamHeight,
-            displayRotation = Surface.ROTATION_0
+        val safeStreamW = if (streamWidth > 0) streamWidth else 1920
+        val safeStreamH = if (streamHeight > 0) streamHeight else 1080
+
+        try {
+            val cm = context.getSystemService(Context.CAMERA_SERVICE) as? CameraManager
+            val targetId = cameraId ?: cm?.cameraIdList?.firstOrNull()
+            if (cm != null && targetId != null) {
+                val chars = cm.getCameraCharacteristics(targetId)
+
+                // 1. Calibrated intrinsics from HAL (API 23+)
+                val lensCalib = chars.get(CameraCharacteristics.LENS_INTRINSIC_CALIBRATION)
+                val activeRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
+                if (lensCalib != null && lensCalib.size >= 5 && lensCalib[0] > 0f && activeRect != null) {
+                    val cropW = activeRect.width().toFloat()
+                    val cropX = activeRect.left.toFloat()
+                    val cropY = activeRect.top.toFloat()
+
+                    val scaleToStream = safeStreamW.toFloat() / cropW
+                    val fxStream = lensCalib[0] * scaleToStream
+                    val fyStream = lensCalib[1] * scaleToStream
+                    val cxStream = (lensCalib[2] - cropX) * scaleToStream
+                    val cyStream = (lensCalib[3] - cropY) * scaleToStream
+
+                    val hfov = (2.0 * atan((safeStreamW / (2.0 * fxStream))) * 180.0 / Math.PI).toFloat()
+                    val vfov = (2.0 * atan((safeStreamH / (2.0 * fyStream))) * 180.0 / Math.PI).toFloat()
+
+                    AppLogger.d(TAG, "Stream LENS_INTRINSIC_CALIBRATION: fx=$fxStream, fy=$fyStream, cx=$cxStream, cy=$cyStream (HFOV=$hfov°, VFOV=$vfov°)")
+                    return CameraIntrinsics(
+                        fx = fxStream,
+                        fy = fyStream,
+                        cx = cxStream,
+                        cy = cyStream,
+                        imageWidth = safeStreamW,
+                        imageHeight = safeStreamH,
+                        hfovDeg = hfov,
+                        vfovDeg = vfov,
+                        videoOffsetX = 0f,
+                        videoOffsetY = 0f,
+                        videoWidth = safeStreamW.toFloat(),
+                        videoHeight = safeStreamH.toFloat()
+                    )
+                }
+
+                // 2. Physical sensor dimensions derivation (e.g. Galaxy M30 / LIMITED hardware level)
+                val physicalSize = chars.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE)
+                val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
+                val focalMm = focalLengths?.firstOrNull() ?: 3.58f
+
+                if (physicalSize != null && physicalSize.width > 0f && physicalSize.height > 0f && focalMm > 0f) {
+                    val sensorAspect = physicalSize.width / physicalSize.height
+                    val streamAspect = safeStreamW.toFloat() / safeStreamH.toFloat()
+
+                    val baseFocalStreamPx = if (streamAspect >= sensorAspect) {
+                        safeStreamW * (focalMm / physicalSize.width)
+                    } else {
+                        safeStreamH * (focalMm / physicalSize.height)
+                    }
+
+                    val fxStream = baseFocalStreamPx
+                    val fyStream = baseFocalStreamPx
+                    val cxStream = safeStreamW / 2f
+                    val cyStream = safeStreamH / 2f
+
+                    val hfov = (2.0 * atan((safeStreamW / (2.0 * fxStream))) * 180.0 / Math.PI).toFloat()
+                    val vfov = (2.0 * atan((safeStreamH / (2.0 * fyStream))) * 180.0 / Math.PI).toFloat()
+
+                    AppLogger.d(TAG, "Stream Physical Sensor Intrinsics: fx=$fxStream, fy=$fyStream, cx=$cxStream, cy=$cyStream, HFOV=$hfov°, VFOV=$vfov° (focal=${focalMm}mm)")
+                    return CameraIntrinsics(
+                        fx = fxStream,
+                        fy = fyStream,
+                        cx = cxStream,
+                        cy = cyStream,
+                        imageWidth = safeStreamW,
+                        imageHeight = safeStreamH,
+                        hfovDeg = hfov,
+                        vfovDeg = vfov,
+                        videoOffsetX = 0f,
+                        videoOffsetY = 0f,
+                        videoWidth = safeStreamW.toFloat(),
+                        videoHeight = safeStreamH.toFloat()
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "getStreamIntrinsics failed to query CameraCharacteristics: ${e.message}")
+        }
+
+        // 3. Pure standard unscaled stream fallback (65.7° HFOV)
+        val hfov = 65.7f
+        val halfHfovRad = Math.toRadians(hfov.toDouble() / 2.0)
+        val fxStream = (safeStreamW / (2.0 * tan(halfHfovRad))).toFloat()
+        val fyStream = fxStream
+        val cxStream = safeStreamW / 2f
+        val cyStream = safeStreamH / 2f
+        val vfov = (2.0 * atan((safeStreamH / (2.0 * fyStream))) * 180.0 / Math.PI).toFloat()
+
+        AppLogger.d(TAG, "Stream Fallback Intrinsics: fx=$fxStream, fy=$fyStream, cx=$cxStream, cy=$cyStream (HFOV=$hfov°, VFOV=$vfov°)")
+        return CameraIntrinsics(
+            fx = fxStream,
+            fy = fyStream,
+            cx = cxStream,
+            cy = cyStream,
+            imageWidth = safeStreamW,
+            imageHeight = safeStreamH,
+            hfovDeg = hfov,
+            vfovDeg = vfov,
+            videoOffsetX = 0f,
+            videoOffsetY = 0f,
+            videoWidth = safeStreamW.toFloat(),
+            videoHeight = safeStreamH.toFloat()
         )
     }
 }

@@ -701,4 +701,71 @@ class SpatialProjectionEngineTest {
         assertTrue("Left side of horizon must move DOWN on screen (> cy) when rolling phone right", horizonRight.first.yPx > cy)
         assertTrue("Right side of horizon must move UP on screen (< cy) when rolling phone right", horizonRight.second.yPx < cy)
     }
+
+    @Test
+    fun testLegacyCorruptedIntrinsicsAutoHealOnLoad() {
+        // Corrupted legacy JSON from portrait-viewport bug
+        val legacyJsonStr = """
+        {
+          "setbackM": 0.30,
+          "heightOffsetM": 0.50,
+          "lateralOffsetM": 0.0,
+          "radarHeightM": 0.95,
+          "pitchDeg": 5.9118,
+          "yawDeg": 1.0000,
+          "rollDeg": -0.12,
+          "streamWidth": 1920,
+          "streamHeight": 1080,
+          "fx": 836.1591,
+          "fy": 836.1591,
+          "cx": 1196.25,
+          "cy": 303.75,
+          "hfovDeg": 39.9289,
+          "vfovDeg": 65.7095,
+          "profileName": "Default Mount"
+        }
+        """.trimIndent()
+
+        val json = org.json.JSONObject(legacyJsonStr)
+        val healed = CalibrationParameters.fromJson(json)
+
+        // Physical angles and mounting geometry MUST be preserved
+        assertEquals("User-tuned pitchDeg must be preserved", 5.9118f, healed.pitchDeg, 0.001f)
+        assertEquals("User-tuned yawDeg must be preserved", 1.0000f, healed.yawDeg, 0.001f)
+        assertEquals("Setback must be preserved", 0.30f, healed.setbackM, 0.001f)
+        assertEquals("Radar height must be preserved", 0.95f, healed.radarHeightM, 0.001f)
+
+        // Corrupted lens intrinsics MUST be healed to true unscaled 1080p stream values
+        assertEquals("1080p fx must be healed to ~1486.5", 1486.53f, healed.fx, 1.0f)
+        assertEquals("1080p fy must be healed to ~1486.5", 1486.53f, healed.fy, 1.0f)
+        assertEquals("1080p cx must be centered at 960.0", 960.0f, healed.cx, 0.01f)
+        assertEquals("1080p cy must be centered at 540.0", 540.0f, healed.cy, 0.01f)
+        assertEquals("HFOV must be restored to 65.7°", 65.7f, healed.hfovDeg, 0.1f)
+        assertEquals("VFOV must be restored to 39.8°", 39.8f, healed.vfovDeg, 0.5f)
+    }
+
+    @Test
+    fun test720pStreamIntrinsicsAutoHeal() {
+        val corrupted720pJson = """
+        {
+          "streamWidth": 1280,
+          "streamHeight": 720,
+          "fx": 557.44,
+          "fy": 557.44,
+          "cx": 797.5,
+          "cy": 202.5,
+          "pitchDeg": 7.0,
+          "yawDeg": -1.0
+        }
+        """.trimIndent()
+
+        val json = org.json.JSONObject(corrupted720pJson)
+        val healed = CalibrationParameters.fromJson(json)
+
+        assertEquals("720p cx must be centered at 640.0", 640.0f, healed.cx, 0.01f)
+        assertEquals("720p cy must be centered at 360.0", 360.0f, healed.cy, 0.01f)
+        assertEquals("720p fx must be ~991.0", 991.02f, healed.fx, 1.0f)
+        assertEquals("720p fy must be ~991.0", 991.02f, healed.fy, 1.0f)
+        assertEquals("Pitch must be preserved", 7.0f, healed.pitchDeg, 0.001f)
+    }
 }

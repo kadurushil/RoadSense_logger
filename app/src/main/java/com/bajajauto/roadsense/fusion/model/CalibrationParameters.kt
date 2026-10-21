@@ -84,9 +84,28 @@ data class CalibrationParameters(
             val yDeg = json.optDouble("yawDeg", -1.0).toFloat()
             val streamW = json.optInt("streamWidth", 1920)
             val streamH = json.optInt("streamHeight", 1080)
-            val hfov = json.optDouble("hfovDeg", 65.7).toFloat()
-            val vfov = json.optDouble("vfovDeg", 39.8).toFloat()
+            var hfov = json.optDouble("hfovDeg", 65.7).toFloat()
+            var vfov = json.optDouble("vfovDeg", 39.8).toFloat()
             val defaultFx = (streamW / (2.0 * kotlin.math.tan(Math.toRadians(hfov.toDouble() / 2.0)))).toFloat()
+
+            var fx = json.optDouble("fx", defaultFx.toDouble()).toFloat()
+            var fy = json.optDouble("fy", defaultFx.toDouble()).toFloat()
+            var cx = json.optDouble("cx", (streamW / 2.0)).toFloat()
+            var cy = json.optDouble("cy", (streamH / 2.0)).toFloat()
+
+            // Auto-heal legacy corrupted 836.16 px intrinsics (from the portrait-viewport bug)
+            // or off-center cx/cy, while preserving user-calibrated pitch and yaw angles
+            val isCorrupted1080p = (streamW == 1920 && (fx < 1100f || kotlin.math.abs(cx - 960f) > 50f))
+            val isCorrupted720p = (streamW == 1280 && (fx < 750f || kotlin.math.abs(cx - 640f) > 50f))
+            if (isCorrupted1080p || isCorrupted720p) {
+                hfov = 65.7f
+                val halfHfovRad = Math.toRadians(hfov.toDouble() / 2.0)
+                fx = (streamW / (2.0 * kotlin.math.tan(halfHfovRad))).toFloat()
+                fy = fx
+                cx = streamW / 2f
+                cy = streamH / 2f
+                vfov = (2.0 * kotlin.math.atan((streamH / (2.0 * fy))) * 180.0 / Math.PI).toFloat()
+            }
 
             return CalibrationParameters(
                 setbackM = json.optDouble("setbackM", 0.30).toFloat(),
@@ -104,10 +123,10 @@ data class CalibrationParameters(
                 cameraYawDeg = json.optDouble("cameraYawDeg", 0.0).toFloat(),
                 streamWidth = streamW,
                 streamHeight = streamH,
-                fx = json.optDouble("fx", defaultFx.toDouble()).toFloat(),
-                fy = json.optDouble("fy", defaultFx.toDouble()).toFloat(),
-                cx = json.optDouble("cx", (streamW / 2.0)).toFloat(),
-                cy = json.optDouble("cy", (streamH / 2.0)).toFloat(),
+                fx = fx,
+                fy = fy,
+                cx = cx,
+                cy = cy,
                 hfovDeg = hfov,
                 vfovDeg = vfov,
                 profileName = json.optString("profileName", "IRVM Bonnet Mount"),
