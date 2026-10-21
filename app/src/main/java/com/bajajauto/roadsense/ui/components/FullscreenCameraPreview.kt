@@ -128,6 +128,10 @@ fun FullscreenCameraPreview(
                 if (textureView.isAvailable) {
                     previewWidth = textureView.width
                     previewHeight = textureView.height
+                    val st = textureView.surfaceTexture
+                    if (st != null && !viewModel.cameraEngine.isSurfaceAttached(st)) {
+                        viewModel.cameraEngine.attachPreviewSurface(st, textureView.width, textureView.height)
+                    }
                     viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
                     viewModel.updateCameraIntrinsics(textureView.width, textureView.height)
                 }

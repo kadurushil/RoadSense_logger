@@ -54,6 +54,7 @@ class CameraSessionRecorder(
 
     @Volatile
     private var isRecordingActive = false
+    private var isFirstVideoFrame = true
 
     private var activeSession: SessionInfo? = null
     private var csvWriter: BufferedWriter? = null
@@ -89,6 +90,7 @@ class CameraSessionRecorder(
             videoFile = vFile
             currentResolution = resolution.label
             _framesRecorded.value = 0L
+            isFirstVideoFrame = true
             isRecordingActive = true
             _isRecording.value = true
 
@@ -110,6 +112,20 @@ class CameraSessionRecorder(
         executor.execute {
             if (!isRecordingActive) return@execute
             try {
+                // Emit explicit VIDEO_START event on the very first frame to anchor ground truth
+                if (isFirstVideoFrame) {
+                    sessionManager?.recordTimelineEvent(
+                        elapsedRealtimeNs = frame.shutterTimestampNs,
+                        sensor = "CAMERA",
+                        event = "VIDEO_START",
+                        sequenceId = frame.frameNumber,
+                        relativePath = "camera/$CAMERA_VIDEO_NAME",
+                        summary = "first_hw_frame=${frame.frameNumber};res=$currentResolution"
+                    )
+                    Log.i(TAG, "Tagged VIDEO_START at frameNumber=${frame.frameNumber}, monoNs=${frame.shutterTimestampNs}")
+                    isFirstVideoFrame = false
+                }
+
                 // Associate with nearest IMU, Radar, and GNSS in O(log N)
                 val keyframe = syncAssociator?.associateKeyframe(frame)
                 if (keyframe != null) {

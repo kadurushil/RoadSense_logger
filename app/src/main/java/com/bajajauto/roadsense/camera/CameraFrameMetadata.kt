@@ -18,7 +18,8 @@ data class CameraFrameMetadata(
     val shutterTimestampNs: Long,
     val exposureTimeNs: Long = 0L,
     val iso: Int = 0,
-    val utcTimestampMs: Long = System.currentTimeMillis()
+    val utcTimestampMs: Long = System.currentTimeMillis(),
+    val isRecording: Boolean = false
 ) {
     /**
      * Serializes this frame metadata to a CSV row for logging in camera_frames.csv.

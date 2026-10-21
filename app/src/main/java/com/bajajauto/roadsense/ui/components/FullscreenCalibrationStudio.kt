@@ -195,6 +195,10 @@ fun FullscreenCalibrationStudio(
                     if (textureView.isAvailable) {
                         studioWidth = textureView.width
                         studioHeight = textureView.height
+                        val st = textureView.surfaceTexture
+                        if (st != null && !viewModel.cameraEngine.isSurfaceAttached(st)) {
+                            viewModel.cameraEngine.attachPreviewSurface(st, textureView.width, textureView.height)
+                        }
                         viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
                         viewModel.updateCameraIntrinsics(textureView.width, textureView.height)
                     }

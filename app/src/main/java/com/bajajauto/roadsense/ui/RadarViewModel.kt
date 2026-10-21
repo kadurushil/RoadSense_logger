@@ -335,10 +335,12 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             syncAssociator.updateGnss(fix)
         }
 
-        // Camera frame shutter listener: automatically records frame metadata if session recording is active
+        // Camera frame shutter listener: automatically records frame metadata if session recording is active and MediaRecorder is running
         cameraEngine.addFrameListener { frame ->
             cameraFramesThisSec++
-            cameraSessionRecorder.recordFrame(frame)
+            if (frame.isRecording) {
+                cameraSessionRecorder.recordFrame(frame)
+            }
         }
 
 

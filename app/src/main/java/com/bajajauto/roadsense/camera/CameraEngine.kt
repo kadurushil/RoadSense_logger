@@ -75,6 +75,9 @@ class CameraEngine(private val context: Context) {
 
     private var backgroundThread: HandlerThread? = null
     private var backgroundHandler: Handler? = null
+    private var captureSyncThread: HandlerThread? = null
+    private var captureSyncHandler: Handler? = null
+    @Volatile private var isMediaRecorderActive: Boolean = false
 
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
@@ -152,6 +155,9 @@ class CameraEngine(private val context: Context) {
     private var isRecordingVideo = false
 
     @Volatile
+    private var isPendingVideoRecording = false
+
+    @Volatile
     private var isPreviewActive = false
 
     @Volatile
@@ -174,16 +180,24 @@ class CameraEngine(private val context: Context) {
             start()
             backgroundHandler = Handler(looper)
         }
+        captureSyncThread = HandlerThread("CameraEngine-CaptureSync", Process.THREAD_PRIORITY_URGENT_DISPLAY).apply {
+            start()
+            captureSyncHandler = Handler(looper)
+        }
     }
 
     private fun stopBackgroundThread() {
+        captureSyncThread?.quitSafely()
         backgroundThread?.quitSafely()
         try {
+            captureSyncThread?.join()
+            captureSyncThread = null
+            captureSyncHandler = null
             backgroundThread?.join()
             backgroundThread = null
             backgroundHandler = null
         } catch (e: InterruptedException) {
-            AppLogger.e(TAG, "Error stopping camera background thread", e)
+            AppLogger.e(TAG, "Error stopping camera background threads", e)
         }
     }
 
@@ -312,7 +326,7 @@ class CameraEngine(private val context: Context) {
             previewSurfaceTexture?.setDefaultBufferSize(resolution.width, resolution.height)
             previewSurface?.release()
             previewSurface = previewSurfaceTexture?.let { Surface(it) }
-            if (cameraDevice != null && !isRecordingVideo) {
+            if (cameraDevice != null && !isRecordingVideo && !isPendingVideoRecording) {
                 restartSession()
             }
         }
@@ -322,7 +336,7 @@ class CameraEngine(private val context: Context) {
         if (_selectedFps.value != fps) {
             _selectedFps.value = fps
             AppLogger.i(TAG, "Frame rate changed to: ${fps.label}")
-            if (cameraDevice != null && !isRecordingVideo) {
+            if (cameraDevice != null && !isRecordingVideo && !isPendingVideoRecording) {
                 restartSession()
             }
         }
@@ -342,11 +356,11 @@ class CameraEngine(private val context: Context) {
             return
         }
 
-        // If actively recording video and the session is running:
-        // NEVER destroy and recreate CameraCaptureSession!
-        if (isRecordingVideo && captureSession != null) {
+        // If the session is already active:
+        // NEVER destroy and recreate CameraCaptureSession if we can reuse the existing session and persistent surface!
+        if (captureSession != null && cameraDevice != null) {
             if (previewSurfaceTexture === surfaceTexture) {
-                AppLogger.i(TAG, "attachPreviewSurface: Re-attaching existing persistent preview surface during active recording (${width}x${height})")
+                AppLogger.i(TAG, "attachPreviewSurface: Re-attaching existing persistent preview surface (${width}x${height})")
                 currentViewWidth = width
                 currentViewHeight = height
                 isPreviewActive = true
@@ -354,7 +368,7 @@ class CameraEngine(private val context: Context) {
                     startLuminanceAnalyzer()
                 }
                 return
-            } else {
+            } else if (isRecordingVideo || isPendingVideoRecording) {
                 AppLogger.w(TAG, "attachPreviewSurface: SurfaceTexture changed during active recording. Preserving active recording session.")
                 currentViewWidth = width
                 currentViewHeight = height
@@ -429,29 +443,24 @@ class CameraEngine(private val context: Context) {
     }
 
     /**
-     * Detaches preview surface when the user swipes away to another tab to save battery.
+     * Detaches preview surface when the user swipes away to another tab or transitions views.
+     * Preserves persistent SurfaceTexture, CameraDevice, and CameraCaptureSession across view switches.
      */
     fun detachPreviewSurface(surfaceTexture: SurfaceTexture? = null) {
         if (surfaceTexture != null && previewSurfaceTexture != null && previewSurfaceTexture !== surfaceTexture) {
             AppLogger.d(TAG, "Ignoring detachPreviewSurface for stale surfaceTexture")
             return
         }
-        AppLogger.i(TAG, "Detaching preview surface (user swiped away or paused)")
+        AppLogger.i(TAG, "Detaching preview surface (user swiped away or switched views)")
         stopLuminanceAnalyzer()
         previewTextureViewRef = null
         isPreviewActive = false
 
-        if (isRecordingVideo) {
-            // CRITICAL: DO NOT tear down or restart CameraCaptureSession while actively recording video!
-            // Closing the session halts the sensor HAL pipeline, starving MediaRecorder and dropping frames for 300-600ms.
-            // We keep previewSurface and previewSurfaceTexture alive so they can be seamlessly reattached when the user returns.
-            AppLogger.i(TAG, "Active recording in progress: preserving CameraCaptureSession and preview surface")
-        } else {
-            previewSurface?.release()
-            previewSurface = null
-            previewSurfaceTexture = null
-            closeCamera()
-        }
+        // Keep previewSurface, previewSurfaceTexture, CameraDevice, and CameraCaptureSession alive across view transitions!
+        // Closing the camera halts the HAL pipeline, causing a 600-1200ms lag whenever switching
+        // between Camera card, Fullscreen mode, Calibration studio, or SBS card.
+        // We preserve the persistent SurfaceTexture so it can be seamlessly reattached without reopening the camera.
+        AppLogger.i(TAG, "Preserving CameraCaptureSession and persistent preview surface across view transitions")
     }
 
     /**
@@ -480,7 +489,7 @@ class CameraEngine(private val context: Context) {
             _engineState.value = CameraEngineState.Opening
             cameraManager.openCamera(targetCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
-                    if (!isPreviewActive && !isRecordingVideo) {
+                    if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording) {
                         AppLogger.i(TAG, "Camera opened after preview was cancelled; closing immediately")
                         camera.close()
                         cameraDevice = null
@@ -599,8 +608,22 @@ class CameraEngine(private val context: Context) {
                     captureSession = session
 
                     try {
+                        val isRecSession = isRecordingVideo || isPendingVideoRecording
+                        // Synchronously start hardware MediaRecorder before repeating request streams frames
+                        if (isPendingVideoRecording && mediaRecorder != null) {
+                            try {
+                                mediaRecorder?.start()
+                                isMediaRecorderActive = true
+                                isRecordingVideo = true
+                                isPendingVideoRecording = false
+                                AppLogger.i(TAG, "MediaRecorder started synchronously inside onConfigured")
+                            } catch (e: Exception) {
+                                AppLogger.e(TAG, "Failed to start MediaRecorder in onConfigured", e)
+                            }
+                        }
+
                         val requestBuilder = device.createCaptureRequest(
-                            if (isRecordingVideo) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
+                            if (isRecSession) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
                         )
 
                         previewSurface?.let { requestBuilder.addTarget(it) }
@@ -633,10 +656,14 @@ class CameraEngine(private val context: Context) {
                                 timestamp: Long,
                                 frameNumber: Long
                             ) {
+                                // Strictly reject callbacks from defunct or closing sessions
+                                if (session !== captureSession) return
+                                val isRec = isRecordingVideo && isMediaRecorderActive
                                 val meta = CameraFrameMetadata(
                                     frameNumber = frameNumber,
                                     shutterTimestampNs = timestamp, // Exposure start in monotonic nanoseconds
-                                    utcTimestampMs = System.currentTimeMillis()
+                                    utcTimestampMs = System.currentTimeMillis(),
+                                    isRecording = isRec
                                 )
                                 _totalFramesLogged.value++
                                 frameListeners.forEach { it.invoke(meta) }
@@ -644,7 +671,8 @@ class CameraEngine(private val context: Context) {
                         }
 
                         repeatingCaptureCallback = captureCallback
-                        session.setRepeatingRequest(requestBuilder.build(), captureCallback, backgroundHandler)
+                        // Run capture callback on dedicated high-priority captureSyncHandler to eliminate userspace callback drops
+                        session.setRepeatingRequest(requestBuilder.build(), captureCallback, captureSyncHandler ?: backgroundHandler)
                         startLuminanceAnalyzer()
 
                         if (isRecordingVideo) {
@@ -869,7 +897,7 @@ class CameraEngine(private val context: Context) {
 
         try {
             applyAeMeteringSettings(builder)
-            session.setRepeatingRequest(builder.build(), callback, backgroundHandler)
+            session.setRepeatingRequest(builder.build(), callback, captureSyncHandler ?: backgroundHandler)
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to update repeating AE settings", e)
         }
@@ -1004,7 +1032,7 @@ class CameraEngine(private val context: Context) {
         if (session != null && builder != null) {
             try {
                 applyStabilizationSettings(builder)
-                session.setRepeatingRequest(builder.build(), callback, backgroundHandler)
+                session.setRepeatingRequest(builder.build(), callback, captureSyncHandler ?: backgroundHandler)
                 AppLogger.i(TAG, "Updated repeating request with OIS = $enabled")
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed to apply OIS setting to repeating request", e)
@@ -1034,7 +1062,7 @@ class CameraEngine(private val context: Context) {
             try {
                 applyFocusSettings(builder)
                 applyAeMeteringSettings(builder)
-                session.setRepeatingRequest(builder.build(), callback, backgroundHandler)
+                session.setRepeatingRequest(builder.build(), callback, captureSyncHandler ?: backgroundHandler)
                 AppLogger.i(TAG, "Updated repeating request with infinity lock = $locked")
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Failed to apply infinity focus to repeating request", e)
@@ -1132,27 +1160,23 @@ class CameraEngine(private val context: Context) {
                 builder.set(CaptureRequest.CONTROL_AE_LOCK, false)
                 AppLogger.i(TAG, "Setting AF/AE metering region for tap lock: $afRect (norm: $focusX, $focusY)")
 
-                // Cancel previous AF state machine
+                // Configure repeating request with tap-focus region in AUTO AF mode
                 builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_AUTO)
-                builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL)
-                session.capture(builder.build(), null, backgroundHandler)
+                builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE)
+                builder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE)
+                session.setRepeatingRequest(builder.build(), callback, captureSyncHandler ?: backgroundHandler)
 
-                // Trigger active AF scan and AE precapture for the tapped area
-                builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
-                builder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START)
-                session.capture(builder.build(), object : CameraCaptureSession.CaptureCallback() {
-                    override fun onCaptureCompleted(
-                        session: CameraCaptureSession,
-                        request: CaptureRequest,
-                        result: TotalCaptureResult
-                    ) {
-                        val afState = result.get(CaptureResult.CONTROL_AF_STATE)
-                        val focusDist = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
-                        AppLogger.i(TAG, "Tap AF Trigger completed: afState=$afState, focusDist=$focusDist")
-                    }
-                }, backgroundHandler)
+                // Single-shot trigger to initiate AF & AE convergence with the active callback so no frame metadata is lost
+                if (callback != null) {
+                    builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
+                    builder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START)
+                    session.capture(builder.build(), callback, captureSyncHandler ?: backgroundHandler)
+                    builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE)
+                    builder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE)
+                }
+                AppLogger.i(TAG, "Triggered in-stream tap AF/AE scan at ($focusX, $focusY)")
 
-                // Once AF/AE converges, lock both AF and AE in repeating request
+                // Once AF/AE converges, lock AE in repeating request after 700ms
                 backgroundHandler?.postDelayed({
                     try {
                         val currentSession = captureSession
@@ -1164,7 +1188,7 @@ class CameraEngine(private val context: Context) {
                             if (maxAfRegions > 0) currentBuilder.set(CaptureRequest.CONTROL_AF_REGIONS, regions)
                             if (maxAeRegions > 0) currentBuilder.set(CaptureRequest.CONTROL_AE_REGIONS, regions)
                             currentBuilder.set(CaptureRequest.CONTROL_AE_LOCK, true) // Lock AE!
-                            currentSession.setRepeatingRequest(currentBuilder.build(), callback, backgroundHandler)
+                            currentSession.setRepeatingRequest(currentBuilder.build(), callback, captureSyncHandler ?: backgroundHandler)
                             AppLogger.i(TAG, "Locked AF and AE at tap point ($focusX, $focusY)")
                         }
                     } catch (e: Exception) {
@@ -1177,52 +1201,21 @@ class CameraEngine(private val context: Context) {
                 _tapFocusPoint.value = null
                 currentMeteringRegion = null
 
+                builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
                 builder.set(CaptureRequest.CONTROL_AE_LOCK, false)
                 builder.set(CaptureRequest.CONTROL_AF_REGIONS, null)
                 builder.set(CaptureRequest.CONTROL_AE_REGIONS, null)
+                applyAeMeteringSettings(builder)
 
-                // Momentarily kick lens motor to visibly break out of previous locked state
-                builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
-                builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 5.0f) // ~0.2 meters (near focus)
-                session.capture(builder.build(), null, backgroundHandler)
+                // Single-shot cancel trigger with the active callback to reset AF state machine cleanly without dropping frames
+                if (callback != null) {
+                    builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL)
+                    session.capture(builder.build(), callback, captureSyncHandler ?: backgroundHandler)
+                }
 
-                // Reset AF state machine
-                builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_AUTO)
-                builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL)
-                session.capture(builder.build(), null, backgroundHandler)
-
-                // Trigger active full-frame AF sweep
-                builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
-                session.capture(builder.build(), object : CameraCaptureSession.CaptureCallback() {
-                    override fun onCaptureCompleted(
-                        session: CameraCaptureSession,
-                        request: CaptureRequest,
-                        result: TotalCaptureResult
-                    ) {
-                        val afState = result.get(CaptureResult.CONTROL_AF_STATE)
-                        val focusDist = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
-                        AppLogger.i(TAG, "Re-Focus sweep completed: afState=$afState, focusDist=$focusDist")
-                    }
-                }, backgroundHandler)
-
-                // Settle repeating request back into CONTINUOUS_VIDEO with unlocked AE
-                backgroundHandler?.postDelayed({
-                    try {
-                        val currentSession = captureSession
-                        val currentBuilder = repeatingRequestBuilder
-                        if (currentSession != null && currentBuilder != null && !_isInfinityFocusLocked.value && !_isAfAeLocked.value) {
-                            currentBuilder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO)
-                            currentBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE)
-                            currentBuilder.set(CaptureRequest.CONTROL_AE_LOCK, false)
-                            currentBuilder.set(CaptureRequest.CONTROL_AF_REGIONS, null)
-                            applyAeMeteringSettings(currentBuilder)
-                            currentSession.setRepeatingRequest(currentBuilder.build(), callback, backgroundHandler)
-                            AppLogger.i(TAG, "Resumed CONTINUOUS_VIDEO repeating request after Re-Focus sweep")
-                        }
-                    } catch (e: Exception) {
-                        AppLogger.e(TAG, "Error resuming repeating request after AF sweep", e)
-                    }
-                }, 800)
+                builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE)
+                session.setRepeatingRequest(builder.build(), callback, captureSyncHandler ?: backgroundHandler)
+                AppLogger.i(TAG, "Resumed CONTINUOUS_VIDEO repeating request on Re-Focus")
             }
             AppLogger.i(TAG, "Auto-focus cycle successfully triggered (isTapLock=$isTapLock)")
         } catch (e: Exception) {
@@ -1258,12 +1251,14 @@ class CameraEngine(private val context: Context) {
      * Starts video recording directly to the specified MP4 file.
      */
     fun startVideoRecording(outputFile: File): Boolean {
-        if (isRecordingVideo) return true
+        if (isRecordingVideo || isPendingVideoRecording) return true
 
         try {
             videoOutputFile = outputFile
             setupMediaRecorder(outputFile)
-            isRecordingVideo = true
+            isPendingVideoRecording = true
+            isRecordingVideo = false
+            isMediaRecorderActive = false
             recordingStartTimeMs = SystemClock.elapsedRealtime()
             _totalFramesLogged.value = 0L
 
@@ -1280,20 +1275,12 @@ class CameraEngine(private val context: Context) {
                 restartSession()
             }
 
-            // Start hardware media recorder after session configuration
-            backgroundHandler?.postDelayed({
-                try {
-                    mediaRecorder?.start()
-                    AppLogger.i(TAG, "Started MediaRecorder H.264 video recording to ${outputFile.absolutePath}")
-                } catch (e: Exception) {
-                    AppLogger.e(TAG, "Failed to start MediaRecorder", e)
-                }
-            }, 300)
-
             return true
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to start video recording", e)
             isRecordingVideo = false
+            isPendingVideoRecording = false
+            isMediaRecorderActive = false
             return false
         }
     }
@@ -1302,9 +1289,11 @@ class CameraEngine(private val context: Context) {
      * Stops video recording and releases MediaRecorder.
      */
     fun stopVideoRecording(): Long {
-        if (!isRecordingVideo) return 0L
+        if (!isRecordingVideo && !isPendingVideoRecording) return 0L
 
         isRecordingVideo = false
+        isPendingVideoRecording = false
+        isMediaRecorderActive = false
         val total = _totalFramesLogged.value
 
         try {
@@ -1328,7 +1317,7 @@ class CameraEngine(private val context: Context) {
     }
 
     fun release() {
-        if (isRecordingVideo) {
+        if (isRecordingVideo || isPendingVideoRecording) {
             stopVideoRecording()
         }
         closeCamera()

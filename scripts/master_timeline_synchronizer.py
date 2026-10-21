@@ -108,10 +108,13 @@ class MasterTimelineSynchronizer:
         # Separate streams
         cam_list = []
         rad_list = []
+        video_start_event = None
         for r in raw_records:
             s = r["sensor"]
             e = r["event"]
-            if s == "CAMERA" and e == "FRAME":
+            if s == "CAMERA" and e == "VIDEO_START":
+                video_start_event = r
+            elif s == "CAMERA" and e == "FRAME":
                 cam_list.append(r)
             elif s == "RADAR" and e == "FRAME":
                 rad_list.append(r)
@@ -128,37 +131,50 @@ class MasterTimelineSynchronizer:
             self.radar_events.append(r)
 
         # Detect pre-roll preview boundary in camera stream
-        self._detect_video_start_boundary()
+        self._detect_video_start_boundary(video_start_event=video_start_event)
 
-    def _detect_video_start_boundary(self):
+    def _detect_video_start_boundary(self, video_start_event: Optional[Dict[str, Any]] = None):
         """
-        Detects the session reconfiguration gap in the camera stream.
-        When CameraEngine reconfigures from preview to recording, there is an
-        unambiguous gap (typically 250-500 ms) before MediaRecorder frames start.
+        Detects the recording start boundary in the camera stream.
+        1. If an explicit CAMERA:VIDEO_START event is present in session_timeline.csv,
+           it anchors directly to that exact hardware sequence number (pre_roll_count = 0).
+        2. Otherwise, scans initial frames for the preview-to-record reconfiguration gap (>=200 ms).
         """
         if not self.all_camera_events:
             return
 
-        gap_idx = 0
-        # Scan initial 60 frames for gap >= 200 ms
-        scan_limit = min(60, len(self.all_camera_events))
-        for i in range(1, scan_limit):
-            dt_ms = (self.all_camera_events[i]["mono_ns"] - self.all_camera_events[i - 1]["mono_ns"]) / 1e6
-            if dt_ms >= 200.0:
-                gap_idx = i
-                break
-
-        self.pre_roll_count = gap_idx
-        self.recording_camera_events = self.all_camera_events[gap_idx:]
-
-        if self.recording_camera_events:
-            first_rec = self.recording_camera_events[0]
-            self.video_start_seq_id = first_rec["seq_id"]
-            self.video_start_mono_ns = first_rec["mono_ns"]
+        if video_start_event is not None:
+            target_seq = video_start_event["seq_id"]
+            match_idx = 0
+            for idx, c in enumerate(self.all_camera_events):
+                if c["seq_id"] >= target_seq:
+                    match_idx = idx
+                    break
+            self.pre_roll_count = match_idx
+            self.recording_camera_events = self.all_camera_events[match_idx:]
+            self.video_start_seq_id = target_seq
+            self.video_start_mono_ns = video_start_event["mono_ns"]
         else:
-            first_all = self.all_camera_events[0]
-            self.video_start_seq_id = first_all["seq_id"]
-            self.video_start_mono_ns = first_all["mono_ns"]
+            gap_idx = 0
+            # Scan initial 60 frames for gap >= 200 ms
+            scan_limit = min(60, len(self.all_camera_events))
+            for i in range(1, scan_limit):
+                dt_ms = (self.all_camera_events[i]["mono_ns"] - self.all_camera_events[i - 1]["mono_ns"]) / 1e6
+                if dt_ms >= 200.0:
+                    gap_idx = i
+                    break
+
+            self.pre_roll_count = gap_idx
+            self.recording_camera_events = self.all_camera_events[gap_idx:]
+
+            if self.recording_camera_events:
+                first_rec = self.recording_camera_events[0]
+                self.video_start_seq_id = first_rec["seq_id"]
+                self.video_start_mono_ns = first_rec["mono_ns"]
+            else:
+                first_all = self.all_camera_events[0]
+                self.video_start_seq_id = first_all["seq_id"]
+                self.video_start_mono_ns = first_all["mono_ns"]
 
         self._rec_cam_times = [r["mono_ns"] for r in self.recording_camera_events]
         self._rad_times = [r["mono_ns"] for r in self.radar_events]
