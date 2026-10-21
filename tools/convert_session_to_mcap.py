@@ -956,6 +956,24 @@ def resolve_session_calibration(session_dir):
             with open(session_calib_path, "r", encoding="utf-8") as f:
                 cdata = json.load(f)
                 calib_params.update(cdata)
+
+                # Auto-heal legacy 836.16 px intrinsics from portrait-viewport bug
+                sw = int(calib_params.get("streamWidth", 1920))
+                sh = int(calib_params.get("streamHeight", 1080))
+                raw_fx = float(calib_params.get("fx", 1486.5))
+                raw_cx = float(calib_params.get("cx", sw / 2.0))
+                if (sw == 1920 and (raw_fx < 1100.0 or abs(raw_cx - 960.0) > 50.0)) or \
+                   (sw == 1280 and (raw_fx < 750.0 or abs(raw_cx - 640.0) > 50.0)):
+                    hfov = 65.7
+                    clean_fx = (sw / (2.0 * math.tan(math.radians(hfov / 2.0))))
+                    calib_params["fx"] = clean_fx
+                    calib_params["fy"] = clean_fx
+                    calib_params["cx"] = sw / 2.0
+                    calib_params["cy"] = sh / 2.0
+                    calib_params["hfovDeg"] = hfov
+                    calib_params["vfovDeg"] = math.degrees(2.0 * math.atan(sh / (2.0 * clean_fx)))
+                    print(f"[!] Healed corrupted legacy intrinsics in {os.path.basename(session_calib_path)}: fx was {raw_fx:.1f} -> restored to {clean_fx:.1f} (stream {sw}x{sh})")
+
                 print(f"[+] [Priority 1: Session Snapshot] Loaded calibration from {os.path.basename(session_calib_path)}:")
                 print(f"    -> Pitch={calib_params['pitchDeg']}°, Yaw={calib_params['yawDeg']}°, Roll={calib_params.get('rollDeg', 0.0)}°, Profile='{calib_params.get('profileName', 'Unknown')}'")
                 return calib_params, session_calib_path, "Priority 1: Session Snapshot"
@@ -1337,10 +1355,6 @@ def convert_session_to_mcap(
         tf_msg = FrameTransforms()
         
         # Transform 1: base_link -> radar_link
-        radar_yaw_deg = float(calib_params.get("radarYawOffsetDeg", calib_params.get("yawDeg", 0.0)))
-        radar_yaw_rad = math.radians(radar_yaw_deg)
-        rqx, rqy, rqz, rqw = euler_to_quaternion(0.0, 0.0, radar_yaw_rad)
-
         tf_radar = tf_msg.transforms.add()
         tf_radar.timestamp.seconds = base_sec
         tf_radar.timestamp.nanos = base_nano
@@ -1349,10 +1363,7 @@ def convert_session_to_mcap(
         tf_radar.translation.x = 0.0
         tf_radar.translation.y = 0.0
         tf_radar.translation.z = calib_params["radarHeightM"]
-        tf_radar.rotation.x = rqx
-        tf_radar.rotation.y = rqy
-        tf_radar.rotation.z = rqz
-        tf_radar.rotation.w = rqw
+        tf_radar.rotation.w = 1.0  # Aligned with vehicle coordinate frame
 
         # Transform 2: base_link -> camera_optical
         # In ROS/Foxglove: camera_optical frame has +Z pointing into the scene, +X pointing right, +Y pointing down.
@@ -1374,7 +1385,7 @@ def convert_session_to_mcap(
         else:
             effective_roll = calib_params.get("rollDeg", 0.0)
 
-        camera_yaw_deg = float(calib_params.get("cameraYawDeg", 0.0))
+        camera_yaw_deg = float(calib_params.get("yawDeg", 0.0))
         cam_quat, cam_trans = compute_camera_optical_tf(
             pitch_deg=calib_params.get("pitchDeg", 7.0),
             yaw_deg=camera_yaw_deg,
@@ -1432,15 +1443,32 @@ def convert_session_to_mcap(
         cal_msg.timestamp.nanos = base_nano
         cal_msg.frame_id = "camera_optical"
 
-        stream_w = int(calib_params.get("streamWidth", 1920))
-        stream_h = int(calib_params.get("streamHeight", 1080))
+        # Auto-detect actual video container resolution to ensure 100% 1:1 match with /camera/video
+        actual_vid_w = None
+        actual_vid_h = None
+        if os.path.isfile(video_mp4):
+            try:
+                import av
+                _c = av.open(video_mp4)
+                if _c.streams.video:
+                    actual_vid_w = _c.streams.video[0].width
+                    actual_vid_h = _c.streams.video[0].height
+                _c.close()
+            except Exception:
+                pass
+
+        stream_w = actual_vid_w if actual_vid_w else int(calib_params.get("streamWidth", 1920))
+        stream_h = actual_vid_h if actual_vid_h else int(calib_params.get("streamHeight", 1080))
         hfov_deg = float(calib_params.get("hfovDeg", 65.7))
 
+        calib_w = int(calib_params.get("streamWidth", stream_w))
+        scale = stream_w / float(calib_w) if (calib_w > 0 and calib_w != stream_w) else 1.0
+
         default_fx = (stream_w / 2.0) / math.tan(math.radians(hfov_deg / 2.0))
-        fx = float(calib_params.get("fx", default_fx))
-        fy = float(calib_params.get("fy", default_fx))
-        cx = float(calib_params.get("cx", stream_w / 2.0))
-        cy = float(calib_params.get("cy", stream_h / 2.0))
+        fx = float(calib_params.get("fx", default_fx)) * scale
+        fy = float(calib_params.get("fy", default_fx)) * scale
+        cx = (float(calib_params.get("cx", stream_w / 2.0))) * scale
+        cy = (float(calib_params.get("cy", stream_h / 2.0))) * scale
 
         cal_msg.width = stream_w
         cal_msg.height = stream_h
@@ -1564,30 +1592,25 @@ def convert_session_to_mcap(
                                 matched_acc_idx = idx
                                 break
 
-                cos_ry = math.cos(radar_yaw_rad)
-                sin_ry = math.sin(radar_yaw_rad)
-
                 for idx, t in enumerate(tracks):
                     is_fcw = (idx == matched_fcw_idx)
                     is_acc = (idx == matched_acc_idx)
 
-                    # Transform track from radar sensor coordinates to vehicle base_link frame:
-                    # Rotation by radar_yaw_rad (mounting squint) around Z-axis
-                    x_fwd_base = t["x_fwd"] * cos_ry - t["y_left"] * sin_ry
-                    y_left_base = t["x_fwd"] * sin_ry + t["y_left"] * cos_ry
-
-                    vx_fwd_base = t["vx_fwd"] * cos_ry - t["vy_left"] * sin_ry
-                    vy_left_base = t["vx_fwd"] * sin_ry + t["vy_left"] * cos_ry
+                    # Radar tracks in vehicle base_link frame (+X forward, +Y left)
+                    x_fwd = t["x_fwd"]
+                    y_left = t["y_left"]
+                    vx_fwd = t["vx_fwd"]
+                    vy_left = t["vy_left"]
 
                     # 3D Bounding Box
                     cube = entity.cubes.add()
-                    cube.pose.position.x = x_fwd_base
-                    cube.pose.position.y = y_left_base
+                    cube.pose.position.x = x_fwd
+                    cube.pose.position.y = y_left
                     cube.pose.position.z = calib_params["radarHeightM"]
                     
                     # Radar frame: +Y forward, +X right (clockwise positive).
                     # ROS base_link frame: +X forward, +Y left (counter-clockwise positive yaw).
-                    heading_rad = math.radians(-t["heading_deg"]) + radar_yaw_rad
+                    heading_rad = math.radians(-t["heading_deg"])
                     qx, qy, qz, qw = euler_to_quaternion(0.0, 0.0, heading_rad)
                     cube.pose.orientation.x = qx
                     cube.pose.orientation.y = qy
@@ -1629,14 +1652,14 @@ def convert_session_to_mcap(
                         txt_r, txt_g, txt_b = 1.0, 0.95, 0.70
 
                     # Velocity Vector Arrow
-                    speed_mag = math.hypot(vx_fwd_base, vy_left_base)
+                    speed_mag = math.hypot(vx_fwd, vy_left)
                     if speed_mag > 0.5:
                         arrow = entity.arrows.add()
-                        arrow.pose.position.x = x_fwd_base
-                        arrow.pose.position.y = y_left_base
+                        arrow.pose.position.x = x_fwd
+                        arrow.pose.position.y = y_left
                         arrow.pose.position.z = calib_params["radarHeightM"] + 0.1
 
-                        vel_yaw = math.atan2(vy_left_base, vx_fwd_base)
+                        vel_yaw = math.atan2(vy_left, vx_fwd)
                         aqx, aqy, aqz, aqw = euler_to_quaternion(0.0, 0.0, vel_yaw)
                         arrow.pose.orientation.x = aqx
                         arrow.pose.orientation.y = aqy
@@ -1651,10 +1674,10 @@ def convert_session_to_mcap(
 
                     # Floating Label
                     txt = entity.texts.add()
-                    txt.pose.position.x = x_fwd_base
-                    txt.pose.position.y = y_left_base
+                    txt.pose.position.x = x_fwd
+                    txt.pose.position.y = y_left
                     txt.pose.position.z = calib_params["radarHeightM"] + (1.3 if (is_fcw or is_acc) else 1.2)
-                    txt.text = f"{label_prefix}ID #{t['tid']} | {vx_fwd_base:.1f} m/s | TTI {t['tti']:.1f}s{label_suffix}"
+                    txt.text = f"{label_prefix}ID #{t['tid']} | {vx_fwd:.1f} m/s | TTI {t['tti']:.1f}s{label_suffix}"
                     txt.font_size = 0.50 if (is_fcw or is_acc) else 0.42
                     txt.billboard = True
                     txt.color.r = txt_r; txt.color.g = txt_g; txt.color.b = txt_b; txt.color.a = 1.0

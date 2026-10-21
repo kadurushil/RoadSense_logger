@@ -52,10 +52,17 @@ class PinholeIntrinsics:
                 ref_h = int(data.get("streamHeight", 1080))
                 hfov = float(data.get("hfovDeg", 65.7))
                 default_fx = (ref_w / 2.0) / math.tan(math.radians(hfov / 2.0))
-                base_fx = float(data.get("fx", default_fx))
-                base_fy = float(data.get("fy", default_fx))
-                base_cx = float(data.get("cx", ref_w / 2.0))
-                base_cy = float(data.get("cy", ref_h / 2.0))
+                raw_fx = float(data.get("fx", default_fx))
+                if (ref_w == 1920 and raw_fx < 1100.0) or (ref_w == 1280 and raw_fx < 750.0):
+                    base_fx = default_fx
+                    base_fy = default_fx
+                    base_cx = ref_w / 2.0
+                    base_cy = ref_h / 2.0
+                else:
+                    base_fx = raw_fx
+                    base_fy = float(data.get("fy", default_fx))
+                    base_cx = float(data.get("cx", ref_w / 2.0))
+                    base_cy = float(data.get("cy", ref_h / 2.0))
 
                 scale_x = width / float(ref_w)
                 scale_y = height / float(ref_h)
