@@ -30,7 +30,8 @@
 21. [Bug #21: Multi-Sensor Desync in Foxglove / Visualizer via Sequential MP4 Indexing & Pre-Roll Shutter Misalignment (Bypassing session_timeline.csv)](#bug-21-multi-sensor-desync-in-foxglove--visualizer-via-sequential-mp4-indexing--pre-roll-shutter-misalignment-bypassing-session_timelinecsv)
 22. [Bug #22: Multi-Second Video Phase Lead via Dropped Userspace Callbacks vs Zero-Drop Hardware Surface Pipeline](#bug-22-multi-second-video-phase-lead-via-dropped-userspace-callbacks-vs-zero-drop-hardware-surface-pipeline)
 23. [Bug #23: MCAP Converter Throughput Collapse (120 FPS vs 10,000 FPS) via O(N²) GIL Heap Allocation Storms](#bug-23-mcap-converter-throughput-collapse-120-fps-vs-10000-fps-via-on2-gil-heap-allocation-storms)
-24. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
+24. [Bug #24: Optical Pitch Sign Inversion ($R_x(-P)$) in MCAP `/tf` Transform & $2\times$ Pitch Discrepancy ($+10.5^\circ$) in Foxglove 3D Visualization](#bug-24-optical-pitch-sign-inversion-r_x-p-in-mcap-tf-transform--2x-pitch-discrepancy-105-in-foxglove-3d-visualization)
+25. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
 
 ---
 
@@ -1086,6 +1087,73 @@ Deep cross-stream investigation across `session_timeline.csv`, `camera_frames.cs
 
 ---
 
+## Bug #24: Optical Pitch Sign Inversion ($R_x(-P)$) in MCAP `/tf` Transform & $2\times$ Pitch Discrepancy ($+10.5^\circ$) in Foxglove 3D Visualization
+
+### Symptoms
+* During replay of driving sessions in Foxglove Studio (e.g., `session_20261021_112414`), projected 3D radar bounding boxes (`/radar/tracks_3d`) appeared floating **~180–190 pixels too high** above vehicles on the road, aimed into the sky.
+* To achieve visual alignment, the user had to write a real-time tuning script in Foxglove Studio (`/camera/calib_tuned`) that added a manual **$+10.5^\circ$ pitch offset** ($c_y \mathrel{+}= f_y \cdot \tan(+10.5^\circ) \approx +176\text{ px}$).
+* The baseline calibration had recorded an IMU pitch angle of $\theta_{\text{imu}} \approx 5.417^\circ$. The need for a $+10.5^\circ$ additional manual offset seemed anomalous and prompted suspicion of intrinsic or mounting calculation errors.
+
+### Root Cause Analysis
+1. **The $2 \times \theta$ Mathematical Identity:**
+   - Notice that:
+     $$\Delta \theta = 10.5^\circ \approx 2 \times 5.417^\circ = 10.83^\circ$$
+   - The user had synced camera pitch from the phone IMU (`pitchDeg = 5.4174°`). The phone was physically tilted **downward** toward the road by $5.42^\circ$ relative to the level vehicle plane.
+2. **Matrix Discrepancy Between Android App and Python Tooling:**
+   - In Android's on-device projection engine ([`SpatialProjectionEngine.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/fusion/engine/SpatialProjectionEngine.kt)), pitch rotation was correctly formulated as:
+     ```kotlin
+     val y2 = y1 * cosP - z1 * sinP
+     val z2 = y1 * sinP + z1 * cosP
+     ```
+     which corresponds to:
+     $$R_x(P) = \begin{bmatrix} 1 & 0 & 0 \\ 0 & \cos P & -\sin P \\ 0 & \sin P & \cos P \end{bmatrix}$$
+   - However, in `tools/convert_session_to_mcap.py` and `tools/vision/geometry/ground_plane_projector.py`, $R_x$ was written with inverted signs in rows 1 and 2:
+     ```python
+     # PROBLEMATIC CODE in compute_camera_optical_tf
+     Rx = np.array([
+         [ 1, 0,                0],
+         [ 0, math.cos(pitch),  math.sin(pitch)],
+         [ 0, -math.sin(pitch), math.cos(pitch)]
+     ], dtype=float)
+     ```
+   - This matrix was actually $R_x(-P)$ (the transpose).
+3. **Physical Gaze Vector in Vehicle Space (`base_link`):**
+   - The camera optical axis in RDF coordinates is $\vec{v}_c = [0, 0, 1]^T$.
+   - The transform from `base_link` (FLU) to `camera_optical` (RDF) is:
+     $$R_{\text{total}} = R_z(\phi) \cdot R_x(P) \cdot R_y(\psi) \cdot R_0, \quad \text{where } R_0 = \begin{bmatrix} 0 & -1 & 0 \\ 0 & 0 & -1 \\ 1 & 0 & 0 \end{bmatrix}$$
+   - Transforming $\vec{v}_c = [0, 0, 1]^T$ back to `base_link` yields:
+     $$\vec{v}_{\text{base}} = R_{\text{total}}^T \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix}$$
+   - Under the problematic code, the vertical component evaluated to:
+     $$Z_{\text{base}} = \mathbf{+\sin(pitch)} = +0.0944 \implies \text{Elevation} = \mathbf{+5.418^\circ}\ (\text{UP into the sky})$$
+   - Because the camera was pointed **$+5.42^\circ$ UP** instead of **$-5.42^\circ$ DOWN**, the `/tf` transform had an angular error of:
+     $$\text{Error} = (+5.417^\circ) - (-5.417^\circ) = \mathbf{+10.83^\circ}$$
+4. **Target Projection Impact:**
+   - For a radar obstacle at distance $D = 10\text{ m}$ ahead ($Z_{\text{base}} = 0.95\text{ m}$, camera at $Z = 1.35\text{ m}$):
+     - With inverted $R_x(-P)$ (pointing up): projected vertical coordinate was $v = 227.1\text{ px}$.
+     - With correct $R_x(P)$ (pointing down): projected vertical coordinate is $v = 415.3\text{ px}$.
+     - Discrepancy: $415.3 - 227.1 = \mathbf{188.2\text{ px}}$.
+   - When the user applied `PITCH_OFFSET_DEG = +10.5` in Foxglove Studio, their script computed:
+     $$\Delta c_y = f_y \cdot \tan(+10.5^\circ) = 948.8 \cdot \tan(10.5^\circ) \approx \mathbf{+175.8\text{ px}}$$
+     which artificially pulled the projected boxes down by ~176 pixels ($227\text{ px} + 176\text{ px} \approx 403\text{ px}$), placing them back on the cars!
+
+### Solution & Fix
+1. **Correct $R_x$ Sign in Python Tools:**
+   - In [`convert_session_to_mcap.py`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/convert_session_to_mcap.py) and [`ground_plane_projector.py`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/vision/geometry/ground_plane_projector.py), corrected the signs in $R_x$:
+     ```python
+     # VERIFIED FIX in compute_camera_optical_tf
+     Rx = np.array([
+         [ 1, 0,                0],
+         [ 0, math.cos(pitch), -math.sin(pitch)],
+         [ 0, math.sin(pitch),  math.cos(pitch)]
+     ], dtype=float)
+     ```
+2. **Verification in Generated MCAP:**
+   - Regenerated `session_20261021_112414.mcap` and inspected `/tf`:
+     $$\vec{v}_{\text{base}} = [0.9954, -0.0174, \mathbf{-0.0944}] \implies \text{Elevation} = \mathbf{-5.418^\circ}\ (\text{DOWN toward road})$$
+   - Target at $10.0\text{ m}$ projects to $v = 415.3\text{ px}$ natively with default $c_y = 360\text{ px}$, eliminating the need for any user script offset in Foxglove Studio.
+
+---
+
 ## Summary of Core Engineering Rules
 
 1. **Never pass high-frequency raw byte streams through `StateFlow`:** Always use direct callbacks or channels to background workers.
@@ -1114,5 +1182,9 @@ Deep cross-stream investigation across `session_timeline.csv`, `camera_frames.cs
 21. **Batch Diagnostic Pipeline Execution with Resilient Error Containment:** When building CLI diagnostic auditors to evaluate archives of recording sessions, always design core engines as exception-throwing libraries rather than invoking `sys.exit()` internally. Implement discovery mechanisms that filter for essential stream manifests (`session_timeline.csv`), catch per-session exceptions to prevent single corrupted artifacts from aborting batch runs, and output an aggregate scorecard summary table with colorized badges and clickable `file:///` URLs.
 22. **Default-Recalculate with Opt-In Incremental Skip for Diagnostic Suites:** In automated health and synchronization audit pipelines, default execution must re-calculate metrics across all sessions to ensure reports immediately reflect updated algorithms and calibration thresholds. Incremental skipping (`--skip-processed`) should be strictly opt-in and require existence of both domain manifests (e.g., `health_scorecard.json` AND `sync_audit_report.html`) before bypassing evaluation.
 23. **Ground Multimodal Replay & Converters in Master Timeline (`session_timeline.csv`):** Never assume raw video MP4 container packet indices map 1-to-1 to camera CSV row indices ($0, 1, 2, \dots$). Hardware camera capture pipelines commonly log preview frames before the hardware video encoder starts, or suffer occasional dropped frames. Always parse and align streams against `session_timeline.csv` using hardware sequence numbers and presentation timestamps (PTS), guaranteeing microsecond-accurate cross-sensor synchronization without startup phase drift.
+24. **Verify Optical $R_x$ Against Upright World Boresight Vector ($Z_{\text{base}} = -\sin\theta$):** Whenever defining optical pitch matrices transforming world/vehicle coordinates (FLU: Forward, Left, Up) to camera optical frames (RDF: Right, Down, Forward), always verify the sign of the camera optical boresight vector $\vec{v}_c = [0, 0, 1]^T$ transformed back to vehicle space:
+    $$\vec{v}_{\text{base}} = R_{\text{total}}^T \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix} = \begin{bmatrix} \cos\theta \\ 0 \\ -\sin\theta \end{bmatrix}$$
+    For positive downward pitch ($\theta > 0$), $Z_{\text{base}}$ MUST be strictly negative ($-\sin\theta < 0$). If $Z_{\text{base}} = +\sin\theta$, the camera is pointing into the sky, creating a $2 \times \theta$ angular inversion error in visualizers that manifests as projected ground targets floating hundreds of pixels too high.
+
 
 
