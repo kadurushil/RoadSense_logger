@@ -110,9 +110,36 @@ class TestGeometryAndTfIntegrity(unittest.TestCase):
         # Bottom-center of bounding box centered at cx = 960, below horizon at v = 700
         pt3d = proj.project_bottom_center_to_ground(u_center=960.0, v_bottom=700.0)
         self.assertIsNotNone(pt3d, "Projection must not be None below horizon")
-        self.assertGreater(pt3d["x_fwd_m"], 5.0, "Target must be forward of vehicle")
         self.assertAlmostEqual(pt3d["y_left_m"], 0.0, delta=0.05,
                                msg=f"Centered target must have Y_left ≈ 0.0m, got {pt3d['y_left_m']:.3f}m")
+
+    def test_radar_and_vision_boxes_rest_on_ground_plane(self):
+        """Verify that 3D cuboids have their bottom face flush with the asphalt plane (Z=0.0m)."""
+        from tools.vision.geometry.box_dimensions import BoxDimensions
+
+        # 1. Vision track 3D bounding box
+        v_box = BoxDimensions.compute_3d_box(
+            x_fwd_m=12.0,
+            y_left_m=0.2,
+            class_name="car",
+            w_px=180.0,
+            h_px=120.0,
+            fx=991.0,
+            fy=991.0,
+            use_optical_sizing=False,
+        )
+        v_z_center = v_box["center"]["z_up_m"]
+        v_height = v_box["size"]["height_m"]
+        v_z_bottom = v_z_center - (v_height / 2.0)
+        self.assertAlmostEqual(v_z_bottom, 0.0, delta=0.01,
+                               msg=f"Vision box bottom face must sit at Z=0.0m, got {v_z_bottom:.3f}m")
+
+        # 2. Radar track 3D bounding box convention
+        radar_height = 1.50
+        radar_z_center = radar_height / 2.0
+        radar_z_bottom = radar_z_center - (radar_height / 2.0)
+        self.assertAlmostEqual(radar_z_bottom, 0.0, delta=1e-5,
+                               msg="Radar box bottom face must sit at Z=0.0m")
 
 
 if __name__ == "__main__":

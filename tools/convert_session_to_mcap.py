@@ -1602,11 +1602,12 @@ def convert_session_to_mcap(
                     vx_fwd = t["vx_fwd"]
                     vy_left = t["vy_left"]
 
-                    # 3D Bounding Box
+                    # 3D Bounding Box (Ground-Contact 3D Cuboid: bottom sits flush at Z=0.0)
+                    track_h = float(t.get("height", 1.5))
                     cube = entity.cubes.add()
                     cube.pose.position.x = x_fwd
                     cube.pose.position.y = y_left
-                    cube.pose.position.z = calib_params["radarHeightM"]
+                    cube.pose.position.z = track_h / 2.0
                     
                     # Radar frame: +Y forward, +X right (clockwise positive).
                     # ROS base_link frame: +X forward, +Y left (counter-clockwise positive yaw).
@@ -1619,7 +1620,7 @@ def convert_session_to_mcap(
 
                     cube.size.x = t["length"]
                     cube.size.y = t["width"]
-                    cube.size.z = t["height"]
+                    cube.size.z = track_h
 
                     # Unified Color Palette matching RoadSense App (RadarBevPlot & ViewfinderRadarOverlay)
                     if is_fcw and is_acc:
@@ -1657,7 +1658,7 @@ def convert_session_to_mcap(
                         arrow = entity.arrows.add()
                         arrow.pose.position.x = x_fwd
                         arrow.pose.position.y = y_left
-                        arrow.pose.position.z = calib_params["radarHeightM"] + 0.1
+                        arrow.pose.position.z = track_h / 2.0
 
                         vel_yaw = math.atan2(vy_left, vx_fwd)
                         aqx, aqy, aqz, aqw = euler_to_quaternion(0.0, 0.0, vel_yaw)
@@ -1676,7 +1677,7 @@ def convert_session_to_mcap(
                     txt = entity.texts.add()
                     txt.pose.position.x = x_fwd
                     txt.pose.position.y = y_left
-                    txt.pose.position.z = calib_params["radarHeightM"] + (1.3 if (is_fcw or is_acc) else 1.2)
+                    txt.pose.position.z = track_h + (0.50 if (is_fcw or is_acc) else 0.35)
                     txt.text = f"{label_prefix}ID #{t['tid']} | {vx_fwd:.1f} m/s | TTI {t['tti']:.1f}s{label_suffix}"
                     txt.font_size = 0.50 if (is_fcw or is_acc) else 0.42
                     txt.billboard = True
@@ -1686,20 +1687,21 @@ def convert_session_to_mcap(
                 if fcw and fcw_stage > 0 and matched_fcw_idx is None and fcw_ty > 0.5:
                     fx_fwd = fcw_ty
                     fy_left = -fcw_tx
+                    fb_h = 1.5
                     cube = entity.cubes.add()
                     cube.pose.position.x = fx_fwd
                     cube.pose.position.y = fy_left
-                    cube.pose.position.z = calib_params["radarHeightM"]
+                    cube.pose.position.z = fb_h / 2.0
                     cube.pose.orientation.w = 1.0
                     cube.size.x = 2.5
                     cube.size.y = 1.8
-                    cube.size.z = 1.5
+                    cube.size.z = fb_h
                     cube.color.r = 1.0; cube.color.g = 0.09; cube.color.b = 0.27; cube.color.a = 0.90
 
                     txt = entity.texts.add()
                     txt.pose.position.x = fx_fwd
                     txt.pose.position.y = fy_left
-                    txt.pose.position.z = calib_params["radarHeightM"] + 1.3
+                    txt.pose.position.z = fb_h + 0.50
                     ttc_str = f" | TTC {fcw_ttc:.1f}s" if fcw_ttc > 0 else ""
                     txt.text = f"[FCW S{fcw_stage} HAZARD]{ttc_str}"
                     txt.font_size = 0.55
