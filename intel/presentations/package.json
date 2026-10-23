@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "node generate_roadsense_deck.js",
-    "build:week2": "node generate_roadsense_week2_deck.js"
+    "build:week2": "node generate_roadsense_week2_deck.js",
+    "build:week3": "node generate_roadsense_week3_deck.js"
   },
   "dependencies": {
     "katex": "^0.18.10",
