@@ -125,8 +125,10 @@ class ProcessSupervisor:
             if not os.path.isfile(full_script):
                 return False, f"Script not found: {full_script}"
 
-            cmd = [sys.executable, "-u", full_script] + args
-            print(f"[Supervisor] Launching: {' '.join(cmd)}")
+            py_exe = get_python_for_script(script_path)
+            cmd = [py_exe, "-u", full_script] + args
+            env_tag = os.path.basename(os.path.dirname(py_exe)) if "envs" in py_exe else "default"
+            print(f"[Supervisor] Launching ({env_tag}): {' '.join(cmd)}")
 
             creation_flags = 0
             if sys.platform == "win32":
@@ -198,6 +200,49 @@ class ProcessSupervisor:
         self.broadcast_status()
         self.broadcast_log("[-] Process execution stopped by user.")
         return True, "Process stopped."
+
+def find_vision_python():
+    """
+    Locates the Python interpreter with PyTorch, CUDA, and Ultralytics (Miniconda cv313).
+    Returns path to python executable or None.
+    """
+    candidates = [
+        r"C:\ProgramData\miniconda3\envs\cv313\python.exe",
+        os.path.expanduser(r"~\miniconda3\envs\cv313\python.exe"),
+        os.path.expanduser(r"~\anaconda3\envs\cv313\python.exe"),
+        r"C:\miniconda3\envs\cv313\python.exe",
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+    return None
+
+
+def get_vision_status():
+    """Detects Computer Vision (cv313 PyTorch/CUDA) environment status."""
+    v_py = find_vision_python()
+    if not v_py:
+        return {"available": False, "env_name": "none", "python_path": None, "cuda_available": False}
+    return {
+        "available": True,
+        "env_name": "cv313",
+        "python_path": v_py,
+        "cuda_available": True
+    }
+
+
+def get_python_for_script(script_path):
+    """
+    Selects the optimal Python interpreter for the target script.
+    Vision scripts (in tools/vision/) require PyTorch + CUDA in cv313.
+    """
+    norm = script_path.replace("\\", "/").lower()
+    if "tools/vision" in norm or "vision/" in norm:
+        v_py = find_vision_python()
+        if v_py:
+            return v_py
+    return sys.executable
+
 
 SUPERVISOR = ProcessSupervisor()
 
@@ -285,6 +330,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self.serve_json({
                 "adb": get_adb_status(),
                 "gpu": get_gpu_status(),
+                "vision": get_vision_status(),
                 "sessions": get_local_sessions(),
                 "process": {
                     "running": SUPERVISOR.is_running(),
@@ -298,18 +344,27 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             self.serve_sse_stream()
         elif path == "/api/open_folder":
             qs = parse_qs(parsed.query)
-            sess = qs.get("session", [""])[0]
-            target_dir = os.path.normpath(os.path.join(LOGS_DIR, sess))
-            norm_logs = os.path.normcase(os.path.abspath(LOGS_DIR))
+            folder = qs.get("folder", [""])[0] or qs.get("session", [""])[0]
+            if not folder:
+                self.serve_json({"success": False, "error": "No folder or session specified"}, status=400)
+                return
+            if os.path.isabs(folder):
+                target_dir = os.path.normpath(folder)
+            elif folder.startswith("tools") or folder.startswith("scripts") or folder.startswith("logs"):
+                target_dir = os.path.normpath(os.path.join(REPO_DIR, folder))
+            else:
+                target_dir = os.path.normpath(os.path.join(LOGS_DIR, folder))
+
+            norm_repo = os.path.normcase(os.path.abspath(REPO_DIR))
             norm_target = os.path.normcase(os.path.abspath(target_dir))
-            if norm_target.startswith(norm_logs) and os.path.isdir(target_dir):
+            if norm_target.startswith(norm_repo) and os.path.isdir(target_dir):
                 ok, err = open_system_folder(target_dir)
                 if ok:
                     self.serve_json({"success": True, "path": target_dir})
                 else:
                     self.serve_json({"success": False, "error": err}, status=500)
             else:
-                self.serve_json({"success": False, "error": f"Folder not found: {sess}"}, status=404)
+                self.serve_json({"success": False, "error": f"Folder not found: {folder}"}, status=404)
         elif path.startswith("/logs/"):
             from urllib.parse import unquote
             rel = unquote(path[6:])  # strip /logs/ and decode URL encoding
@@ -336,6 +391,28 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 self.serve_file(target, mime)
             else:
                 self.send_error(404, "File not found in logs/")
+        elif path.startswith("/tools/vision/output/"):
+            from urllib.parse import unquote
+            rel = unquote(path[1:])  # strip leading /
+            target = os.path.normpath(os.path.join(REPO_DIR, rel))
+            norm_repo = os.path.normcase(os.path.abspath(REPO_DIR))
+            norm_target = os.path.normcase(os.path.abspath(target))
+            if norm_target.startswith(norm_repo) and os.path.isfile(target):
+                ext = os.path.splitext(target)[1].lower()
+                mime_map = {
+                    ".html": "text/html; charset=utf-8",
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".json": "application/json; charset=utf-8",
+                    ".mp4": "video/mp4",
+                    ".csv": "text/plain; charset=utf-8",
+                    ".txt": "text/plain; charset=utf-8",
+                }
+                mime = mime_map.get(ext, "application/octet-stream")
+                self.serve_file(target, mime)
+            else:
+                self.send_error(404, "File not found in tools/vision/output/")
         else:
             self.send_error(404, "File not found")
 
@@ -366,18 +443,27 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 self.serve_json({"success": False, "error": f"Invalid JSON payload: {e}"}, status=400)
                 return
 
-            sess = data.get("session", "")
-            target_dir = os.path.normpath(os.path.join(LOGS_DIR, sess))
-            norm_logs = os.path.normcase(os.path.abspath(LOGS_DIR))
+            folder = data.get("folder", "") or data.get("session", "")
+            if not folder:
+                self.serve_json({"success": False, "error": "No folder or session specified"}, status=400)
+                return
+            if os.path.isabs(folder):
+                target_dir = os.path.normpath(folder)
+            elif folder.startswith("tools") or folder.startswith("scripts") or folder.startswith("logs"):
+                target_dir = os.path.normpath(os.path.join(REPO_DIR, folder))
+            else:
+                target_dir = os.path.normpath(os.path.join(LOGS_DIR, folder))
+
+            norm_repo = os.path.normcase(os.path.abspath(REPO_DIR))
             norm_target = os.path.normcase(os.path.abspath(target_dir))
-            if norm_target.startswith(norm_logs) and os.path.isdir(target_dir):
+            if norm_target.startswith(norm_repo) and os.path.isdir(target_dir):
                 ok, err = open_system_folder(target_dir)
                 if ok:
                     self.serve_json({"success": True, "path": target_dir})
                 else:
                     self.serve_json({"success": False, "error": err}, status=500)
             else:
-                self.serve_json({"success": False, "error": f"Folder not found: {sess}"}, status=404)
+                self.serve_json({"success": False, "error": f"Folder not found: {folder}"}, status=404)
 
         elif path == "/api/stop":
             success, msg = SUPERVISOR.stop_process()

@@ -185,6 +185,19 @@
       background-color: #12141c;
       border-bottom: 1px solid var(--border-color);
       overflow-x: auto;
+      flex-shrink: 0;
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    .tab-bar::-webkit-scrollbar {
+      height: 4px;
+    }
+
+    .tab-bar::-webkit-scrollbar-thumb {
+      background: var(--border-color);
+      border-radius: 2px;
     }
 
     .tab-btn {
@@ -543,6 +556,10 @@
     </div>
 
     <div class="header-pills">
+      <div class="pill" id="visionStatusPill" title="Miniconda cv313 Vision Stack (PyTorch + CUDA)">
+        <span class="pill-dot gray" id="visionDot"></span>
+        <span id="visionText">Detecting Vision...</span>
+      </div>
       <div class="pill" id="gpuStatusPill" title="NVIDIA GPU NVENC/NVDEC Status">
         <span class="pill-dot gray" id="gpuDot"></span>
         <span id="gpuText">Detecting GPU...</span>
@@ -578,6 +595,7 @@
       <!-- Navigation Tabs -->
       <div class="tab-bar">
         <button class="tab-btn active" onclick="switchTab('syncTab')">🔄 Sync & Process</button>
+        <button class="tab-btn" onclick="switchTab('visionTab')">👁️ 3D Vision</button>
         <button class="tab-btn" onclick="switchTab('mcapTab')">📦 MCAP Export</button>
         <button class="tab-btn" onclick="switchTab('diagTab')">🩺 Diagnostics</button>
         <button class="tab-btn" onclick="switchTab('searchTab')">🔍 Log Search</button>
@@ -859,6 +877,179 @@
         </div>
       </div>
 
+      <!-- Tab 6: 3D Vision Suite -->
+      <div class="tab-panel" id="visionTab">
+        <div class="panel-header">
+          <h2>👁️ 3D Vision Perception & Benchmark Suite</h2>
+          <p>YOLO26 + ByteTrack tracking, 3D ground geometry ($Z=0$), MCAP enrichment, and radar benchmarking.</p>
+        </div>
+
+        <!-- Section 1: 1-Click Complete Geometric Vision Pipeline -->
+        <div style="background: linear-gradient(135deg, rgba(168, 85, 247, 0.12), rgba(59, 130, 246, 0.12)); border: 1px solid rgba(168, 85, 247, 0.35); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div>
+            <span style="font-size: 13.5px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
+              🚀 1-Click 3D Vision Pipeline + MCAP Export
+            </span>
+            <p style="font-size: 11.5px; color: #94a3b8; margin-top: 3px;">
+              Runs YOLO detection, ground-plane 3D projection, and injects <code style="color: #c084fc;">/vision/geo_tracks</code> into an enriched Foxglove MCAP.
+            </p>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label style="font-size: 12px;">Target Session</label>
+            <select id="visionSessionSelect">
+              <option value="">Select a local session...</option>
+            </select>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label style="font-size: 12px;">Execution Mode</label>
+            <div class="radio-group">
+              <label class="radio-item">
+                <input type="radio" name="visionExecMode" value="full" checked>
+                <span>Full Session (Process all video frames)</span>
+              </label>
+              <label class="radio-item">
+                <input type="radio" name="visionExecMode" value="slice">
+                <span>Quick Test Slice: <input type="number" id="visionSliceFrames" value="300" min="10" max="50000" style="width: 70px; padding: 2px 6px; font-size: 11px; margin-left: 4px; display: inline-block;"> frames</span>
+              </label>
+              <label class="radio-item">
+                <input type="radio" name="visionExecMode" value="from_2d">
+                <span>Instant 3D Re-projection <span style="font-size: 11px; color: #94a3b8;">(--from_2d baseline_yolo_tracking.json, 80k+ FPS)</span></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-bottom: 0;">
+            <label style="font-size: 12px;">Pipeline Options (Default Recommended)</label>
+            <div class="checkbox-list">
+              <label class="checkbox-item" style="font-size: 12px;">
+                <input type="checkbox" id="visionOptMcap" checked>
+                <span><strong>Auto-enrich Foxglove MCAP (--mcap)</strong> <span style="font-size: 11px; color: #94a3b8;">(Generates session_with_vision.mcap with Magenta 3D cuboids)</span></span>
+              </label>
+              <label class="checkbox-item" style="font-size: 12px;">
+                <input type="checkbox" id="visionOptOpticalSizing" checked>
+                <span>Camera Optical 3D Sizing <span style="font-size: 11px; color: #94a3b8;">(Checked: camera-derived pixel span; Unchecked: fixed class priors)</span></span>
+              </label>
+            </div>
+          </div>
+
+          <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 10px; margin-top: 4px;">
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 11px; color: #94a3b8;">
+              <span>YOLO Conf:</span>
+              <input type="number" id="visionConfThreshold" value="0.25" min="0.05" max="0.95" step="0.05" style="width: 55px; padding: 2px 6px; font-size: 11px;">
+            </div>
+            <button class="btn-primary" style="background: linear-gradient(135deg, #9333ea, #3b82f6); font-weight: 700; padding: 8px 18px;" onclick="runVisionPipeline()">
+              ▶ Run 3D Vision Pipeline
+            </button>
+          </div>
+        </div>
+
+        <!-- Section 2: Radar vs. Vision Ground-Truth Benchmarking -->
+        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <span style="font-size: 13px; font-weight: 700; color: #38bdf8; display: flex; align-items: center; gap: 6px;">
+              📊 Radar vs. Vision Ground-Truth Benchmark
+            </span>
+          </div>
+          <p style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 12px;">
+            Spatio-temporal Hungarian bipartite matching (lapjv) evaluating 3D vision tracking against mmWave radar ground truth.
+          </p>
+
+          <div class="form-group">
+            <label>Target Session</label>
+            <select id="visionEvalSessionSelect">
+              <option value="">Select a local session...</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Distance Gating Cutoff</label>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <input type="number" id="visionEvalGateM" value="3.5" min="1.0" max="20.0" step="0.5" style="width: 80px;">
+              <span style="font-size: 11.5px; color: var(--text-muted);">meters (Default: 3.5m matching window)</span>
+            </div>
+          </div>
+
+          <div class="action-row">
+            <button class="btn-secondary" style="border-color: #38bdf8; color: #38bdf8;" onclick="runVisionBenchmark()">
+              ⚡ Benchmark Accuracy (Radar vs Vision)
+            </button>
+          </div>
+        </div>
+
+        <!-- Section 3: Standalone MCAP Topic Injection -->
+        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 16px; margin-bottom: 16px;">
+          <span style="font-size: 13px; font-weight: 700; color: #e2e8f0; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+            📦 Standalone MCAP Topic Injection
+          </span>
+          <p style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 12px;">
+            Merges existing <code style="color: #94a3b8;">_vision_tracks.json</code> into source MCAP without re-running YOLO.
+          </p>
+
+          <div class="form-group">
+            <label>Target Session</label>
+            <select id="visionInjectSessionSelect">
+              <option value="">Select a local session...</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label class="checkbox-item" style="font-size: 12px;">
+              <input type="checkbox" id="visionInjectStandalone">
+              <span>Create lightweight tracks-only MCAP (--standalone) <span style="font-size: 11px; color: #94a3b8;">(Unchecked merges into full source MCAP)</span></span>
+            </label>
+          </div>
+
+          <div class="action-row">
+            <button class="btn-secondary" onclick="runVisionMcapInjection()">
+              💉 Inject Tracks into MCAP
+            </button>
+          </div>
+        </div>
+
+        <!-- Section 4: Baseline Video Annotation & Depth Generator -->
+        <div style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 16px;">
+          <span style="font-size: 13px; font-weight: 700; color: #e2e8f0; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+            🎬 Baseline Video Annotation & Neural Depth
+          </span>
+          <p style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 12px;">
+            Renders annotated MP4 video with 2D/3D bounding boxes, motion trails, and optional metric depth.
+          </p>
+
+          <div class="form-group">
+            <label>Target Session</label>
+            <select id="visionBaselineSessionSelect">
+              <option value="">Select a local session...</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Annotation Mode</label>
+            <div class="radio-group">
+              <label class="radio-item">
+                <input type="radio" name="baselineMode" value="yolo" checked>
+                <span>Standalone YOLO26 Tracking Only (-y, ~50 FPS, No Neural Depth)</span>
+              </label>
+              <label class="radio-item">
+                <input type="radio" name="baselineMode" value="depth_vits">
+                <span>YOLO + Video Depth Anything (ViT-S Fast Metric Depth)</span>
+              </label>
+              <label class="radio-item">
+                <input type="radio" name="baselineMode" value="depth_vitl">
+                <span>YOLO + Video Depth Anything (ViT-L High-Precision Depth)</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="action-row">
+            <button class="btn-secondary" onclick="runBaselinePerception()">
+              🎞️ Render Annotated Video
+            </button>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <!-- Right Live Console Pane -->
@@ -954,12 +1145,16 @@
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
 
-      const idx = ['syncTab', 'mcapTab', 'diagTab', 'searchTab', 'inspectTab'].indexOf(tabId);
+      const idx = ['syncTab', 'visionTab', 'mcapTab', 'diagTab', 'searchTab', 'inspectTab'].indexOf(tabId);
       if (idx >= 0) {
         document.querySelectorAll('.tab-btn')[idx].classList.add('active');
       }
       const target = document.getElementById(tabId);
-      if (target) target.classList.add('active');
+      if (target) {
+        target.classList.add('active');
+        const leftPane = document.querySelector('.left-pane');
+        if (leftPane) leftPane.scrollTop = 0;
+      }
     }
 
     function toggleDiagSessionDropdown() {
@@ -1248,6 +1443,24 @@
         return `<a href="/logs/${sessId}/sync_audit_report.html" target="_blank" class="console-link console-link-html" title="Open full interactive HTML dashboard in a new tab">📊 sync_audit_report.html ↗</a><a href="javascript:void(0)" onclick="openFolder('${sessId}')" class="console-link console-link-folder" title="Open session folder in File Explorer">📁 Folder</a>`;
       });
 
+      // Convert vision output MCAPs into rich links
+      const visionMcapRegex = /(?:tools[\\\/]vision[\\\/]output[\\\/]mcap[\\\/]|output[\\\/]mcap[\\\/])([a-zA-Z0-9_\.]+\.mcap)/gi;
+      html = html.replace(visionMcapRegex, (match, fileName) => {
+        return `<a href="/tools/vision/output/mcap/${fileName}" target="_blank" class="console-link" style="color: #c084fc; border-color: rgba(192, 132, 252, 0.4); background: rgba(192, 132, 252, 0.1);" title="Download or Inspect Enriched MCAP">📦 ${fileName} ↗</a><a href="javascript:void(0)" onclick="openFolder('tools/vision/output/mcap')" class="console-link console-link-folder" title="Open output folder">📁 Folder</a>`;
+      });
+
+      // Convert vision benchmark reports into rich links
+      const visionReportRegex = /(?:tools[\\\/]vision[\\\/]output[\\\/]reports[\\\/]|output[\\\/]reports[\\\/])([a-zA-Z0-9_\.]+\.json)/gi;
+      html = html.replace(visionReportRegex, (match, fileName) => {
+        return `<a href="/tools/vision/output/reports/${fileName}" target="_blank" class="console-link" style="color: #38bdf8; border-color: rgba(56, 189, 248, 0.4); background: rgba(56, 189, 248, 0.1);" title="View Benchmark Report JSON">📊 ${fileName} ↗</a><a href="javascript:void(0)" onclick="openFolder('tools/vision/output/reports')" class="console-link console-link-folder" title="Open reports folder">📁 Folder</a>`;
+      });
+
+      // Convert vision tracks into rich links
+      const visionTracksRegex = /(?:tools[\\\/]vision[\\\/]output[\\\/]tracks[\\\/]|output[\\\/]tracks[\\\/])([a-zA-Z0-9_\.]+\.json)/gi;
+      html = html.replace(visionTracksRegex, (match, fileName) => {
+        return `<a href="/tools/vision/output/tracks/${fileName}" target="_blank" class="console-link" style="color: #4ade80; border-color: rgba(74, 222, 128, 0.4); background: rgba(74, 222, 128, 0.1);" title="View 3D Vision Tracks JSON">🔍 ${fileName} ↗</a><a href="javascript:void(0)" onclick="openFolder('tools/vision/output/tracks')" class="console-link console-link-folder" title="Open tracks folder">📁 Folder</a>`;
+      });
+
       // Convert session folder names (e.g. session_20261016_144844) into folder opening links if not already inside an anchor tag
       html = html.replace(/(?<!["'/=])\b(session_\d{8}_\d{6})\b(?!["'])/g, (match, sessId) => {
         return `<a href="javascript:void(0)" onclick="openFolder('${sessId}')" class="console-link-session" title="Click to open ${sessId} in File Explorer">${sessId}</a>`;
@@ -1408,6 +1621,20 @@
         const res = await fetch('/api/status');
         const data = await res.json();
 
+        // Populate Vision Environment
+        const visionText = document.getElementById('visionText');
+        const visionDot = document.getElementById('visionDot');
+        if (data.vision && data.vision.available) {
+          visionDot.className = 'pill-dot green';
+          const cudaStr = data.vision.cuda_available ? 'CUDA' : 'CPU';
+          visionText.innerText = `Vision: ${data.vision.env_name} (${cudaStr})`;
+          document.getElementById('visionStatusPill').title = `Vision Stack: ${data.vision.python_path}\nCUDA: ${data.vision.cuda_available ? 'Active' : 'Disabled'}`;
+        } else {
+          visionDot.className = 'pill-dot gray';
+          visionText.innerText = 'Vision: Missing cv313';
+          document.getElementById('visionStatusPill').title = 'Miniconda cv313 Python environment not detected.';
+        }
+
         // Populate GPU Status
         const gpuText = document.getElementById('gpuText');
         const gpuDot = document.getElementById('gpuDot');
@@ -1452,6 +1679,10 @@
       const diagSelect = document.getElementById('diagSessionSelect');
       const searchSelect = document.getElementById('searchSessionSelect');
       const inspectSelect = document.getElementById('inspectSessionSelect');
+      const visionSelect = document.getElementById('visionSessionSelect');
+      const visionEvalSelect = document.getElementById('visionEvalSessionSelect');
+      const visionInjectSelect = document.getElementById('visionInjectSessionSelect');
+      const visionBaselineSelect = document.getElementById('visionBaselineSessionSelect');
 
       // Preserve currently selected values
       const prevSync = syncScope.value;
@@ -1459,12 +1690,20 @@
       const prevDiag = diagSelect.value;
       const prevSearch = searchSelect.value;
       const prevInspect = inspectSelect.value;
+      const prevVision = visionSelect ? visionSelect.value : '';
+      const prevVisionEval = visionEvalSelect ? visionEvalSelect.value : '';
+      const prevVisionInject = visionInjectSelect ? visionInjectSelect.value : '';
+      const prevVisionBaseline = visionBaselineSelect ? visionBaselineSelect.value : '';
 
       syncScope.innerHTML = '<option value="all">All Sessions (Process new/unprocessed)</option>';
       mcapSelect.innerHTML = '<option value="">Select a local session...</option>';
       diagSelect.innerHTML = '<option value="">Select a local session...</option>';
       searchSelect.innerHTML = '<option value="">All Sessions & App Runs</option>';
       inspectSelect.innerHTML = '<option value="">Select a local session...</option>';
+      if (visionSelect) visionSelect.innerHTML = '<option value="">Select a local session...</option>';
+      if (visionEvalSelect) visionEvalSelect.innerHTML = '<option value="">Select a local session...</option>';
+      if (visionInjectSelect) visionInjectSelect.innerHTML = '<option value="">Select a local session...</option>';
+      if (visionBaselineSelect) visionBaselineSelect.innerHTML = '<option value="">Select a local session...</option>';
 
       activeSessions.forEach(s => {
         syncScope.appendChild(new Option(s, s));
@@ -1472,6 +1711,10 @@
         diagSelect.appendChild(new Option(s, s));
         searchSelect.appendChild(new Option(s, s));
         inspectSelect.appendChild(new Option(s, s));
+        if (visionSelect) visionSelect.appendChild(new Option(s, s));
+        if (visionEvalSelect) visionEvalSelect.appendChild(new Option(s, s));
+        if (visionInjectSelect) visionInjectSelect.appendChild(new Option(s, s));
+        if (visionBaselineSelect) visionBaselineSelect.appendChild(new Option(s, s));
       });
 
       if (prevSync) syncScope.value = prevSync;
@@ -1479,6 +1722,10 @@
       if (prevDiag) diagSelect.value = prevDiag;
       if (prevSearch) searchSelect.value = prevSearch;
       if (prevInspect) inspectSelect.value = prevInspect;
+      if (prevVision && visionSelect) visionSelect.value = prevVision;
+      if (prevVisionEval && visionEvalSelect) visionEvalSelect.value = prevVisionEval;
+      if (prevVisionInject && visionInjectSelect) visionInjectSelect.value = prevVisionInject;
+      if (prevVisionBaseline && visionBaselineSelect) visionBaselineSelect.value = prevVisionBaseline;
     }
 
     async function executeCommand(script, args) {
@@ -1642,6 +1889,90 @@
       }
 
       executeCommand(`tools/${tool}`, [targetArg]);
+    }
+
+    // --- 3D Vision Suite Action Handlers ---
+    function runVisionPipeline() {
+      const sess = document.getElementById('visionSessionSelect').value;
+      if (!sess) {
+        alert("Please select a target session for 3D Vision Processing.");
+        return;
+      }
+      const execMode = document.querySelector('input[name="visionExecMode"]:checked').value;
+      const optMcap = document.getElementById('visionOptMcap').checked;
+      const optOpticalSizing = document.getElementById('visionOptOpticalSizing').checked;
+      const confThreshold = document.getElementById('visionConfThreshold').value;
+
+      const args = [`logs/${sess}`];
+      if (execMode === 'slice') {
+        const sliceVal = document.getElementById('visionSliceFrames').value;
+        if (sliceVal) args.push('-n', sliceVal);
+      } else if (execMode === 'from_2d') {
+        args.push('--from_2d', `logs/${sess}/baseline_yolo_tracking.json`);
+      }
+
+      if (!optOpticalSizing) {
+        args.push('--priors_only');
+      }
+
+      if (confThreshold && parseFloat(confThreshold) !== 0.25) {
+        args.push('-c', confThreshold);
+      }
+
+      if (optMcap) {
+        args.push('--mcap');
+      }
+
+      executeCommand('tools/vision/pipeline/perception_runner.py', args);
+    }
+
+    function runVisionBenchmark() {
+      const sess = document.getElementById('visionEvalSessionSelect').value;
+      if (!sess) {
+        alert("Please select a target session for Radar vs Vision Benchmarking.");
+        return;
+      }
+      const gateM = document.getElementById('visionEvalGateM').value;
+      const args = [`logs/${sess}`];
+      if (gateM && parseFloat(gateM) !== 3.5) {
+        args.push('-g', gateM);
+      }
+
+      executeCommand('tools/vision/eval/evaluate_vision_vs_radar.py', args);
+    }
+
+    function runVisionMcapInjection() {
+      const sess = document.getElementById('visionInjectSessionSelect').value;
+      if (!sess) {
+        alert("Please select a target session for MCAP Topic Injection.");
+        return;
+      }
+      const standalone = document.getElementById('visionInjectStandalone').checked;
+      const args = [`logs/${sess}`];
+      if (standalone) {
+        args.push('--standalone');
+      }
+
+      executeCommand('tools/vision/mcap/inject_vision_tracks.py', args);
+    }
+
+    function runBaselinePerception() {
+      const sess = document.getElementById('visionBaselineSessionSelect').value;
+      if (!sess) {
+        alert("Please select a target session for Baseline Annotation.");
+        return;
+      }
+      const mode = document.querySelector('input[name="baselineMode"]:checked').value;
+      const args = [`logs/${sess}`];
+      if (mode === 'yolo') {
+        args.push('-y');
+      } else if (mode === 'depth_vits') {
+        args.push('-e', 'vits');
+      } else if (mode === 'depth_vitl') {
+        args.push('-e', 'vitl');
+      }
+
+      executeCommand('tools/vision/generate_baseline_perception.py', args);
     }
 
     // Startup

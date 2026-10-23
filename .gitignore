@@ -28,3 +28,4 @@ tools/vision/output/
 traces/
 scratch/
 *.pftrace
+~$*

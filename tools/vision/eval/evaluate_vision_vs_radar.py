@@ -65,6 +65,7 @@ def evaluate_session(
     Executes automated spatio-temporal benchmarking between vision tracks and radar tracks.
     """
     session_name = os.path.basename(os.path.normpath(session_dir))
+    print(f"[PROGRESS] {json.dumps({'step': 'vision_eval', 'desc': f'[{session_name}] Benchmarking Radar vs Vision...', 'pct': 25})}", flush=True)
     mcap_path = os.path.join(session_dir, f"{session_name}.mcap")
     if not os.path.isfile(mcap_path):
         # Look for any .mcap in session_dir
@@ -181,6 +182,7 @@ def evaluate_session(
                 print(f"    • {b_name:15}: N={b_data['count']:3d} | MAE={b_data['fwd_mae_m']}m | RMSE={b_data['fwd_rmse_m']}m")
     print("=" * 60)
     print(f"  Report exported to: {report_path}\n")
+    print(f"[PROGRESS] {json.dumps({'step': 'done', 'desc': f'[{session_name}] Benchmark Complete', 'pct': 100})}", flush=True)
 
     return report_payload
 

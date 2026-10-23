@@ -300,6 +300,9 @@ def enrich_existing_mcap(
 
             if batch_msgs >= 2000:
                 pbar.update(batch_msgs)
+                curr_tot = copied_msgs + injected_msgs
+                pct = min(99.0, round((curr_tot / max(total_est, 1)) * 100.0, 1))
+                print(f"[PROGRESS] {json.dumps({'step': 'vision_mcap', 'desc': f'Merging /vision/geo_tracks ({curr_tot:,}/{total_est:,})', 'current': curr_tot, 'total': total_est, 'pct': pct})}", flush=True)
                 batch_msgs = 0
 
         if batch_msgs > 0:

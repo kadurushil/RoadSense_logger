@@ -483,6 +483,7 @@ def main():
     track_durations = defaultdict(int)
 
     t_start = time.time()
+    last_prog_t = t_start
     desc_label = "Running YOLO Tracking" if args.skip_depth else "Running Perception"
     pbar = tqdm(total=frames_to_process, desc=desc_label, unit="frame")
 
@@ -642,6 +643,26 @@ def main():
 
             pbar.update(1)
 
+            now_t = time.time()
+            if frame_idx % 25 == 0 or frame_idx == frames_to_process or (now_t - last_prog_t >= 0.5):
+                last_prog_t = now_t
+                curr_pct = round((frame_idx / max(frames_to_process, 1)) * 95.0, 1)
+                curr_elapsed = max(now_t - t_start, 0.001)
+                curr_fps = frame_idx / curr_elapsed
+                rem_frames = frames_to_process - frame_idx
+                eta_s = rem_frames / max(curr_fps, 0.1)
+                session_base = os.path.basename(os.path.normpath(args.input_video or raw_input))
+                prog_payload = {
+                    "step": "baseline_perception",
+                    "desc": f"[{session_base}] {desc_label} #{frame_idx:,}/{frames_to_process:,}",
+                    "current": frame_idx,
+                    "total": frames_to_process,
+                    "pct": curr_pct,
+                    "fps": round(curr_fps, 1),
+                    "eta_s": round(eta_s, 1),
+                }
+                print(f"[PROGRESS] {json.dumps(prog_payload)}", flush=True)
+
     pbar.close()
     cap.release()
     if video_writer is not None:
@@ -649,6 +670,7 @@ def main():
 
     t_elapsed = max(time.time() - t_start, 0.001)
     avg_fps = frame_idx / t_elapsed
+    print(f"[PROGRESS] {json.dumps({'step': 'done', 'desc': 'Baseline Perception Complete', 'pct': 100})}", flush=True)
 
     # 8. Compute Semantic Audit Summary
     semantic_summary = {}

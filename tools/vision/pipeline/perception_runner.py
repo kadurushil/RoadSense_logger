@@ -139,6 +139,7 @@ class PerceptionRunner:
         }
 
         start_time = time.time()
+        last_prog_t = start_time
         for frame_idx in tqdm(range(frames_to_process), desc="Vision Tracking", unit="frame"):
             ret, frame = cap.read()
             if not ret:
@@ -196,6 +197,26 @@ class PerceptionRunner:
                 "track_count": len(frame_tracks_3d),
                 "tracks": frame_tracks_3d,
             })
+
+            now = time.time()
+            if (frame_idx + 1) % 50 == 0 or (frame_idx + 1) == frames_to_process or (now - last_prog_t >= 0.5):
+                last_prog_t = now
+                curr_frames = frame_idx + 1
+                curr_pct = round((curr_frames / max(frames_to_process, 1)) * 80.0, 1)  # 0% -> 80% for tracking
+                curr_elapsed = now - start_time
+                curr_fps = curr_frames / max(curr_elapsed, 0.001)
+                rem_frames = frames_to_process - curr_frames
+                eta_s = rem_frames / max(curr_fps, 0.1)
+                prog_payload = {
+                    "step": "vision_tracking",
+                    "desc": f"[{session_name}] 3D Vision Tracking #{curr_frames:,}/{frames_to_process:,}",
+                    "current": curr_frames,
+                    "total": frames_to_process,
+                    "pct": curr_pct,
+                    "fps": round(curr_fps, 1),
+                    "eta_s": round(eta_s, 1),
+                }
+                print(f"[PROGRESS] {json.dumps(prog_payload)}", flush=True)
 
         cap.release()
         elapsed = time.time() - start_time
@@ -309,6 +330,18 @@ class PerceptionRunner:
                 "tracks": frame_tracks_3d,
             })
 
+            if (frame_idx + 1) % 500 == 0 or (frame_idx + 1) == frames_to_process:
+                curr_frames = frame_idx + 1
+                curr_pct = round((curr_frames / max(frames_to_process, 1)) * 80.0, 1)
+                prog_payload = {
+                    "step": "vision_tracking",
+                    "desc": f"[{session_name}] 3D Re-projection #{curr_frames:,}/{frames_to_process:,}",
+                    "current": curr_frames,
+                    "total": frames_to_process,
+                    "pct": curr_pct,
+                }
+                print(f"[PROGRESS] {json.dumps(prog_payload)}", flush=True)
+
         elapsed = time.time() - start_time
         fps_achieved = frames_to_process / max(elapsed, 0.001)
 
@@ -339,6 +372,9 @@ def main():
     )
     args = parser.parse_args()
 
+    session_name = os.path.basename(os.path.normpath(args.session))
+    print(f"[PROGRESS] {json.dumps({'step': 'vision_start', 'desc': f'[{session_name}] Starting 3D Vision Pipeline...', 'pct': 5})}", flush=True)
+
     runner = PerceptionRunner(
         session_dir=args.session,
         conf=args.conf,
@@ -354,8 +390,11 @@ def main():
         out_json = runner.run(max_frames=args.num_frames, output_json_path=args.output)
 
     if args.mcap:
+        print(f"[PROGRESS] {json.dumps({'step': 'vision_mcap', 'desc': f'[{session_name}] Injecting 3D Vision tracks into Foxglove MCAP...', 'pct': 85})}", flush=True)
         from tools.vision.mcap.inject_vision_tracks import inject_vision_tracks_to_mcap
         inject_vision_tracks_to_mcap(input_source=out_json)
+
+    print(f"[PROGRESS] {json.dumps({'step': 'done', 'desc': f'[{session_name}] 3D Vision Pipeline Complete', 'pct': 100, 'overall_pct': 100})}", flush=True)
 
 
 if __name__ == "__main__":
