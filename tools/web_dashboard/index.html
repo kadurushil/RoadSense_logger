@@ -883,6 +883,7 @@
       <!-- Progress Bar Widget -->
       <div id="progressWidget"
         style="display: none; background: #131722; border-bottom: 1px solid var(--border-color); padding: 12px 18px;">
+        <!-- Overall Progress Header -->
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
           <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
             <div id="progressPulse" class="pulse-indicator"
@@ -900,9 +901,30 @@
             <span id="progressPercent" style="color: #fff; font-weight: 700; font-size: 13px;">0%</span>
           </div>
         </div>
+        <!-- Overall Progress Bar -->
         <div style="width: 100%; height: 7px; background: #1e2230; border-radius: 4px; overflow: hidden;">
           <div id="progressBarFill"
             style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--primary), var(--accent-cyan)); border-radius: 4px; transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);">
+          </div>
+        </div>
+
+        <!-- Sub / File Progress Bar (Active during multi-file transfers like ADB Sync) -->
+        <div id="subProgressContainer" style="display: none; margin-top: 10px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.08);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+            <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+              <span style="font-size: 12px;">📁</span>
+              <span id="subProgressFile" style="font-size: 12px; font-family: var(--font-mono); color: #e2e8f0; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">file</span>
+              <span id="subProgressDetails" style="font-size: 11px; color: var(--text-muted); font-family: var(--font-mono); white-space: nowrap;"></span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px; font-family: var(--font-mono); font-size: 11px; flex-shrink: 0;">
+              <span id="subProgressSpeed" style="color: var(--accent-cyan);"></span>
+              <span id="subProgressEta" style="color: var(--accent-orange); font-weight: 600;"></span>
+              <span id="subProgressPercent" style="color: #38bdf8; font-weight: 700; font-size: 12px;">0%</span>
+            </div>
+          </div>
+          <div style="width: 100%; height: 5px; background: #1e2230; border-radius: 3px; overflow: hidden;">
+            <div id="subProgressBarFill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #0ea5e9, #10b981); border-radius: 3px; transition: width 0.15s ease-out;">
+            </div>
           </div>
         </div>
       </div>
@@ -1027,12 +1049,23 @@
       const fillEl = document.getElementById('progressBarFill');
       const pulseEl = document.getElementById('progressPulse');
 
+      const subContainer = document.getElementById('subProgressContainer');
+      const subFileEl = document.getElementById('subProgressFile');
+      const subDetailsEl = document.getElementById('subProgressDetails');
+      const subSpeedEl = document.getElementById('subProgressSpeed');
+      const subEtaEl = document.getElementById('subProgressEta');
+      const subPctEl = document.getElementById('subProgressPercent');
+      const subFillEl = document.getElementById('subProgressBarFill');
+
       if (!widget) return;
       widget.style.display = 'block';
 
+      // 1. Overall / Primary Task Progress
       if (p.desc) taskEl.textContent = p.desc;
 
-      if (p.current != null && p.total != null && p.total > 0) {
+      if (p.overall_mb != null && p.overall_total_mb != null && p.overall_total_mb > 0) {
+        detailsEl.textContent = `(${p.overall_mb} / ${p.overall_total_mb} MB • ${p.overall_current || 0}/${p.overall_total || 0} files)`;
+      } else if (p.current != null && p.total != null && p.total > 0) {
         detailsEl.textContent = `(${p.current.toLocaleString()} / ${p.total.toLocaleString()})`;
       } else if (p.current != null) {
         detailsEl.textContent = `(#${p.current.toLocaleString()})`;
@@ -1054,10 +1087,39 @@
         etaEl.textContent = '';
       }
 
-      const pct = Math.min(Math.max(p.pct != null ? p.pct : 0, 0), 100);
+      const pct = Math.min(Math.max(p.overall_pct != null ? p.overall_pct : (p.pct != null ? p.pct : 0), 0), 100);
       pctEl.textContent = `${Math.round(pct)}%`;
       fillEl.style.width = `${pct}%`;
 
+      // 2. Sub / File-Level Progress (Active when p.sub is provided)
+      if (p.sub && subContainer) {
+        subContainer.style.display = 'block';
+        if (p.sub.file_name) subFileEl.textContent = p.sub.file_name;
+        if (p.sub.current_mb != null && p.sub.total_mb != null) {
+          subDetailsEl.textContent = `(${p.sub.current_mb} / ${p.sub.total_mb} MB)`;
+        } else {
+          subDetailsEl.textContent = '';
+        }
+        if (p.sub.speed_mb_s != null && p.sub.speed_mb_s > 0) {
+          subSpeedEl.textContent = `${p.sub.speed_mb_s} MB/s`;
+        } else {
+          subSpeedEl.textContent = '';
+        }
+        if (p.sub.eta_s != null && p.sub.eta_s > 0) {
+          const sm = Math.floor(p.sub.eta_s / 60);
+          const ss = Math.floor(p.sub.eta_s % 60);
+          subEtaEl.textContent = `ETA: ${sm > 0 ? sm + 'm ' : ''}${ss}s`;
+        } else {
+          subEtaEl.textContent = '';
+        }
+        const subPct = Math.min(Math.max(p.sub.file_pct != null ? p.sub.file_pct : 0, 0), 100);
+        subPctEl.textContent = `${Math.round(subPct)}%`;
+        subFillEl.style.width = `${subPct}%`;
+      } else if (subContainer) {
+        subContainer.style.display = 'none';
+      }
+
+      // 3. Status styling
       if (p.step === 'done' || pct >= 100) {
         pulseEl.style.background = 'var(--accent-green)';
         pulseEl.style.boxShadow = '0 0 8px var(--accent-green)';
@@ -1195,9 +1257,10 @@
     }
 
     function appendLogLine(line) {
-      if (line.startsWith('[PROGRESS]')) {
+      const progIdx = line.indexOf('[PROGRESS]');
+      if (progIdx !== -1) {
         try {
-          const payload = JSON.parse(line.substring(10).trim());
+          const payload = JSON.parse(line.substring(progIdx + 10).trim());
           updateProgressBar(payload);
         } catch (err) {
           console.error("Failed to parse progress update:", err);

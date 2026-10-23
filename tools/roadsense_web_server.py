@@ -158,6 +158,13 @@ class ProcessSupervisor:
             if not line:
                 break
             clean_line = line.rstrip('\r\n')
+            if '\r' in clean_line:
+                if '[PROGRESS]' in clean_line:
+                    prog_idx = clean_line.find('[PROGRESS]')
+                    clean_line = clean_line[prog_idx:]
+                else:
+                    parts = clean_line.split('\r')
+                    clean_line = parts[-1]
             self.broadcast_log(clean_line)
         
         proc.stdout.close()

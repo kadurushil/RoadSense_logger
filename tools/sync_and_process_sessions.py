@@ -32,6 +32,7 @@ import subprocess
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
+import time
 from datetime import datetime
 
 # Default paths
@@ -75,8 +76,213 @@ def safe_float(val, default=0.0, round_digits=4):
     except (ValueError, TypeError):
         return default
 
+def get_remote_session_files(adb_path, device_id, remote_session_dir):
+    """
+    Queries files and byte sizes on the Android device inside remote_session_dir.
+    Returns list of dicts: [{'remote': full_path, 'rel_path': rel_path, 'size': int_bytes}]
+    """
+    files = []
+    base_dir = remote_session_dir.rstrip("/")
+    
+    # 1. Primary fast method: find + stat with + (fastest multi-argument execution)
+    cmd = [adb_path, "-s", device_id, "shell", f"find {base_dir} -type f -exec stat -c '%s %n' {{}} +"]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode == 0 and res.stdout.strip():
+        for line in res.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(maxsplit=1)
+            if len(parts) == 2 and parts[0].isdigit():
+                f_size = int(parts[0])
+                f_path = parts[1].strip()
+                rel_path = os.path.relpath(f_path, base_dir).replace("\\", "/")
+                files.append({
+                    "remote": f_path,
+                    "rel_path": rel_path,
+                    "size": f_size
+                })
+        if files:
+            return files
+
+    # 2. Fallback method: stat with semicolon (for older toybox versions)
+    cmd = [adb_path, "-s", device_id, "shell", f"find {base_dir} -type f -exec stat -c '%s %n' {{}} \\;"]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode == 0 and res.stdout.strip():
+        for line in res.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(maxsplit=1)
+            if len(parts) == 2 and parts[0].isdigit():
+                f_size = int(parts[0])
+                f_path = parts[1].strip()
+                rel_path = os.path.relpath(f_path, base_dir).replace("\\", "/")
+                files.append({
+                    "remote": f_path,
+                    "rel_path": rel_path,
+                    "size": f_size
+                })
+        if files:
+            return files
+
+    # 3. Fallback method: ls -lR recursion
+    cmd = [adb_path, "-s", device_id, "shell", f"ls -lR {base_dir}"]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    curr_dir = base_dir
+    for line in res.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.endswith(":") and "/" in line:
+            curr_dir = line[:-1]
+            continue
+        parts = line.split()
+        if len(parts) >= 8 and parts[0].startswith("-"):
+            try:
+                for idx, p in enumerate(parts[3:6], start=3):
+                    if p.isdigit() and int(p) > 0:
+                        f_size = int(p)
+                        fname = " ".join(parts[idx+3:]) if len(parts) > idx+3 else parts[-1]
+                        f_path = f"{curr_dir}/{fname}"
+                        rel_path = os.path.relpath(f_path, base_dir).replace("\\", "/")
+                        files.append({
+                            "remote": f_path,
+                            "rel_path": rel_path,
+                            "size": f_size
+                        })
+                        break
+            except Exception:
+                pass
+    return files
+
+
+def pull_file_with_progress(
+    adb_path,
+    device_id,
+    remote_file,
+    local_file,
+    file_size,
+    file_rel_path,
+    file_idx,
+    total_files,
+    session_name,
+    overall_bytes_start,
+    total_sync_bytes,
+):
+    """
+    Pulls a single file from device via ADB with real-time disk growth monitoring.
+    Emits structured [PROGRESS] JSON events and prints in-place terminal updates.
+    Returns (success: bool, bytes_transferred: int)
+    """
+    os.makedirs(os.path.dirname(local_file), exist_ok=True)
+
+    # 1. Fast skip if file is already completely transferred
+    if os.path.isfile(local_file) and file_size > 0:
+        if os.path.getsize(local_file) == file_size:
+            return True, file_size
+
+    # Remove partial file if size does not match
+    if os.path.isfile(local_file):
+        try:
+            os.remove(local_file)
+        except Exception:
+            pass
+
+    # 2. For tiny files (size <= 32 KB), pull quickly synchronously
+    if file_size <= 32768:
+        cmd = [adb_path, "-s", device_id, "pull", remote_file, local_file]
+        res = subprocess.run(cmd, capture_output=True, text=True)
+        if res.returncode == 0:
+            actual_size = os.path.getsize(local_file) if os.path.isfile(local_file) else file_size
+            return True, actual_size
+        else:
+            return False, 0
+
+    # 3. For larger files, pull asynchronously with real-time disk sampling
+    cmd = [adb_path, "-s", device_id, "pull", remote_file, local_file]
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    t_start = time.time()
+    last_sample_t = t_start
+    last_sample_bytes = 0
+    rolling_speed = 0.0
+    alpha = 0.25  # Exponential smoothing factor for speed
+
+    while p.poll() is None:
+        time.sleep(0.1)
+        now = time.time()
+        curr_bytes = os.path.getsize(local_file) if os.path.isfile(local_file) else 0
+
+        dt = now - last_sample_t
+        if dt >= 0.2:
+            inst_speed = max(0.0, (curr_bytes - last_sample_bytes) / dt)
+            if rolling_speed == 0.0:
+                rolling_speed = inst_speed
+            else:
+                rolling_speed = alpha * inst_speed + (1.0 - alpha) * rolling_speed
+            last_sample_t = now
+            last_sample_bytes = curr_bytes
+
+        file_pct = min(100.0, (curr_bytes / max(file_size, 1)) * 100.0)
+        eta_s = (file_size - curr_bytes) / max(rolling_speed, 1.0) if (file_size > curr_bytes and rolling_speed > 0) else 0.0
+        overall_bytes_curr = overall_bytes_start + curr_bytes
+        overall_pct = min(100.0, (overall_bytes_curr / max(total_sync_bytes, 1)) * 100.0)
+
+        # Emit [PROGRESS] JSON line for Web Dashboard SSE
+        progress_payload = {
+            "step": "adb_sync",
+            "desc": f"Syncing {session_name} ({file_idx}/{total_files})",
+            "overall_pct": round(overall_pct, 1),
+            "overall_current": file_idx,
+            "overall_total": total_files,
+            "overall_mb": round(overall_bytes_curr / (1024 * 1024), 1),
+            "overall_total_mb": round(total_sync_bytes / (1024 * 1024), 1),
+            "sub": {
+                "file_name": file_rel_path,
+                "file_pct": round(file_pct, 1),
+                "current_mb": round(curr_bytes / (1024 * 1024), 1),
+                "total_mb": round(file_size / (1024 * 1024), 1),
+                "speed_mb_s": round(rolling_speed / (1024 * 1024), 1),
+                "eta_s": round(eta_s, 1),
+            }
+        }
+        print(f"[PROGRESS] {json.dumps(progress_payload)}", flush=True)
+
+        # Live terminal carriage-return update (ONLY when running directly in an interactive TTY)
+        if sys.stdout.isatty():
+            speed_str = f"{rolling_speed / (1024 * 1024):.1f} MB/s" if rolling_speed > 0 else "-- MB/s"
+            eta_str = f"ETA: {int(eta_s)}s" if eta_s > 0 else ""
+            bar_len = 16
+            filled = int(bar_len * (file_pct / 100.0))
+            bar = "=" * filled + (">" if filled < bar_len else "") + " " * max(0, bar_len - filled - (1 if filled < bar_len else 0))
+            terminal_line = f"\r    [{bar}] {file_pct:5.1f}% | {curr_bytes/(1024*1024):6.1f}/{file_size/(1024*1024):.1f} MB | {speed_str:<9} | {eta_str:<8} | {file_rel_path}"
+            sys.stdout.write(terminal_line[:115])
+            sys.stdout.flush()
+
+    p.wait()
+    success = (p.returncode == 0)
+    actual_size = os.path.getsize(local_file) if os.path.isfile(local_file) else 0
+
+    if success:
+        if sys.stdout.isatty():
+            sys.stdout.write(f"\r    [================] 100.0% | {actual_size/(1024*1024):6.1f}/{file_size/(1024*1024):.1f} MB | {file_rel_path} (Done)\n")
+            sys.stdout.flush()
+        else:
+            print(f"    - [{file_rel_path}] Synced ({actual_size/(1024*1024):.1f} MB)", flush=True)
+        return True, actual_size
+    else:
+        err_msg = p.stderr.read() if p.stderr else "Unknown error"
+        if sys.stdout.isatty():
+            sys.stdout.write(f"\r    [-] Failed to pull {file_rel_path}: {err_msg.strip()}\n")
+            sys.stdout.flush()
+        else:
+            print(f"    [-] Failed to pull {file_rel_path}: {err_msg.strip()}", flush=True)
+        return False, 0
+
+
 def sync_sessions_from_device(adb_path, local_logs_dir):
-    """Pulls all session folders from Android device via ADB."""
+    """Pulls all session folders from Android device via ADB with dual progress tracking."""
     os.makedirs(local_logs_dir, exist_ok=True)
     print(f"\n[+] Checking ADB connection...")
     try:
@@ -97,34 +303,87 @@ def sync_sessions_from_device(adb_path, local_logs_dir):
             print(f"[-] No sessions found at {DEVICE_SESSION_DIR}")
             return False
 
-        print(f"[+] Found {len(remote_sessions)} sessions on device. Syncing to {local_logs_dir}...")
+        # 1. Identify which sessions need syncing
+        sessions_to_sync = []
         for s_name in remote_sessions:
-            remote_path = f"{DEVICE_SESSION_DIR}{s_name}"
             local_path = os.path.join(local_logs_dir, s_name)
-            
-            # Simple check if session already pulled
-            if os.path.isdir(local_path):
-                # Check if session is already closed/complete
-                meta_file = os.path.join(local_path, "session_metadata.json")
-                if os.path.isfile(meta_file):
-                    print(f"    - [{s_name}] Already synced.")
+            meta_file = os.path.join(local_path, "session_metadata.json")
+            if os.path.isdir(local_path) and os.path.isfile(meta_file):
+                # Verify video file is present and non-zero
+                v_file = os.path.join(local_path, "camera", "camera_video.mp4")
+                if not os.path.isfile(v_file) or os.path.getsize(v_file) > 1024:
+                    # Session exists and has video or no video required
                     continue
+            sessions_to_sync.append(s_name)
 
-            print(f"    -> Pulling {s_name}...")
-            pull_cmd = [adb_path, "-s", device_id, "pull", remote_path, local_logs_dir]
-            subprocess.run(pull_cmd, check=True)
+        if not sessions_to_sync:
+            print(f"[+] All {len(remote_sessions)} sessions are already synced locally.")
+        else:
+            print(f"[+] Found {len(sessions_to_sync)} session(s) to sync out of {len(remote_sessions)} on device.")
 
-        # Pull continuous app-wide diagnostics logs (app_logs/)
+            # 2. Query file lists and sizes for all sessions to sync
+            print("[+] Querying remote file manifests and byte counts...")
+            session_file_map = {}
+            total_sync_bytes = 0
+            total_sync_files = 0
+
+            for s_name in sessions_to_sync:
+                remote_path = f"{DEVICE_SESSION_DIR}{s_name}"
+                s_files = get_remote_session_files(adb_path, device_id, remote_path)
+                session_file_map[s_name] = s_files
+                for f in s_files:
+                    local_f = os.path.join(local_logs_dir, s_name, f["rel_path"])
+                    if not (os.path.isfile(local_f) and os.path.getsize(local_f) == f["size"] and f["size"] > 0):
+                        total_sync_bytes += f["size"]
+                        total_sync_files += 1
+
+            total_mb = total_sync_bytes / (1024 * 1024)
+            print(f"[+] Total transfer payload: {total_sync_files} files ({total_mb:.1f} MB)")
+
+            # 3. Pull files with live speed, ETA, and dual progress reporting
+            overall_bytes_done = 0
+            overall_file_idx = 0
+
+            for s_idx, s_name in enumerate(sessions_to_sync, start=1):
+                s_files = session_file_map.get(s_name, [])
+                local_session_dir = os.path.join(local_logs_dir, s_name)
+                os.makedirs(local_session_dir, exist_ok=True)
+                print(f"\n  [{s_idx}/{len(sessions_to_sync)}] Syncing session: {s_name}")
+
+                for f_info in s_files:
+                    f_rel = f_info["rel_path"]
+                    f_size = f_info["size"]
+                    f_remote = f_info["remote"]
+                    f_local = os.path.join(local_session_dir, f_rel)
+
+                    overall_file_idx += 1
+                    ok, bytes_pulled = pull_file_with_progress(
+                        adb_path=adb_path,
+                        device_id=device_id,
+                        remote_file=f_remote,
+                        local_file=f_local,
+                        file_size=f_size,
+                        file_rel_path=f_rel,
+                        file_idx=overall_file_idx,
+                        total_files=max(total_sync_files, 1),
+                        session_name=s_name,
+                        overall_bytes_start=overall_bytes_done,
+                        total_sync_bytes=max(total_sync_bytes, 1),
+                    )
+                    if ok:
+                        overall_bytes_done += bytes_pulled
+
+        # 4. Pull continuous app-wide diagnostics logs (app_logs/)
         try:
             local_app_logs_dir = os.path.join(local_logs_dir, "app_logs")
             os.makedirs(local_app_logs_dir, exist_ok=True)
-            print(f"[+] Syncing continuous diagnostics logs from {DEVICE_APP_LOGS_DIR}...")
+            print(f"\n[+] Syncing continuous diagnostics logs from {DEVICE_APP_LOGS_DIR}...")
             pull_app_logs_cmd = [adb_path, "-s", device_id, "pull", DEVICE_APP_LOGS_DIR, local_logs_dir]
             subprocess.run(pull_app_logs_cmd, capture_output=True, text=True)
         except Exception as e:
             print(f"[-] Note: could not pull app_logs: {e}")
 
-        # Pull global active camera-radar calibration profile (calibration/)
+        # 5. Pull global active camera-radar calibration profile (calibration/)
         local_calib_dir = os.path.join(local_logs_dir, "calibration")
         os.makedirs(local_calib_dir, exist_ok=True)
         try:
@@ -134,7 +393,7 @@ def sync_sessions_from_device(adb_path, local_logs_dir):
         except Exception as e:
             print(f"[-] Note: could not pull calibration: {e}")
 
-        # Ensure every session has a calibration JSON: If missing, backfill from global device backup
+        # 6. Ensure every session has a calibration JSON: If missing, backfill from global device backup
         global_calib_file = os.path.join(local_calib_dir, "radar_camera_calib.json")
         for s_name in remote_sessions:
             s_dir = os.path.join(local_logs_dir, s_name)
@@ -145,6 +404,17 @@ def sync_sessions_from_device(adb_path, local_logs_dir):
                     print(f"    - [{s_name}] Backfilled missing calibration from phone local storage backup.")
                 except Exception as e:
                     print(f"[-] Could not backfill calibration for {s_name}: {e}")
+
+        # 7. Broadcast completion progress
+        done_payload = {
+            "step": "done",
+            "desc": "Device sync complete!",
+            "overall_pct": 100,
+            "overall_current": None,
+            "overall_total": None,
+            "sub": None,
+        }
+        print(f"[PROGRESS] {json.dumps(done_payload)}", flush=True)
 
         print("[+] Device sync complete!")
         return True
@@ -609,6 +879,240 @@ def parse_radar_frames_bin(radar_bin_path):
 
     return frames
 
+
+def stream_write_frame_mapping(
+    mapping_path: str,
+    mapping_records: list,
+    session_name: str,
+    overall_start_pct: float = 70.0,
+    overall_end_pct: float = 72.0,
+):
+    """
+    Writes frame_mapping.json as JSON Lines (.jsonl format) with real-time throughput and progress updates.
+    """
+    os.makedirs(os.path.dirname(mapping_path), exist_ok=True)
+    total_recs = len(mapping_records)
+    t_start = time.time()
+    last_sample_t = t_start
+    last_sample_bytes = 0
+    rolling_speed = 0.0
+    alpha = 0.25
+
+    with open(mapping_path, "w", encoding="utf-8") as mf:
+        for idx, rec in enumerate(mapping_records, start=1):
+            mf.write(json.dumps(rec) + "\n")
+
+            if idx % 1000 == 0 or idx == total_recs:
+                now = time.time()
+                dt = now - last_sample_t
+                curr_bytes = mf.tell()
+                if dt >= 0.15:
+                    inst_speed = max(0.0, (curr_bytes - last_sample_bytes) / dt)
+                    rolling_speed = inst_speed if rolling_speed == 0.0 else (alpha * inst_speed + (1.0 - alpha) * rolling_speed)
+                    last_sample_t = now
+                    last_sample_bytes = curr_bytes
+
+                file_pct = (idx / max(total_recs, 1)) * 100.0
+                est_total_bytes = (curr_bytes / max(idx, 1)) * total_recs
+                eta_s = (est_total_bytes - curr_bytes) / max(rolling_speed, 1.0) if (est_total_bytes > curr_bytes and rolling_speed > 0) else 0.0
+                overall_pct = overall_start_pct + (idx / max(total_recs, 1)) * (overall_end_pct - overall_start_pct)
+
+                progress_payload = {
+                    "step": "sync_save",
+                    "desc": f"[{session_name}] Writing frame_mapping.json ({idx:,}/{total_recs:,})",
+                    "overall_pct": round(overall_pct, 1),
+                    "sub": {
+                        "file_name": "frame_mapping.json",
+                        "file_pct": round(file_pct, 1),
+                        "current_mb": round(curr_bytes / (1024 * 1024), 2),
+                        "total_mb": round(est_total_bytes / (1024 * 1024), 2),
+                        "speed_mb_s": round(rolling_speed / (1024 * 1024), 1),
+                        "eta_s": round(eta_s, 1),
+                    }
+                }
+                print(f"[PROGRESS] {json.dumps(progress_payload)}", flush=True)
+
+                if sys.stdout.isatty():
+                    speed_str = f"{rolling_speed / (1024 * 1024):.1f} MB/s" if rolling_speed > 0 else "-- MB/s"
+                    eta_str = f"ETA: {int(eta_s)}s" if eta_s > 0 else ""
+                    bar_len = 16
+                    filled = int(bar_len * (file_pct / 100.0))
+                    bar = "=" * filled + (">" if filled < bar_len else "") + " " * max(0, bar_len - filled - (1 if filled < bar_len else 0))
+                    terminal_line = f"\r    [{bar}] {file_pct:5.1f}% | {curr_bytes/(1024*1024):6.2f}/{est_total_bytes/(1024*1024):6.2f} MB | {speed_str:<9} | {eta_str:<8} | frame_mapping.json"
+                    sys.stdout.write(terminal_line[:115])
+                    sys.stdout.flush()
+
+        if mapping_records and len(mapping_records) > 1:
+            rec0 = mapping_records[0]
+            recN = mapping_records[-1]
+            dur = recN["radar_timestamp"] - rec0["radar_timestamp"]
+            total_vid_frames = recN["video_frame_index"] - rec0["video_frame_index"]
+            avg_fps = (total_vid_frames / dur) if dur > 0 else 30.0
+            meta_record = {
+                "metadata": {
+                    "average_fps": float(avg_fps),
+                    "duration_sec": float(dur),
+                    "total_frames": int(total_vid_frames)
+                }
+            }
+            mf.write(json.dumps(meta_record) + "\n")
+
+    if sys.stdout.isatty():
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    final_size = os.path.getsize(mapping_path)
+    print(f"    [+] Generated: {mapping_path} ({len(mapping_records):,} sync records, {final_size / (1024 * 1024):.1f} MB)")
+
+
+def stream_write_track_history(
+    track_history_path: str,
+    viz_radar_frames: list,
+    tracks_trajectory_map,
+    session_name: str,
+    overall_start_pct: float = 72.0,
+    overall_end_pct: float = 75.0,
+):
+    """
+    Writes track_history.json as streaming chunked JSON with indent=2, emitting live
+    percentage, MB/s throughput, and ETA updates to eliminate console/UI freezes.
+    """
+    os.makedirs(os.path.dirname(track_history_path), exist_ok=True)
+    tracks_list = list(tracks_trajectory_map.values()) if isinstance(tracks_trajectory_map, dict) else list(tracks_trajectory_map)
+    n_frames = len(viz_radar_frames)
+    n_tracks = len(tracks_list)
+    total_items = n_frames + n_tracks
+
+    t_start = time.time()
+    last_sample_t = t_start
+    last_sample_bytes = 0
+    rolling_speed = 0.0
+    alpha = 0.25
+    curr_item = 0
+
+    with open(track_history_path, "w", encoding="utf-8") as tf:
+        tf.write('{\n  "radarFrames": [')
+        if n_frames > 0:
+            tf.write("\n")
+            for idx, frame in enumerate(viz_radar_frames, start=1):
+                curr_item += 1
+                s = json.dumps(frame, indent=2)
+                indented = "    " + s.replace("\n", "\n    ")
+                if idx < n_frames:
+                    tf.write(indented + ",\n")
+                else:
+                    tf.write(indented + "\n")
+
+                if idx % 250 == 0 or idx == n_frames:
+                    now = time.time()
+                    dt = now - last_sample_t
+                    curr_bytes = tf.tell()
+                    if dt >= 0.15:
+                        inst_speed = max(0.0, (curr_bytes - last_sample_bytes) / dt)
+                        rolling_speed = inst_speed if rolling_speed == 0.0 else (alpha * inst_speed + (1.0 - alpha) * rolling_speed)
+                        last_sample_t = now
+                        last_sample_bytes = curr_bytes
+
+                    file_pct = (curr_item / max(total_items, 1)) * 100.0
+                    est_total_bytes = (curr_bytes / max(curr_item, 1)) * max(total_items, 1)
+                    eta_s = (est_total_bytes - curr_bytes) / max(rolling_speed, 1.0) if (est_total_bytes > curr_bytes and rolling_speed > 0) else 0.0
+                    overall_pct = overall_start_pct + (curr_item / max(total_items, 1)) * (overall_end_pct - overall_start_pct)
+
+                    progress_payload = {
+                        "step": "sync_save",
+                        "desc": f"[{session_name}] Writing track_history.json ({curr_item:,}/{total_items:,})",
+                        "overall_pct": round(overall_pct, 1),
+                        "current": curr_item,
+                        "total": total_items,
+                        "sub": {
+                            "file_name": "track_history.json",
+                            "file_pct": round(file_pct, 1),
+                            "current_mb": round(curr_bytes / (1024 * 1024), 1),
+                            "total_mb": round(est_total_bytes / (1024 * 1024), 1),
+                            "speed_mb_s": round(rolling_speed / (1024 * 1024), 1),
+                            "eta_s": round(eta_s, 1),
+                        }
+                    }
+                    print(f"[PROGRESS] {json.dumps(progress_payload)}", flush=True)
+
+                    if sys.stdout.isatty():
+                        speed_str = f"{rolling_speed / (1024 * 1024):.1f} MB/s" if rolling_speed > 0 else "-- MB/s"
+                        eta_str = f"ETA: {int(eta_s)}s" if eta_s > 0 else ""
+                        bar_len = 16
+                        filled = int(bar_len * (file_pct / 100.0))
+                        bar = "=" * filled + (">" if filled < bar_len else "") + " " * max(0, bar_len - filled - (1 if filled < bar_len else 0))
+                        terminal_line = f"\r    [{bar}] {file_pct:5.1f}% | {curr_bytes/(1024*1024):6.1f}/{est_total_bytes/(1024*1024):6.1f} MB | {speed_str:<9} | {eta_str:<8} | track_history.json"
+                        sys.stdout.write(terminal_line[:115])
+                        sys.stdout.flush()
+
+            tf.write("  ],\n")
+        else:
+            tf.write("],\n")
+
+        tf.write('  "tracks": [')
+        if n_tracks > 0:
+            tf.write("\n")
+            for idx, trk in enumerate(tracks_list, start=1):
+                curr_item += 1
+                s = json.dumps(trk, indent=2)
+                indented = "    " + s.replace("\n", "\n    ")
+                if idx < n_tracks:
+                    tf.write(indented + ",\n")
+                else:
+                    tf.write(indented + "\n")
+
+                if idx % 100 == 0 or idx == n_tracks:
+                    now = time.time()
+                    dt = now - last_sample_t
+                    curr_bytes = tf.tell()
+                    if dt >= 0.15:
+                        inst_speed = max(0.0, (curr_bytes - last_sample_bytes) / dt)
+                        rolling_speed = inst_speed if rolling_speed == 0.0 else (alpha * inst_speed + (1.0 - alpha) * rolling_speed)
+                        last_sample_t = now
+                        last_sample_bytes = curr_bytes
+
+                    file_pct = (curr_item / max(total_items, 1)) * 100.0
+                    est_total_bytes = (curr_bytes / max(curr_item, 1)) * max(total_items, 1)
+                    eta_s = (est_total_bytes - curr_bytes) / max(rolling_speed, 1.0) if (est_total_bytes > curr_bytes and rolling_speed > 0) else 0.0
+                    overall_pct = overall_start_pct + (curr_item / max(total_items, 1)) * (overall_end_pct - overall_start_pct)
+
+                    progress_payload = {
+                        "step": "sync_save",
+                        "desc": f"[{session_name}] Writing track_history.json ({curr_item:,}/{total_items:,})",
+                        "overall_pct": round(overall_pct, 1),
+                        "current": curr_item,
+                        "total": total_items,
+                        "sub": {
+                            "file_name": "track_history.json",
+                            "file_pct": round(file_pct, 1),
+                            "current_mb": round(curr_bytes / (1024 * 1024), 1),
+                            "total_mb": round(est_total_bytes / (1024 * 1024), 1),
+                            "speed_mb_s": round(rolling_speed / (1024 * 1024), 1),
+                            "eta_s": round(eta_s, 1),
+                        }
+                    }
+                    print(f"[PROGRESS] {json.dumps(progress_payload)}", flush=True)
+
+                    if sys.stdout.isatty():
+                        speed_str = f"{rolling_speed / (1024 * 1024):.1f} MB/s" if rolling_speed > 0 else "-- MB/s"
+                        eta_str = f"ETA: {int(eta_s)}s" if eta_s > 0 else ""
+                        bar_len = 16
+                        filled = int(bar_len * (file_pct / 100.0))
+                        bar = "=" * filled + (">" if filled < bar_len else "") + " " * max(0, bar_len - filled - (1 if filled < bar_len else 0))
+                        terminal_line = f"\r    [{bar}] {file_pct:5.1f}% | {curr_bytes/(1024*1024):6.1f}/{est_total_bytes/(1024*1024):6.1f} MB | {speed_str:<9} | {eta_str:<8} | track_history.json"
+                        sys.stdout.write(terminal_line[:115])
+                        sys.stdout.flush()
+
+            tf.write("  ]\n}")
+        else:
+            tf.write("]\n}")
+
+    if sys.stdout.isatty():
+        sys.stdout.write("\n")
+        sys.stdout.flush()
+    final_size = os.path.getsize(track_history_path)
+    print(f"    [+] Generated: {track_history_path} ({n_frames:,} frames, {n_tracks:,} unique tracks, {final_size / (1024 * 1024):.1f} MB)")
+
+
 def process_session(session_dir, force=False, export_mcap=False, flip_video=False, hwaccel="auto"):
     """
     Converts raw session logs in `session_dir` into:
@@ -877,38 +1381,32 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
 
             tracks_trajectory_map[tid]["historyLog"].append(history_entry)
 
-    # Write `frame_mapping.json` as JSON Lines (.jsonl format) matching visualizer expectations
-    mapping_path = os.path.join(session_dir, "frame_mapping.json")
-    with open(mapping_path, "w", encoding="utf-8") as mf:
-        for rec in mapping_records:
-            mf.write(json.dumps(rec) + "\n")
+    # Determine progress ranges based on export_mcap
+    if export_mcap:
+        map_start, map_end = 70.0, 71.5
+        th_start, th_end = 71.5, 75.0
+    else:
+        map_start, map_end = 70.0, 73.0
+        th_start, th_end = 73.0, 99.0
 
-        if mapping_records and len(mapping_records) > 1:
-            rec0 = mapping_records[0]
-            recN = mapping_records[-1]
-            dur = recN["radar_timestamp"] - rec0["radar_timestamp"]
-            total_vid_frames = recN["video_frame_index"] - rec0["video_frame_index"]
-            avg_fps = (total_vid_frames / dur) if dur > 0 else 30.0
-            meta_record = {
-                "metadata": {
-                    "average_fps": float(avg_fps),
-                    "duration_sec": float(dur),
-                    "total_frames": int(total_vid_frames)
-                }
-            }
-            mf.write(json.dumps(meta_record) + "\n")
-    print(f"    [+] Generated: {mapping_path} ({len(mapping_records):,} sync records as JSON Lines)")
+    # Write `frame_mapping.json` as JSON Lines (.jsonl format) with real-time throughput and progress updates
+    stream_write_frame_mapping(
+        mapping_path,
+        mapping_records,
+        session_name=session_name,
+        overall_start_pct=map_start,
+        overall_end_pct=map_end,
+    )
 
-    # Write `track_history.json`
-    print(f"[PROGRESS] {json.dumps({'step': 'sync_save', 'desc': f'[{session_name}] Writing track_history.json & frame_mapping.json...', 'pct': 72})}", flush=True)
-    final_payload = {
-        "radarFrames": viz_radar_frames,
-        "tracks": list(tracks_trajectory_map.values())
-    }
-    track_history_path = os.path.join(session_dir, "track_history.json")
-    with open(track_history_path, "w", encoding="utf-8") as tf:
-        json.dump(final_payload, tf, indent=2)
-    print(f"    [+] Generated: {track_history_path} ({len(viz_radar_frames):,} frames, {len(tracks_trajectory_map):,} unique tracks)")
+    # Write `track_history.json` with streaming chunked JSON writer and real-time progress updates
+    stream_write_track_history(
+        track_history_path,
+        viz_radar_frames,
+        tracks_trajectory_map,
+        session_name=session_name,
+        overall_start_pct=th_start,
+        overall_end_pct=th_end,
+    )
 
     if os.path.isfile(camera_mp4):
         print(f"    [+] Camera MP4 verified: {camera_mp4}")
@@ -926,6 +1424,8 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
             convert_session_to_mcap(session_dir, flip_video=flip_video, hwaccel=hwaccel)
         except Exception as e:
             print(f"    [!] Error generating MCAP: {e}")
+    else:
+        print(f"[PROGRESS] {json.dumps({'step': 'done', 'desc': f'[{session_name}] Visualizer processing complete', 'pct': 100, 'overall_pct': 100})}", flush=True)
 
     return True
 
