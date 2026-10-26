@@ -48,7 +48,10 @@ from tqdm import tqdm
 from tools.vision.geometry.camera_extrinsics import CameraExtrinsics
 from tools.vision.geometry.ground_plane_projector import GroundPlaneProjector, PinholeIntrinsics
 from tools.vision.geometry.box_dimensions import BoxDimensions
-from tools.vision.geometry.kinematic_tracker import KinematicHeadingTracker
+from tools.vision.geometry.vehicle_orientation_tracker import (
+    VehicleOrientationTracker,
+    EgoMotionProvider,
+)
 from tools.vision.detector.track_manager import TrackManager
 from tools.vision.pipeline.orientation_handler import OrientationHandler
 from tools.vision.pipeline.timeline_loader import TimelineLoader
@@ -78,7 +81,9 @@ class PerceptionRunner:
         self._model_path = model_path
         self._conf = conf
         self._tracker = None
-        self.kinematic_tracker = KinematicHeadingTracker()
+        self.ego_provider = EgoMotionProvider(session_dir)
+        self.orientation_tracker = VehicleOrientationTracker()
+        self.kinematic_tracker = self.orientation_tracker  # Backward compatibility alias
 
     @property
     def tracker(self) -> TrackManager:
@@ -187,6 +192,9 @@ class PerceptionRunner:
             utc_ns = utc_timestamps_ns[frame_idx] if frame_idx < len(utc_timestamps_ns) else int(time.time() * 1e9)
             mono_ns = mono_timestamps_ns[frame_idx] if frame_idx < len(mono_timestamps_ns) else 0
 
+            # Query CAN host vehicle ground speed and chassis yaw rate for ego-motion compensation
+            ego_speed_mps, ego_yaw_rate_radps = self.ego_provider.get_ego_motion(utc_ns)
+
             # 2D ByteTrack Tracking
             tracks_2d = self.tracker.track(frame)
             frame_tracks_3d = []
@@ -206,8 +214,13 @@ class PerceptionRunner:
                 except (ValueError, TypeError):
                     track_id = 0
 
-                kinematics = self.kinematic_tracker.update(
-                    track_id, ground_pt["x_fwd_m"], ground_pt["y_left_m"], utc_ns
+                kinematics = self.orientation_tracker.update(
+                    track_id=track_id,
+                    x_fwd_m=ground_pt["x_fwd_m"],
+                    y_left_m=ground_pt["y_left_m"],
+                    timestamp_ns=utc_ns,
+                    ego_speed_mps=ego_speed_mps,
+                    ego_yaw_rate_radps=ego_yaw_rate_radps,
                 )
 
                 # 3D Bounding box sizing with orientation
@@ -235,12 +248,17 @@ class PerceptionRunner:
                     "yaw_rad": box_3d.get("yaw_rad"),
                     "yaw_deg": box_3d.get("yaw_deg"),
                     "speed_mps": kinematics.get("speed_mps", 0.0),
+                    "is_moving": kinematics.get("is_moving", False),
+                    "vx_mps": kinematics.get("vx_mps", 0.0),
+                    "vy_mps": kinematics.get("vy_mps", 0.0),
                     "contact_patch": box_3d["contact_patch"],
                     "dimensions_3d": box_3d["size"],
                     "effective_class": box_3d.get("effective_class"),
                     "is_broadside": box_3d.get("is_broadside", False),
                     "label_z_m": box_3d.get("label_z_m"),
                 })
+
+            self.orientation_tracker.cleanup(utc_ns)
 
             output_data["frames"].append({
                 "frame_index": frame_idx,
@@ -459,6 +477,9 @@ class PerceptionRunner:
             else:
                 mono_ns = 0
 
+            # Query CAN host vehicle ground speed and chassis yaw rate for ego-motion compensation
+            ego_speed_mps, ego_yaw_rate_radps = self.ego_provider.get_ego_motion(utc_ns)
+
             frame_tracks_3d = []
             # Supports both 'detections' (baseline_yolo_tracking.json) and 'tracks' (*_vision_tracks.json)
             dets = f_in.get("detections") if "detections" in f_in else f_in.get("tracks", [])
@@ -493,8 +514,13 @@ class PerceptionRunner:
                 except (ValueError, TypeError):
                     track_id = 0
 
-                kinematics = self.kinematic_tracker.update(
-                    track_id, ground_pt["x_fwd_m"], ground_pt["y_left_m"], utc_ns
+                kinematics = self.orientation_tracker.update(
+                    track_id=track_id,
+                    x_fwd_m=ground_pt["x_fwd_m"],
+                    y_left_m=ground_pt["y_left_m"],
+                    timestamp_ns=utc_ns,
+                    ego_speed_mps=ego_speed_mps,
+                    ego_yaw_rate_radps=ego_yaw_rate_radps,
                 )
 
                 box_3d = BoxDimensions.compute_3d_box(
@@ -521,12 +547,17 @@ class PerceptionRunner:
                     "yaw_rad": box_3d.get("yaw_rad"),
                     "yaw_deg": box_3d.get("yaw_deg"),
                     "speed_mps": kinematics.get("speed_mps", 0.0),
+                    "is_moving": kinematics.get("is_moving", False),
+                    "vx_mps": kinematics.get("vx_mps", 0.0),
+                    "vy_mps": kinematics.get("vy_mps", 0.0),
                     "contact_patch": box_3d["contact_patch"],
                     "dimensions_3d": box_3d["size"],
                     "effective_class": box_3d.get("effective_class"),
                     "is_broadside": box_3d.get("is_broadside", False),
                     "label_z_m": box_3d.get("label_z_m"),
                 })
+
+            self.orientation_tracker.cleanup(utc_ns)
 
             output_data["frames"].append({
                 "frame_index": frame_idx,
