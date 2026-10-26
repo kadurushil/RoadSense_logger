@@ -915,7 +915,7 @@
               </label>
               <label class="radio-item">
                 <input type="radio" name="visionExecMode" value="from_2d">
-                <span>Instant 3D Re-projection <span style="font-size: 11px; color: #94a3b8;">(--from_2d baseline_yolo_tracking.json, 80k+ FPS)</span></span>
+                <span>Instant 3D Re-projection <span style="font-size: 11px; color: #94a3b8;">(--from_2d auto-detects existing 2D tracks, 80k+ FPS)</span></span>
               </label>
             </div>
           </div>
@@ -1908,7 +1908,7 @@
         const sliceVal = document.getElementById('visionSliceFrames').value;
         if (sliceVal) args.push('-n', sliceVal);
       } else if (execMode === 'from_2d') {
-        args.push('--from_2d', `logs/${sess}/baseline_yolo_tracking.json`);
+        args.push('--from_2d', 'auto');
       }
 
       if (!optOpticalSizing) {

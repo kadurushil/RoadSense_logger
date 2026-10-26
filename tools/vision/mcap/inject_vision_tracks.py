@@ -23,6 +23,14 @@ import sys
 import time
 from typing import Dict, Any, List, Optional, Tuple
 
+# Ensure UTF-8 console output on Windows to prevent Â° and â€¢ glyph corruption
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 # Ensure repository root is on sys.path
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 if repo_root not in sys.path:
@@ -249,7 +257,15 @@ def enrich_existing_mcap(
         next_src = next(src_iter, None)
 
         total_est = (total_src_msgs or 0) + num_v
-        pbar = tqdm(total=total_est, desc="Merging Streams", unit="msg")
+        is_tty = sys.stdout.isatty()
+        pbar = tqdm(
+            total=total_est,
+            desc="Merging Streams",
+            unit="msg",
+            file=sys.stdout,
+            disable=not is_tty,
+            dynamic_ncols=True,
+        )
 
         copied_msgs = 0
         injected_msgs = 0
@@ -300,9 +316,10 @@ def enrich_existing_mcap(
 
             if batch_msgs >= 2000:
                 pbar.update(batch_msgs)
-                curr_tot = copied_msgs + injected_msgs
-                pct = min(99.0, round((curr_tot / max(total_est, 1)) * 100.0, 1))
-                print(f"[PROGRESS] {json.dumps({'step': 'vision_mcap', 'desc': f'Merging /vision/geo_tracks ({curr_tot:,}/{total_est:,})', 'current': curr_tot, 'total': total_est, 'pct': pct})}", flush=True)
+                if not is_tty:
+                    curr_tot = copied_msgs + injected_msgs
+                    pct = min(99.0, round((curr_tot / max(total_est, 1)) * 100.0, 1))
+                    print(f"[PROGRESS] {json.dumps({'step': 'vision_mcap', 'desc': f'Merging /vision/geo_tracks ({curr_tot:,}/{total_est:,})', 'current': curr_tot, 'total': total_est, 'pct': pct})}", flush=True)
                 batch_msgs = 0
 
         if batch_msgs > 0:

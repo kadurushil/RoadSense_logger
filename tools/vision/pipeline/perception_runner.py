@@ -11,11 +11,31 @@ Orchestrates offline 3D geometric perception:
 """
 
 import argparse
+import glob
 import json
 import os
 import sys
 import time
 from typing import Dict, Any, List, Optional
+
+# Ensure UTF-8 console output on Windows to prevent Â° and â€¢ glyph corruption
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
+
+def emit_progress(payload: Dict[str, Any], is_tty: Optional[bool] = None, force: bool = False) -> None:
+    """
+    Emits machine-readable progress payload for Web Dashboard SSE streams.
+    Suppressed in interactive TTY sessions to prevent breaking tqdm in-place rendering.
+    """
+    tty = sys.stdout.isatty() if is_tty is None else is_tty
+    if not tty or force:
+        print(f"[PROGRESS] {json.dumps(payload)}", flush=True)
+
 
 # Ensure repository root is on sys.path
 repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
@@ -28,6 +48,7 @@ from tqdm import tqdm
 from tools.vision.geometry.camera_extrinsics import CameraExtrinsics
 from tools.vision.geometry.ground_plane_projector import GroundPlaneProjector, PinholeIntrinsics
 from tools.vision.geometry.box_dimensions import BoxDimensions
+from tools.vision.geometry.kinematic_tracker import KinematicHeadingTracker
 from tools.vision.detector.track_manager import TrackManager
 from tools.vision.pipeline.orientation_handler import OrientationHandler
 from tools.vision.pipeline.timeline_loader import TimelineLoader
@@ -57,6 +78,7 @@ class PerceptionRunner:
         self._model_path = model_path
         self._conf = conf
         self._tracker = None
+        self.kinematic_tracker = KinematicHeadingTracker()
 
     @property
     def tracker(self) -> TrackManager:
@@ -113,7 +135,10 @@ class PerceptionRunner:
         if not output_json_path:
             out_dir = os.path.join("tools", "vision", "output", "json")
             os.makedirs(out_dir, exist_ok=True)
-            output_json_path = os.path.join(out_dir, f"{session_name}_vision_tracks.json")
+            if max_frames and max_frames < total_frames:
+                output_json_path = os.path.join(out_dir, f"{session_name}_vision_tracks_slice_{max_frames}.json")
+            else:
+                output_json_path = os.path.join(out_dir, f"{session_name}_vision_tracks.json")
         else:
             os.makedirs(os.path.dirname(os.path.abspath(output_json_path)), exist_ok=True)
 
@@ -140,7 +165,16 @@ class PerceptionRunner:
 
         start_time = time.time()
         last_prog_t = start_time
-        for frame_idx in tqdm(range(frames_to_process), desc="Vision Tracking", unit="frame"):
+        is_tty = sys.stdout.isatty()
+        pbar = tqdm(
+            range(frames_to_process),
+            desc="Vision Tracking",
+            unit="frame",
+            file=sys.stdout,
+            disable=not is_tty,
+            dynamic_ncols=True,
+        )
+        for frame_idx in pbar:
             ret, frame = cap.read()
             if not ret:
                 break
@@ -166,7 +200,17 @@ class PerceptionRunner:
                 if not ground_pt:
                     continue  # Object is at or above the horizon
 
-                # 3D Bounding box sizing
+                raw_tid = det.get("track_id")
+                try:
+                    track_id = int(raw_tid) if raw_tid is not None else 0
+                except (ValueError, TypeError):
+                    track_id = 0
+
+                kinematics = self.kinematic_tracker.update(
+                    track_id, ground_pt["x_fwd_m"], ground_pt["y_left_m"], utc_ns
+                )
+
+                # 3D Bounding box sizing with orientation
                 box_3d = BoxDimensions.compute_3d_box(
                     x_fwd_m=ground_pt["x_fwd_m"],
                     y_left_m=ground_pt["y_left_m"],
@@ -176,6 +220,8 @@ class PerceptionRunner:
                     fx=intrinsics.fx,
                     fy=intrinsics.fy,
                     use_optical_sizing=self.use_optical_sizing,
+                    yaw_rad=kinematics.get("yaw_rad"),
+                    is_moving=kinematics.get("is_moving", False),
                 )
 
                 frame_tracks_3d.append({
@@ -185,7 +231,14 @@ class PerceptionRunner:
                     "bbox_2d": det["bbox_xyxy"],
                     "range_m": ground_pt["range_m"],
                     "position_3d": box_3d["center"],
+                    "orientation": box_3d.get("orientation"),
+                    "yaw_rad": box_3d.get("yaw_rad"),
+                    "yaw_deg": box_3d.get("yaw_deg"),
+                    "speed_mps": kinematics.get("speed_mps", 0.0),
+                    "contact_patch": box_3d["contact_patch"],
                     "dimensions_3d": box_3d["size"],
+                    "effective_class": box_3d.get("effective_class"),
+                    "is_broadside": box_3d.get("is_broadside", False),
                     "label_z_m": box_3d.get("label_z_m"),
                 })
 
@@ -216,8 +269,9 @@ class PerceptionRunner:
                     "fps": round(curr_fps, 1),
                     "eta_s": round(eta_s, 1),
                 }
-                print(f"[PROGRESS] {json.dumps(prog_payload)}", flush=True)
+                emit_progress(prog_payload, is_tty=is_tty)
 
+        pbar.close()
         cap.release()
         elapsed = time.time() - start_time
         fps_achieved = frames_to_process / max(elapsed, 0.001)
@@ -229,21 +283,111 @@ class PerceptionRunner:
         print(f"  Exported vision tracks: {output_json_path}\n")
         return output_json_path
 
+    @staticmethod
+    def resolve_2d_detections_path(session_dir: str, requested_path: Optional[str] = None) -> str:
+        """
+        Intelligently resolves the path to pre-existing 2D detections JSON.
+        Checks:
+          1. Exact requested path (if it exists)
+          2. Candidate file in session directory (baseline_yolo_tracking.json or session_vision_tracks.json)
+          3. tools/vision/output/json/<session>_vision_tracks.json
+          4. tools/vision/output/baseline_yolo_tracking.json
+        Raises FileNotFoundError with actionable guidance if none found.
+        """
+        session_name = os.path.basename(os.path.normpath(session_dir))
+
+        # Check explicit requested path if specified and not 'auto'
+        if requested_path and requested_path.strip() and requested_path.lower() != "auto":
+            if os.path.isfile(requested_path):
+                return requested_path
+            # Check relative to repo root or session directory
+            alt = os.path.join(session_dir, os.path.basename(requested_path))
+            if os.path.isfile(alt):
+                return alt
+
+        candidates = [
+            os.path.join(session_dir, "baseline_yolo_tracking.json"),
+            os.path.join("tools", "vision", "output", "json", f"{session_name}_vision_tracks.json"),
+            os.path.join(session_dir, f"{session_name}_vision_tracks.json"),
+            os.path.join("tools", "vision", "output", f"{session_name}_vision_tracks.json"),
+        ]
+        # Include any slice files
+        candidates.extend(glob.glob(os.path.join("tools", "vision", "output", "json", f"{session_name}_vision_tracks_slice_*.json")))
+        if "20261006_095609" in session_name:
+            candidates.append(os.path.join("tools", "vision", "output", "baseline_yolo_tracking.json"))
+
+        for path in candidates:
+            if os.path.isfile(path):
+                if requested_path and requested_path.lower() != "auto":
+                    print(
+                        f"[RoadSense Vision] Notice: Requested 2D track file '{requested_path}' not found.\n"
+                        f"  Auto-resolved to existing track file: '{path}'"
+                    )
+                return path
+
+        searched_bullets = "\n  - ".join([requested_path] + candidates if requested_path else candidates)
+        raise FileNotFoundError(
+            f"No pre-existing 2D detections JSON found for session '{session_name}'.\n"
+            f"Searched candidate locations:\n  - {searched_bullets}\n"
+            f"To generate initial 2D tracks, please run the pipeline in 'Full Session' mode (Video -> YOLO -> 3D Projection) "
+            f"or 'Quick Test Slice' mode first."
+        )
+
     def run_from_2d_detections(
         self,
-        detections_json_path: str,
+        detections_json_path: Optional[str] = None,
         output_json_path: Optional[str] = None,
         max_frames: Optional[int] = None,
     ) -> str:
         """Projects pre-existing 2D detections to 3D ground coordinates without re-running YOLO."""
-        with open(detections_json_path, "r", encoding="utf-8") as f:
+        resolved_path = self.resolve_2d_detections_path(self.session_dir, detections_json_path)
+
+        with open(resolved_path, "r", encoding="utf-8") as f:
             base_data = json.load(f)
 
         raw_frames = base_data.get("frames", [])
         total_frames = len(raw_frames)
         frames_to_process = min(total_frames, max_frames) if max_frames else total_frames
 
-        intrinsics = PinholeIntrinsics.from_calib_json(self.calib_path, width=1920, height=1080)
+        # Warn if pre-existing 2D file only covers a fraction of the session video
+        video_path = os.path.join(self.session_dir, "camera", "camera_video.mp4")
+        if not os.path.isfile(video_path):
+            video_path = os.path.join(self.session_dir, "camera_video.mp4")
+        if os.path.isfile(video_path):
+            cap_check = cv2.VideoCapture(video_path)
+            vid_frames = int(cap_check.get(cv2.CAP_PROP_FRAME_COUNT))
+            cap_check.release()
+            if vid_frames > 0 and total_frames < vid_frames:
+                print(
+                    f"\n[RoadSense Vision] ⚠️ NOTICE: Pre-existing 2D tracks file only contains {total_frames:,} frames,\n"
+                    f"  but the full session video has {vid_frames:,} frames ({(vid_frames / 30.0) / 60.0:.1f} mins)!\n"
+                    f"  Only the first {frames_to_process:,} frames will be projected.\n"
+                    f"  To track the full session, select 'Full Session (Process all video frames)' mode in the dashboard,\n"
+                    f"  or run perception_runner.py without '--from_2d'.\n",
+                    flush=True,
+                )
+
+        # Auto-detect resolution from calib or track metadata to prevent intrinsic scaling mismatches
+        calib_w, calib_h = 1280, 720
+        if os.path.isfile(self.calib_path):
+            try:
+                with open(self.calib_path, "r", encoding="utf-8") as cf:
+                    cdata = json.load(cf)
+                    calib_w = int(cdata.get("streamWidth", 1280))
+                    calib_h = int(cdata.get("streamHeight", 720))
+            except Exception:
+                pass
+        elif "camera_extrinsics" in base_data:
+            ext_meta = base_data["camera_extrinsics"]
+            if ext_meta.get("cx", 0) > 0 and ext_meta.get("cy", 0) > 0:
+                calib_w = int(round(ext_meta["cx"] * 2.0))
+                calib_h = int(round(ext_meta["cy"] * 2.0))
+        elif "metadata" in base_data and "video_resolution" in base_data["metadata"]:
+            res = base_data["metadata"]["video_resolution"]
+            calib_w = int(res.get("width", 1280))
+            calib_h = int(res.get("height", 720))
+
+        intrinsics = PinholeIntrinsics.from_calib_json(self.calib_path, width=calib_w, height=calib_h)
         projector = GroundPlaneProjector(self.extrinsics, intrinsics, video_rotation_deg=0)
 
         ts_info = TimelineLoader.load_camera_timestamps(
@@ -252,17 +396,22 @@ class PerceptionRunner:
         utc_timestamps_ns = ts_info["utc_ns"]
         mono_timestamps_ns = ts_info["mono_ns"]
         time_offset_ns = ts_info["time_offset_ns"]
+        if time_offset_ns == 0 and base_data.get("time_offset_ns", 0) > 0:
+            time_offset_ns = int(base_data["time_offset_ns"])
 
         session_name = os.path.basename(os.path.normpath(self.session_dir))
         if not output_json_path:
             out_dir = os.path.join("tools", "vision", "output", "json")
             os.makedirs(out_dir, exist_ok=True)
-            output_json_path = os.path.join(out_dir, f"{session_name}_vision_tracks.json")
+            if max_frames and max_frames < total_frames:
+                output_json_path = os.path.join(out_dir, f"{session_name}_vision_tracks_slice_{max_frames}.json")
+            else:
+                output_json_path = os.path.join(out_dir, f"{session_name}_vision_tracks.json")
         else:
             os.makedirs(os.path.dirname(os.path.abspath(output_json_path)), exist_ok=True)
 
-        print(f"\n[RoadSense Vision] Fast-projecting 3D geometry from 2D tracks: {detections_json_path}")
-        print(f"  Frames: {frames_to_process}/{total_frames} | Time Offset: {time_offset_ns} ns (UTC Epoch Sync Active)")
+        print(f"\n[RoadSense Vision] Fast-projecting 3D geometry from 2D tracks: {resolved_path}")
+        print(f"  Frames: {frames_to_process}/{total_frames} | Res: {calib_w}x{calib_h} | Time Offset: {time_offset_ns} ns")
 
         output_data: Dict[str, Any] = {
             "session_name": session_name,
@@ -281,15 +430,54 @@ class PerceptionRunner:
         }
 
         start_time = time.time()
-        for frame_idx in tqdm(range(frames_to_process), desc="3D Fast Projection", unit="frame"):
+        is_tty = sys.stdout.isatty()
+        pbar = tqdm(
+            range(frames_to_process),
+            desc="3D Fast Projection",
+            unit="frame",
+            file=sys.stdout,
+            disable=not is_tty,
+            dynamic_ncols=True,
+        )
+        for frame_idx in pbar:
             f_in = raw_frames[frame_idx]
-            utc_ns = utc_timestamps_ns[frame_idx] if frame_idx < len(utc_timestamps_ns) else int(time.time() * 1e9)
-            mono_ns = mono_timestamps_ns[frame_idx] if frame_idx < len(mono_timestamps_ns) else 0
+
+            # Prioritize nanosecond timestamps already recorded in source frame
+            if "timestamp_utc_ns" in f_in and f_in["timestamp_utc_ns"]:
+                utc_ns = int(f_in["timestamp_utc_ns"])
+            elif "timestamp_ns" in f_in and f_in["timestamp_ns"]:
+                utc_ns = int(f_in["timestamp_ns"])
+            elif frame_idx < len(utc_timestamps_ns):
+                utc_ns = utc_timestamps_ns[frame_idx]
+            else:
+                utc_ns = int(time.time() * 1e9)
+
+            if "timestamp_mono_ns" in f_in and f_in["timestamp_mono_ns"]:
+                mono_ns = int(f_in["timestamp_mono_ns"])
+            elif frame_idx < len(mono_timestamps_ns):
+                mono_ns = mono_timestamps_ns[frame_idx]
+            else:
+                mono_ns = 0
 
             frame_tracks_3d = []
-            for det in f_in.get("detections", []):
-                bb = det.get("bbox_pixels", {})
-                x1, y1, x2, y2 = bb.get("x1", 0), bb.get("y1", 0), bb.get("x2", 0), bb.get("y2", 0)
+            # Supports both 'detections' (baseline_yolo_tracking.json) and 'tracks' (*_vision_tracks.json)
+            dets = f_in.get("detections") if "detections" in f_in else f_in.get("tracks", [])
+            for det in dets:
+                if "bbox_pixels" in det:
+                    bb = det["bbox_pixels"]
+                    x1 = float(bb.get("x1", 0))
+                    y1 = float(bb.get("y1", 0))
+                    x2 = float(bb.get("x2", 0))
+                    y2 = float(bb.get("y2", 0))
+                elif "bbox_2d" in det:
+                    bb = det["bbox_2d"]
+                    if isinstance(bb, (list, tuple)) and len(bb) >= 4:
+                        x1, y1, x2, y2 = float(bb[0]), float(bb[1]), float(bb[2]), float(bb[3])
+                    else:
+                        continue
+                else:
+                    continue
+
                 cx = (x1 + x2) / 2.0
                 bottom_y = float(y2)
                 w_px = float(x2 - x1)
@@ -298,6 +486,16 @@ class PerceptionRunner:
                 ground_pt = projector.project_bottom_center_to_ground(cx, bottom_y)
                 if not ground_pt:
                     continue
+
+                raw_tid = det.get("track_id")
+                try:
+                    track_id = int(raw_tid) if raw_tid is not None else 0
+                except (ValueError, TypeError):
+                    track_id = 0
+
+                kinematics = self.kinematic_tracker.update(
+                    track_id, ground_pt["x_fwd_m"], ground_pt["y_left_m"], utc_ns
+                )
 
                 box_3d = BoxDimensions.compute_3d_box(
                     x_fwd_m=ground_pt["x_fwd_m"],
@@ -308,16 +506,25 @@ class PerceptionRunner:
                     fx=intrinsics.fx,
                     fy=intrinsics.fy,
                     use_optical_sizing=self.use_optical_sizing,
+                    yaw_rad=kinematics.get("yaw_rad"),
+                    is_moving=kinematics.get("is_moving", False),
                 )
 
                 frame_tracks_3d.append({
-                    "track_id": det.get("track_id", 0),
+                    "track_id": track_id,
                     "class_name": det.get("class_name", "obj"),
                     "confidence": det.get("confidence", 0.0),
                     "bbox_2d": [x1, y1, x2, y2],
                     "range_m": ground_pt["range_m"],
                     "position_3d": box_3d["center"],
+                    "orientation": box_3d.get("orientation"),
+                    "yaw_rad": box_3d.get("yaw_rad"),
+                    "yaw_deg": box_3d.get("yaw_deg"),
+                    "speed_mps": kinematics.get("speed_mps", 0.0),
+                    "contact_patch": box_3d["contact_patch"],
                     "dimensions_3d": box_3d["size"],
+                    "effective_class": box_3d.get("effective_class"),
+                    "is_broadside": box_3d.get("is_broadside", False),
                     "label_z_m": box_3d.get("label_z_m"),
                 })
 
@@ -340,8 +547,9 @@ class PerceptionRunner:
                     "total": frames_to_process,
                     "pct": curr_pct,
                 }
-                print(f"[PROGRESS] {json.dumps(prog_payload)}", flush=True)
+                emit_progress(prog_payload, is_tty=is_tty)
 
+        pbar.close()
         elapsed = time.time() - start_time
         fps_achieved = frames_to_process / max(elapsed, 0.001)
 
@@ -362,8 +570,10 @@ def main():
     parser.add_argument("--priors_only", action="store_true", help="Use fixed class priors instead of optical sizing")
     parser.add_argument(
         "--from_2d",
+        nargs="?",
+        const="auto",
         default=None,
-        help="Path to pre-existing 2D detections JSON (e.g. baseline_yolo_tracking.json) for instant 3D projection without re-running YOLO",
+        help="Path to pre-existing 2D detections JSON (or omit to auto-detect) for instant 3D projection without re-running YOLO",
     )
     parser.add_argument(
         "--mcap",
@@ -373,7 +583,7 @@ def main():
     args = parser.parse_args()
 
     session_name = os.path.basename(os.path.normpath(args.session))
-    print(f"[PROGRESS] {json.dumps({'step': 'vision_start', 'desc': f'[{session_name}] Starting 3D Vision Pipeline...', 'pct': 5})}", flush=True)
+    emit_progress({"step": "vision_start", "desc": f"[{session_name}] Starting 3D Vision Pipeline...", "pct": 5})
 
     runner = PerceptionRunner(
         session_dir=args.session,
@@ -390,11 +600,11 @@ def main():
         out_json = runner.run(max_frames=args.num_frames, output_json_path=args.output)
 
     if args.mcap:
-        print(f"[PROGRESS] {json.dumps({'step': 'vision_mcap', 'desc': f'[{session_name}] Injecting 3D Vision tracks into Foxglove MCAP...', 'pct': 85})}", flush=True)
+        emit_progress({"step": "vision_mcap", "desc": f"[{session_name}] Injecting 3D Vision tracks into Foxglove MCAP...", "pct": 85})
         from tools.vision.mcap.inject_vision_tracks import inject_vision_tracks_to_mcap
         inject_vision_tracks_to_mcap(input_source=out_json)
 
-    print(f"[PROGRESS] {json.dumps({'step': 'done', 'desc': f'[{session_name}] 3D Vision Pipeline Complete', 'pct': 100, 'overall_pct': 100})}", flush=True)
+    emit_progress({"step": "done", "desc": f"[{session_name}] 3D Vision Pipeline Complete", "pct": 100, "overall_pct": 100})
 
 
 if __name__ == "__main__":
