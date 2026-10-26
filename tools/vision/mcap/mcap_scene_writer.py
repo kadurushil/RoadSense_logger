@@ -46,12 +46,17 @@ class McapSceneWriter:
             width_m = float(dim.get("width_m", 1.8))
             height_m = float(dim.get("height_m", 1.5))
 
-            # 1. 3D Bounding Box Cube
+            # 1. 3D Bounding Box Cube with Orientation Quaternion
             cube = entity.cubes.add()
             cube.pose.position.x = x_fwd
             cube.pose.position.y = y_left
             cube.pose.position.z = z_up
-            cube.pose.orientation.w = 1.0  # Identity orientation
+
+            orient = t.get("orientation", {})
+            cube.pose.orientation.x = float(orient.get("x", 0.0))
+            cube.pose.orientation.y = float(orient.get("y", 0.0))
+            cube.pose.orientation.z = float(orient.get("z", 0.0))
+            cube.pose.orientation.w = float(orient.get("w", 1.0))
 
             cube.size.x = length_m
             cube.size.y = width_m
@@ -65,7 +70,12 @@ class McapSceneWriter:
 
             # 2. Floating Label (Aligned with RoadSense convert_session_to_mcap.py)
             txt = entity.texts.add()
-            txt.text = f"ID #{track_id} | {cls_name.upper()} | {range_m:.1f}m"
+            speed_mps = t.get("speed_mps")
+            if speed_mps is not None and float(speed_mps) >= 0.6:
+                speed_kmh = float(speed_mps) * 3.6
+                txt.text = f"ID #{track_id} | {cls_name.upper()} | {range_m:.1f}m | {speed_kmh:.0f}km/h"
+            else:
+                txt.text = f"ID #{track_id} | {cls_name.upper()} | {range_m:.1f}m"
             txt.pose.position.x = x_fwd
             txt.pose.position.y = y_left
             txt.pose.position.z = z_up + (height_m / 2.0) + 0.35
