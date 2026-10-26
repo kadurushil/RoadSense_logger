@@ -32,7 +32,8 @@
 23. [Bug #23: MCAP Converter Throughput Collapse (120 FPS vs 10,000 FPS) via O(N²) GIL Heap Allocation Storms](#bug-23-mcap-converter-throughput-collapse-120-fps-vs-10000-fps-via-on2-gil-heap-allocation-storms)
 24. [Bug #24: Optical Pitch Sign Inversion ($R_x(-P)$) in MCAP `/tf` Transform & $2\times$ Pitch Discrepancy ($+10.5^\circ$) in Foxglove 3D Visualization](#bug-24-optical-pitch-sign-inversion-r_x-p-in-mcap-tf-transform--2x-pitch-discrepancy-105-in-foxglove-3d-visualization)
 25. [Bug #25: Vision Track Yaw Tilt Due to Conflated Radar Squint in Camera Optical `/tf` Transform](#bug-25-vision-track-yaw-tilt-due-to-conflated-radar-squint-in-camera-optical-tf-transform)
-26. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
+26. [Bug #26: Perspective-Compensated Lateral Centering Failure in Turning Scenarios & The Zero-Yaw Assumption Breakdown](#bug-26-perspective-compensated-lateral-centering-failure-in-turning-scenarios--the-zero-yaw-assumption-breakdown)
+27. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
 
 ---
 
@@ -1197,6 +1198,61 @@ Deep cross-stream investigation across `session_timeline.csv`, `camera_frames.cs
 
 ---
 
+## Bug #26: Perspective-Compensated Lateral Centering Failure in Turning Scenarios & The Zero-Yaw Assumption Breakdown
+
+### Symptoms
+* An experimental fix ("Perspective-Compensated Lateral Centering") was introduced to resolve an apparent lateral shift of 3D vision bounding boxes for vehicles driving straight ahead parallel to the host vehicle (e.g. Bajaj Qute Track #5915 at Frame 24828, where the left face of the rendered 3D box appeared shifted $\approx 28\text{ px}$ over empty asphalt to the left).
+* While this fix successfully bounded the 2D pixel coordinates ($[x_1, x_2]$) for parallel straight-line vehicles, it caused **catastrophic degradation during turning scenarios** (vehicles turning at intersections, rounding sharp curves, or crossing perpendicular to ego vehicle).
+* In turning situations, bounding boxes exhibited severe lateral bouncing, unnatural aspect ratio collapsing (boxes squeezed into pencil-thin widths down to clamp limits of $0.4\text{ m}$), or lateral displacement far off the physical vehicle silhouette.
+
+### Root Cause Analysis
+
+#### 1. How the Experimental Fix Attempted to Work (Straight/Parallel Scenario)
+In monocular 3D perception with planar road projection, an object's ground contact patch gives range $X_{\text{contact}}$ and transverse position $Y_{\text{contact}}$ via the bottom-center 2D pixel $(u_{\text{bottom\_center}}, v_{\text{bottom}})$. When sizing a 3D cuboid of length $L$ along the forward axis, the cuboid's near face sits at camera depth $Z_{\text{near}} = X_{\text{contact}} + \text{setback}$ and its far face sits at depth $Z_{\text{far}} = X_{\text{contact}} + L + \text{setback}$.
+
+Under perspective projection:
+$$u = c_x + f_x \frac{X_{\text{cam}}}{Z}$$
+For an object located to the right side of the optical center ($u > c_x$, $X_{\text{cam}} > 0$), perspective rays converge toward the principal point $c_x$ as depth $Z$ increases.
+
+If a vehicle is assumed to be oriented **strictly parallel to the host vehicle ($0^\circ$ yaw)**:
+* Its **right edge** in the 2D image ($x_2$) is determined by the **near-right corner** at depth $Z_{\text{near}}$:
+  $$X_{\text{cam\_right}} = \frac{x_2 - c_x}{f_x} Z_{\text{near}}$$
+* Its **left edge** in the 2D image ($x_1$) is determined by the **far-left corner** at depth $Z_{\text{far}}$:
+  $$X_{\text{cam\_left}} = \frac{x_1 - c_x}{f_x} Z_{\text{far}}$$
+
+By solving this linear system, the experimental algorithm derived:
+$$\text{Optical Width } W = X_{\text{cam\_right}} - X_{\text{cam\_left}}$$
+$$X_{\text{cam\_center}} = \frac{X_{\text{cam\_right}} + X_{\text{cam\_left}}}{2} \implies Y_{\text{center}} = -X_{\text{cam\_center}}$$
+
+In straight-line highway driving where all vehicles share the ego heading ($0^\circ$ yaw), this forced the projected 3D box's 2D screen silhouette to match the YOLO bounding box $[x_1, x_2]$ within $1\text{ px}$.
+
+#### 2. Why It Failed Terribly in Turning Scenarios
+The entire derivation rested on an unstated, rigid assumption: **the target vehicle's heading is exactly $0^\circ$ relative to the camera optical boresight**.
+
+When a vehicle turns or is viewed at an angle ($\psi \neq 0^\circ$):
+1. **Corner Mapping Inversion:**
+   - The extreme 2D bounding box pixels $[x_1, x_2]$ no longer map to $(Z_{\text{far}}, Z_{\text{near}})$.
+   - For a vehicle turning left or right, the closest corner could be front-left, rear-right, or front-right depending on the yaw angle.
+   - For cross-traffic or vehicles at $90^\circ$, the bounding box width in pixels ($x_2 - x_1$) reflects the vehicle's **length** ($L \approx 4.5\text{ m}$), not its width ($W \approx 1.8\text{ m}$).
+2. **Artificial Squeezing & Width Collapse:**
+   - Forcing $X_{\text{cam\_left}} = \frac{x_1 - c_x}{f_x} Z_{\text{far}}$ on a turning vehicle artificially inflates $X_{\text{cam\_left}}$ because $Z_{\text{far}}$ is multiplied against an edge pixel that is physically located at a near depth!
+   - This causes $X_{\text{cam\_right}} - X_{\text{cam\_left}}$ to dramatically shrink or even turn negative, triggering clamping to $0.4\text{ m}$ (pencil-thin box collapse).
+3. **Severe Lateral Offset Jumps:**
+   - The computed midpoint $X_{\text{cam\_center}}$ relies on the distorted corner depths. As the vehicle turns, the 3D box violently leaps laterally away from the true vehicle center.
+4. **Visual Misalignment from Solid Cuboid Geometry:**
+   - Because RoadSense currently emits unrotated cuboids (identity quaternion $0^\circ$ yaw in Foxglove 3D scene), attempting to compensate lateral perspective by distorting the box's center and width produced jarring visual artifacts—rendering an unrotated box whose edges did not correspond to any physical aspect of the turning vehicle.
+
+### Solution & Engineering Takeaway
+1. **Revert the Perspective Lateral Centering Solver:**
+   - Restored standard optical sizing and ground contact patch centering in [`box_dimensions.py`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/vision/geometry/box_dimensions.py):
+     $$Y_{\text{center}} = Y_{\text{contact}} = - \frac{u_{\text{bottom\_center}} - c_x}{f_x} \cdot Z_{\text{contact}}$$
+   - Retained the **Finding #3 longitudinal offset fix** ($X_{\text{center}} = X_{\text{contact}} + L / 2$), which is mathematically correct because the contact patch represents the near visible surface of the vehicle.
+2. **Proper Future Architecture for Perspective Compensation:**
+   - Monocular 3D bounding box corner fitting CANNOT be solved as a 1D scalar without an explicit **3D heading / yaw angle estimator** (e.g. Deep MANTA / Mousavian et al. 2D-to-3D bounding box constraint formulation, or a Kalman filter tracking vehicle velocity vectors $\vec{v} = [\dot{X}, \dot{Y}]$).
+   - Once the 3D orientation quaternion $q = [\cos(\psi/2), 0, 0, \sin(\psi/2)]$ is known, the 8 vertices of the rotated box can be unprojected into the camera frustum and constrained against the 2D YOLO box $[x_1, y_1, x_2, y_2]$.
+
+---
+
 ## Summary of Core Engineering Rules
 
 1. **Never pass high-frequency raw byte streams through `StateFlow`:** Always use direct callbacks or channels to background workers.
@@ -1229,6 +1285,7 @@ Deep cross-stream investigation across `session_timeline.csv`, `camera_frames.cs
     $$\vec{v}_{\text{base}} = R_{\text{total}}^T \begin{bmatrix} 0 \\ 0 \\ 1 \end{bmatrix} = \begin{bmatrix} \cos\theta \\ 0 \\ -\sin\theta \end{bmatrix}$$
     For positive downward pitch ($\theta > 0$), $Z_{\text{base}}$ MUST be strictly negative ($-\sin\theta < 0$). If $Z_{\text{base}} = +\sin\theta$, the camera is pointing into the sky, creating a $2 \times \theta$ angular inversion error in visualizers that manifests as projected ground targets floating hundreds of pixels too high.
 25. **Decouple Camera Boresight (`cameraYawDeg`) from Radar Squint (`radarSquintDeg`) in Static `/tf` Trees:** Never apply a relative cross-sensor calibration angle (e.g. `yawDeg`) directly onto the camera optical `/tf` unless the camera is physically panned on the mount. If the camera is aligned with the vehicle body ($0.0^\circ$), applying a $1.0^\circ$ radar mounting squint to `camera_optical` tilts the 3D frustum away from the road, causing 3D bounding boxes to appear tilted by $1.0^\circ$ and shifted laterally by $D \cdot \tan(\psi)$ ($0.61\text{ m}$ / $17.3\text{ px}$ at $35\text{ m}$) against the video.
+26. **Never Apply Zero-Yaw Perspective Boundary Solvers to 3D Bounding Boxes Without Heading Estimation:** Projecting 2D YOLO box edges $[x_1, x_2]$ to asymmetric 3D corner depths ($Z_{\text{near}}$ vs $Z_{\text{far}}$) strictly assumes the target vehicle's longitudinal axis is parallel to the camera boresight ($0^\circ$ yaw). In turning scenarios or non-parallel geometries, this assumption breaks down catastrophically, collapsing box widths to clamp limits and violently shifting the lateral center. Without a 3D heading estimator (or vehicle velocity vector tracker), lateral position must remain anchored to the ground contact patch ray ($Y_{\text{center}} = Y_{\text{contact}}$).
 
 
 
