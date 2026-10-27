@@ -303,4 +303,83 @@ Automotive engineers have several powerful tools to inspect, graph, and analyze 
     * Broadcasts unified sensor connectivity events across all modules.
     * Allows any background processor (e.g. `CrossSensorSyncAssociator`, `SpatialProjectionEngine`, `SessionManager`) to safely query `appState.isAttached(SensorType.RADAR)` before attempting cross-sensor calculations.
 
+---
+
+## 7. Vision 3D Perception: Pitch Disturbance Detection, IMU Filtering & Dynamic Ray Re-projection [BACKLOG]
+
+### 7.1 Problem Definition: Pitch Bounce Sensitivity in Monocular Ground Ray Projection
+* **Monocular Ground Projection Formulation:**
+  In monocular camera ground plane projection ([`GroundPlaneProjector`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/vision/geometry/ground_plane_projector.py)), distance along the vehicle forward axis ($+X$) is derived from the bounding box bottom-center pixel coordinate ($y_{\text{bottom}}$):
+  $$X_{\text{fwd}} = \frac{h_{\text{camera}}}{\tan(\theta_{\text{pitch}} + \phi_{\text{ray}})}$$
+  where $\theta_{\text{pitch}}$ is the nominal camera pitch angle and $\phi_{\text{ray}} = \arctan\left(\frac{y_{\text{bottom}} - c_y}{f_y}\right)$.
+* **Quadratic Sensitivity Derivative:**
+  The sensitivity of metric ground distance with respect to camera pitch is quadratic with distance:
+  $$\frac{dX}{d\theta_{\text{pitch}}} = -\frac{h_{\text{camera}}}{\sin^2(\theta_{\text{pitch}} + \phi_{\text{ray}})} \approx -\frac{X^2}{h_{\text{camera}}}$$
+* **Numerical Impact on Real Drives:**
+  For our camera setup ($h_{\text{camera}} = 1.35\text{ m}$ at range $X = 25\text{ m}$):
+  $$\frac{dX}{d\theta} \approx -\frac{25^2}{1.35} \approx -463\text{ m/rad} \implies \mathbf{-8.1\text{ meters per degree of pitch!}}$$
+  When the vehicle traverses a speed bump, pothole, road expansion joint, or undergoes hard braking nose-dive:
+  1. The suspension oscillates in pitch at its natural frequency ($1.5 - 3.0\text{ Hz}$).
+  2. A momentary **$0.3^\circ - 0.5^\circ$ pitch swing** shifts the projected ground contact point by **$2.5 - 4.0\text{ meters}$**.
+  3. Over a single video frame ($\Delta t = 0.033\text{ s}$ at 30 FPS), this artificial displacement appears as an instantaneous velocity spike:
+     $$v_{x,\text{artifact}} = \frac{\Delta X}{\Delta t} \approx \frac{2.5\text{ to } 4.0\text{ m}}{0.033\text{ s}} = \mathbf{75 \text{ to } 120\text{ m/s} \ (270 \text{ to } 430\text{ km/h})!}$$
+  4. Evaluating $\arctan2(v_y, v_x)$ on this $100\text{ m/s}$ spike violently flips target vehicle heading between $0^\circ$ and $180^\circ$ or produces diagonal orientations.
+
+---
+
+### 7.2 Detection Methods for Pitch Disturbances
+
+#### Method A: Direct CAN Bus Chassis Gyro Pitch-Rate & Z-Acceleration Gating (Hardware Trigger)
+* **Telemetry Sourcing:**
+  Vehicle Powertrain CAN `/vehicle/telemetry` already logs 50–100 Hz chassis sensor dynamics:
+  - `pitch_rate_radps` ($\omega_{\text{pitch}}$ from ESC / cluster IMU)
+  - `accel_avg_mps2` / `lin_az` ($a_z$ vertical chassis acceleration)
+* **Nominal vs Transient Signatures in Log Audits (`session_20261023_111120`):**
+  - Nominal flat road pitch rate: $|\omega_{\text{pitch}}| \le 0.025\text{ rad/s}$ ($1.4^\circ/\text{s}$).
+  - Speed bump / pothole peak pitch rate: $|\omega_{\text{pitch}}| \approx 0.30 - 0.65\text{ rad/s}$ ($17^\circ - 37^\circ/\text{s}$).
+* **Detection Rule:**
+  $$\text{is\_pitch\_event} = (|\omega_{\text{pitch}}| > 0.12\text{ rad/s}) \lor (|a_z - 9.81| > 2.5\text{ m/s}^2)$$
+* **Advantage:** Fires at $t = 0$ (the exact millisecond the tire strikes the bump, prior to visual projection corruption). Zero image processing compute.
+
+#### Method B: Multi-Track Correlated Range Shift (Vision-Intrinsic Co-Movement Signature)
+* **Physical Principle:** Independent obstacles in traffic move on separate trajectories (e.g. a car 10m ahead, a bus 35m ahead, and a parked motorcycle).
+* **Anomalous Co-movement:** When the host vehicle pitches, **ALL** obstacles in the camera FOV jump simultaneously in lockstep, with depth jumps scaled quadratically by distance:
+  $$\frac{\Delta X_i}{X_i^2} \approx -\frac{\Delta \theta_{\text{pitch}}}{h_{\text{camera}}}$$
+* **Detection Algorithm:**
+  1. For all active tracks $i \in \{1, \dots, N\}$ with $N \ge 2$, compute normalized delta:
+     $$\kappa_i = \frac{X_{i, k} - X_{i, k-1}}{X_{i, k}^2}$$
+  2. Compute median normalized curvature shift:
+     $$\kappa_{\text{median}} = \text{median}(\kappa_1, \dots, \kappa_N)$$
+  3. If $|\kappa_{\text{median}}| > 0.003\text{ m}^{-1}$ and consistency ratio $\frac{|\{i \mid \text{sign}(\kappa_i) = \text{sign}(\kappa_{\text{median}})\}|}{N} \ge 0.75$:
+     $\rightarrow$ Mathematically guaranteed to be ego camera pitch bounce.
+
+#### Method C: Kinematic Longitudinal Acceleration Gating ($|a_x| > a_{\text{max}}$)
+* **Physical Principle:** Automotive friction limits clamp maximum acceleration to $a_{\text{max}} \approx 8\text{ m/s}^2$ ($0.8\text{ g}$) and emergency braking to $a_{\text{brake}} \approx 12\text{ m/s}^2$ ($1.2\text{ g}$).
+* **Detection Rule:**
+  $$a_{x,\text{apparent}} = \left|\frac{v_{x, k} - v_{x, k-1}}{\Delta t}\right|$$
+  If $a_{x,\text{apparent}} > 15.0\text{ m/s}^2$ ($1.5\text{ g}$), the measurement is physically impossible for a road vehicle and flagged as a ground contact projection artifact.
+
+#### Method D: Visual Horizon / Vanishing Line Optical Flow Tracking
+* **Physical Principle:** Pitch rotation displaces the true road vanishing line vertically:
+  $$\Delta y_{\text{horizon}} = f_y \cdot \Delta \theta_{\text{pitch}}$$
+* **Detection Rule:** Optical flow tracking on high-elevation distant background patches ($> 50\text{ m}$). A vertical shift $> 3\text{ px}$ in 1–2 frames flags a camera pitch transient.
+
+---
+
+### 7.3 Mitigation Actions & Algorithmic Handling
+
+1. **Orientation Freeze & State Latching:**
+   - When a pitch disturbance is flagged for frame $k$:
+     - Suppress raw $\arctan2(v_y, v_x)$ evaluation.
+     - Propagate heading strictly using the host vehicle turning model:
+       $$\psi_k = \psi_{k-1} - \omega_{\text{ego}} \Delta t$$
+     - Maintain freeze for a debounce window of 3–5 frames ($\approx 150\text{ ms}$, duration of suspension rebound).
+2. **Sliding Window Outlier Exclusion:**
+   - Discard the corrupted $(t_k, X_k, Y_k)$ point from the velocity estimation window `hist` to prevent corrupted finite-difference velocities across subsequent frames.
+3. **Dynamic Pitch Invariant Ground Ray Projection (Full Geometric Solution):**
+   - Continuously integrate complementary-filtered pitch rate into `GroundPlaneProjector`:
+     $$\theta_{\text{pitch}}(t) = \theta_{\text{nominal}} + \int \omega_{\text{pitch}} dt$$
+   - Eliminates metric range jumps entirely, preserving true 3D obstacle distance throughout speed bumps and potholes.
+
+
 

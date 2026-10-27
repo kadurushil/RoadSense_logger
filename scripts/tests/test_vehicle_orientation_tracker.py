@@ -259,6 +259,186 @@ class TestVehicleOrientationTracker(unittest.TestCase):
         # Due to lane attractor (beta=0.15), smoothed yaw should be pulled closer to 0 than raw drift_angle
         self.assertLess(abs(res["yaw_rad"]), drift_angle)
 
+    def test_technique_turning_model_stationary_track(self):
+        """
+        Tests that when host vehicle turns right (clockwise, negative yaw rate),
+        a stationary parked obstacle's heading in base_link frame rotates in the opposite
+        direction (counter-clockwise, positive angle) to remain pinned to the road/curb.
+        """
+        track_id = 101
+        dt_ns = 33_333_333  # 30 FPS (~0.0333s)
+        dt_s = dt_ns / 1e9
+        t_ns = 1_700_000_000_000_000_000
+        x = 12.0
+        y = 2.0
+
+        # Latch initial parked heading at 0.0 rad (aligned with road)
+        self.tracker.latched_yaw[track_id] = 0.0
+        for i in range(5):
+            res = self.tracker.update(
+                track_id=track_id,
+                x_fwd_m=x,
+                y_left_m=y,
+                timestamp_ns=t_ns,
+                ego_speed_mps=0.0,
+                ego_yaw_rate_radps=0.0,
+            )
+            t_ns += dt_ns
+
+        self.assertFalse(res["is_moving"])
+        initial_latched_yaw = res["yaw_rad"]
+
+        # Host car executes a right turn: yaw_rate = -0.2 rad/s (~ -11.5 deg/s)
+        # As ego turns right, stationary target's relative position in base_link rotates counter-clockwise
+        ego_yr = -0.2
+        d_theta = ego_yr * dt_s
+        num_frames = 15  # 0.5 seconds
+        for i in range(num_frames):
+            rot_angle = -d_theta
+            x_new = x * math.cos(rot_angle) - y * math.sin(rot_angle)
+            y_new = x * math.sin(rot_angle) + y * math.cos(rot_angle)
+            x, y = x_new, y_new
+            res = self.tracker.update(
+                track_id=track_id,
+                x_fwd_m=x,
+                y_left_m=y,
+                timestamp_ns=t_ns,
+                ego_speed_mps=0.0,
+                ego_yaw_rate_radps=ego_yr,
+            )
+            t_ns += dt_ns
+
+        total_dt = num_frames * dt_s
+        expected_rotation = - (ego_yr * total_dt)  # - (-0.2 * 0.5) = +0.1 rad
+        self.assertFalse(res["is_moving"])
+        self.assertAlmostEqual(res["yaw_rad"], initial_latched_yaw + expected_rotation, delta=0.01,
+                               msg="Parked vehicle heading in base_link must rotate opposite to ego yaw rate")
+
+    def test_technique_turning_model_imu_deadband(self):
+        """
+        Tests that high-frequency chassis/engine vibration below the IMU deadband (< 0.015 rad/s)
+        does not cause stationary vehicle headings to drift.
+        """
+        track_id = 102
+        dt_ns = 33_333_333
+        t_ns = 1_700_000_000_000_000_000
+        x = 10.0
+        y = -1.5
+
+        # Initialize stationary with road alignment
+        self.tracker.latched_yaw[track_id] = 0.0
+        for i in range(5):
+            res = self.tracker.update(
+                track_id=track_id,
+                x_fwd_m=x,
+                y_left_m=y,
+                timestamp_ns=t_ns,
+                ego_speed_mps=0.0,
+                ego_yaw_rate_radps=0.0,
+            )
+            t_ns += dt_ns
+
+        # Apply tiny chassis vibration (+0.008 rad/s, below 0.015 rad/s deadband) at engine idle
+        for i in range(20):
+            res = self.tracker.update(
+                track_id=track_id,
+                x_fwd_m=x,
+                y_left_m=y,
+                timestamp_ns=t_ns,
+                ego_speed_mps=0.0,
+                ego_yaw_rate_radps=0.008,
+            )
+            t_ns += dt_ns
+
+        # Latched yaw must remain strictly unchanged
+        self.assertFalse(res["is_moving"])
+        self.assertAlmostEqual(res["yaw_rad"], 0.0, delta=1e-4)
+
+    def test_oncoming_vehicle_basin_disambiguation(self):
+        """
+        Tests Track 4991 case: An oncoming vehicle traveling towards us at 5.5 km/h (-1.5 m/s)
+        with host car driving at 18 km/h (+5.0 m/s).
+        Even if initialized near 0° due to entry jitter, the tracker must snap to the Oncoming
+        basin (~180°) and NOT crawl diagonally across the circle.
+        """
+        track_id = 4991
+        dt_ns = 33_333_333  # 30 FPS
+        t_ns = 1_700_000_000_000_000_000
+        ego_spd = 5.0
+        target_world_spd = -1.5  # Oncoming at 1.5 m/s forward
+        x = 35.0
+        y = -1.0
+
+        yaws = []
+        # Run for 30 frames (~1.0s)
+        for i in range(30):
+            res = self.tracker.update(
+                track_id=track_id,
+                x_fwd_m=x,
+                y_left_m=y,
+                timestamp_ns=t_ns,
+                ego_speed_mps=ego_spd,
+                ego_yaw_rate_radps=0.0,
+            )
+            t_ns += dt_ns
+            rel_speed = target_world_spd - ego_spd  # -6.5 m/s
+            x += rel_speed * (dt_ns / 1e9)
+            if res.get("yaw_rad") is not None:
+                yaws.append(math.degrees(res["yaw_rad"]))
+
+        # Must be classified moving
+        self.assertTrue(res["is_moving"])
+        # Final heading must face oncoming (~180° or -180°), NOT diagonal (e.g. -20° to -40°)
+        final_yaw_deg = abs(yaws[-1])
+        self.assertGreater(final_yaw_deg, 150.0,
+                           f"Expected oncoming heading > 150°, got {final_yaw_deg:.1f}°. Diagonal failure occurred!")
+
+    def test_decoupled_rate_clamping_allows_real_turns(self):
+        """
+        Tests that when a vehicle executes a legitimate 45° turn, the rate limiter
+        allows rotation at the full physical rate limit (max_yaw_rate * dt),
+        and is NOT throttled down by smoothing_alpha.
+        """
+        track_id = 205
+        dt_ns = 33_333_333  # 30 FPS (~0.0333s)
+        t_ns = 1_700_000_000_000_000_000
+        x = 20.0
+        y = 0.0
+
+        # Initialize moving straight at 10 m/s
+        for i in range(5):
+            res = self.tracker.update(
+                track_id=track_id,
+                x_fwd_m=x,
+                y_left_m=y,
+                timestamp_ns=t_ns,
+                ego_speed_mps=0.0,
+                ego_yaw_rate_radps=0.0,
+            )
+            t_ns += dt_ns
+            x += 10.0 * (dt_ns / 1e9)
+
+        yaw_start = res["yaw_rad"]
+
+        # Sudden turn to 45° (vy = vx = 7.07 m/s)
+        dt_s = dt_ns / 1e9
+        res = self.tracker.update(
+            track_id=track_id,
+            x_fwd_m=x + 7.07 * dt_s,
+            y_left_m=y + 7.07 * dt_s,
+            timestamp_ns=t_ns,
+            ego_speed_mps=0.0,
+            ego_yaw_rate_radps=0.0,
+        )
+        yaw_next = res["yaw_rad"]
+
+        # Delta must be close to max_delta = max_yaw_rate * dt
+        # In the old double-dampening code, it would be alpha * max_delta = 0.25 * max_delta
+        angular_step = abs(yaw_next - yaw_start)
+        max_delta = self.tracker.max_yaw_rate * dt_s
+        self.assertAlmostEqual(angular_step, max_delta, delta=0.005,
+                               msg=f"Expected slew rate near full max_delta ({max_delta:.4f} rad), got {angular_step:.4f} rad")
+
 
 class TestEgoMotionProvider(unittest.TestCase):
     def test_bisect_interpolation(self):
