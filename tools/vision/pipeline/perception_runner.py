@@ -564,6 +564,8 @@ class PerceptionRunner:
                 "timestamp_ns": utc_ns,
                 "timestamp_utc_ns": utc_ns,
                 "timestamp_mono_ns": mono_ns,
+                "ego_speed_mps": round(ego_speed_mps, 3),
+                "ego_yaw_rate_radps": round(ego_yaw_rate_radps, 4),
                 "track_count": len(frame_tracks_3d),
                 "tracks": frame_tracks_3d,
             })

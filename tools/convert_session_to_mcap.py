@@ -33,6 +33,7 @@ import time
 import struct
 import argparse
 from datetime import datetime, timezone
+from collections import deque
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
@@ -1067,7 +1068,8 @@ def convert_session_to_mcap(
     urdf_root="velodyne_frame",
     urdf_x=-1.40,
     urdf_y=0.00,
-    urdf_z=0.00
+    urdf_z=0.00,
+    vision_json=None
 ):
     """
     Main conversion entrypoint. Ingests all session data and compiles a unified Foxglove MCAP.
@@ -1846,6 +1848,102 @@ def convert_session_to_mcap(
                 writer.write_message("/diagnostics/logs", log_msg, log_time=log_entry["utc_ns"])
                 count_msg("/diagnostics/logs")
 
+        # 6.5. Ingest Vision Perception Tracks & Telemetry Sub-Topics (if available)
+        v_candidates = []
+        if vision_json:
+            v_candidates.append(vision_json)
+        v_candidates.extend([
+            os.path.join(REPO_ROOT, "tools", "vision", "output", "json", f"{session_name}_vision_tracks.json"),
+            os.path.join(session_dir, "baseline_yolo_tracking.json"),
+            os.path.join(session_dir, "vision_tracks.json"),
+        ])
+        resolved_vision_json = next((vc for vc in v_candidates if os.path.isfile(vc)), None)
+        if resolved_vision_json:
+            print(f"    - Ingesting Vision Tracks & Telemetry Topics: {resolved_vision_json}")
+            try:
+                from tools.vision.mcap.mcap_scene_writer import McapSceneWriter, VISION_DIAGNOSTICS_JSON_SCHEMA
+
+                v_diag_schema = writer._writer.register_schema(
+                    name="roadsense.VisionDiagnostics",
+                    encoding="jsonschema",
+                    data=json.dumps(VISION_DIAGNOSTICS_JSON_SCHEMA).encode("utf-8")
+                )
+                v_diag_chan = writer._writer.register_channel(
+                    schema_id=v_diag_schema,
+                    topic="/vision/diagnostics",
+                    message_encoding="json"
+                )
+
+                with open(resolved_vision_json, "r", encoding="utf-8") as vf:
+                    v_data = json.load(vf)
+                v_frames = v_data.get("frames", [])
+                v_traj_history = {}
+
+                for v_idx, v_f in enumerate(v_frames):
+                    if "timestamp_utc_ns" in v_f and v_f["timestamp_utc_ns"] > 1e16:
+                        v_utc = int(v_f["timestamp_utc_ns"])
+                    elif "timestamp_ns" in v_f and v_f["timestamp_ns"] > 1e16:
+                        v_utc = int(v_f["timestamp_ns"])
+                    else:
+                        v_utc = int(v_f.get("timestamp_ns", 0)) + time_offset_ns
+
+                    v_tracks = v_f.get("tracks", [])
+                    for vt in v_tracks:
+                        tid = vt.get("track_id")
+                        if tid is not None:
+                            pos = vt.get("position_3d", {})
+                            if tid not in v_traj_history:
+                                v_traj_history[tid] = deque(maxlen=30)
+                            v_traj_history[tid].append((
+                                float(pos.get("x_fwd_m", 0.0)),
+                                float(pos.get("y_left_m", 0.0)),
+                                0.08
+                            ))
+
+                    # 1. 3D Scene Update
+                    su_m = McapSceneWriter.create_scene_update(v_utc, v_tracks)
+                    writer.write_message("/vision/geo_tracks", su_m, log_time=v_utc)
+                    count_msg("/vision/geo_tracks")
+
+                    # 2. 2D Image Annotations
+                    ia_m = McapSceneWriter.create_image_annotations(v_utc, v_tracks)
+                    writer.write_message("/vision/2d_boxes", ia_m, log_time=v_utc)
+                    count_msg("/vision/2d_boxes")
+
+                    # 3. 3D Trajectory History
+                    tu_m = McapSceneWriter.create_trajectories_update(v_utc, v_traj_history)
+                    writer.write_message("/vision/trajectories", tu_m, log_time=v_utc)
+                    count_msg("/vision/trajectories")
+
+                    # 4. Camera Frustum (every 10 frames)
+                    if v_idx % 10 == 0:
+                        fu_m = McapSceneWriter.create_camera_frustum_update(v_utc)
+                        writer.write_message("/vision/camera_frustum", fu_m, log_time=v_utc)
+                        count_msg("/vision/camera_frustum")
+
+                    # 5. Diagnostics & State Matrix Telemetry
+                    v_spd = float(v_f.get("ego_speed_mps", 0.0))
+                    v_yr = float(v_f.get("ego_yaw_rate_radps", 0.0))
+                    diag_payload = McapSceneWriter.create_diagnostics_message(
+                        timestamp_ns=v_utc,
+                        frame_idx=v_f.get("frame_index", v_idx),
+                        tracks=v_tracks,
+                        ego_speed_mps=v_spd,
+                        ego_yaw_rate_can_radps=v_yr,
+                        ego_yaw_rate_smoothed_radps=-v_yr,
+                        turning_model_active=abs(v_yr) > 0.015,
+                        deadband_scale=1.0,
+                    )
+                    writer._writer.add_message(
+                        channel_id=v_diag_chan,
+                        log_time=v_utc,
+                        data=json.dumps(diag_payload).encode("utf-8"),
+                        publish_time=v_utc
+                    )
+                    count_msg("/vision/diagnostics")
+            except Exception as e:
+                print(f"[-] Vision tracks ingestion error ({e}). Skipping vision topics.")
+
         # 7. Add Native MCAP Attachments
         if os.path.isfile(meta_path):
             with open(meta_path, "rb") as mf:
@@ -1923,6 +2021,7 @@ def main():
     parser.add_argument("--urdf-x", type=float, default=-1.40, help="X translation in meters from base_link (radar bonnet) to URDF root (default: -1.40)")
     parser.add_argument("--urdf-y", type=float, default=0.00, help="Y translation in meters from base_link to URDF root (default: 0.00)")
     parser.add_argument("--urdf-z", type=float, default=0.00, help="Z translation in meters from base_link to URDF root (default: 0.00)")
+    parser.add_argument("--vision-json", default=None, help="Optional path to pre-computed vision_tracks.json (auto-discovered if omitted)")
 
     args = parser.parse_args()
     if not os.path.isdir(args.session_dir):
@@ -1938,7 +2037,8 @@ def main():
         urdf_root=args.urdf_root,
         urdf_x=args.urdf_x,
         urdf_y=args.urdf_y,
-        urdf_z=args.urdf_z
+        urdf_z=args.urdf_z,
+        vision_json=args.vision_json
     )
 
 

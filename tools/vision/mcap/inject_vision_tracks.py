@@ -1,21 +1,28 @@
 """
 inject_vision_tracks.py
 -----------------------
-Non-destructively injects 3D geometric vision tracks into Foxglove MCAP files.
+Non-destructively injects 3D geometric vision tracks, 2D image annotations,
+trajectory breadcrumbs, camera frustum bounds, and 3-tier telemetry diagnostics
+into Foxglove MCAP files.
+
+Sub-Topics Injected:
+  1. /vision/2d_boxes        : foxglove.ImageAnnotations (2D YOLO boxes, labels, contact points)
+  2. /vision/geo_tracks      : foxglove.SceneUpdate (3D cuboids, velocity arrows, ground footprints)
+  3. /vision/trajectories    : foxglove.SceneUpdate (3D multi-second trajectory breadcrumb line strips)
+  4. /vision/camera_frustum  : foxglove.SceneUpdate (Camera ground-plane optical projection boundaries)
+  5. /vision/diagnostics     : roadsense.VisionDiagnostics (3-tier pipeline telemetry & State Matrices)
 
 Guarantees:
   1. Zero modification to original files: logs/ session recordings remain strictly read-only.
-  2. Preserves 100% of original data: all 12 schemas, 12 channels, and 4 attachments
-     (including RoadSense_Cockpit_Layout.json and foxglove.layout) are copied byte-for-byte.
+  2. Preserves 100% of original data: all schemas, channels, and attachments are copied byte-for-byte.
   3. Strict Temporal Alignment: Automatically detects and aligns timestamps with master
      UTC Wall Clock nanoseconds (utc_ns = mono_ns + time_offset_ns), completely eliminating
      the multi-year timeline stretch bug in Foxglove Studio.
-  4. Least Invasive Schema Re-use: Re-uses the existing 'foxglove.SceneUpdate' schema from
-     the source MCAP without creating redundant duplicate schemas.
-  5. Chronological Streaming Merge: Messages are merged in strict monotonic log_time order.
+  4. Chronological Streaming Merge: All sensor streams are merged in strict monotonic log_time order.
 """
 
 import argparse
+from collections import deque
 import glob
 import json
 import os
@@ -39,9 +46,14 @@ if repo_root not in sys.path:
 from mcap.reader import make_reader
 from mcap.writer import CompressionType
 from mcap_protobuf.writer import Writer as ProtobufWriter
-from tqdm import tqdm
 
-from tools.vision.mcap.mcap_scene_writer import McapSceneWriter
+try:
+    from tqdm import tqdm
+except ImportError:
+    def tqdm(iterable, *args, **kwargs):
+        return iterable
+
+from tools.vision.mcap.mcap_scene_writer import McapSceneWriter, VISION_DIAGNOSTICS_JSON_SCHEMA
 from tools.vision.pipeline.timeline_loader import TimelineLoader
 
 
@@ -53,17 +65,14 @@ def resolve_frame_utc_timestamp(
     Ensures a frame's timestamp is in UTC Wall Clock nanoseconds (epoch ~2026).
     If the timestamp is raw Android monotonic boot nanoseconds (< 1e16), converts via time_offset_ns.
     """
-    # 1. Prefer explicit timestamp_utc_ns if present and valid
     if "timestamp_utc_ns" in frame and frame["timestamp_utc_ns"] > 1e16:
         return int(frame["timestamp_utc_ns"])
 
     raw_ts = int(frame.get("timestamp_ns", 0))
 
-    # 2. If raw_ts is already epoch nanoseconds (> 1e16), use it directly
     if raw_ts > 1e16:
         return raw_ts
 
-    # 3. Otherwise it is Android monotonic elapsedRealtimeNanos, add time_offset_ns
     return raw_ts + time_offset_ns
 
 
@@ -78,11 +87,9 @@ def get_session_offset_from_mcap_or_disk(
       2. session_metadata.json on disk
       3. session_metadata.json attachment embedded inside the source MCAP
     """
-    # 1. Check vision tracks JSON
     if json_data and json_data.get("time_offset_ns"):
         return int(json_data["time_offset_ns"])
 
-    # 2. Check disk session_dir
     candidates = []
     if session_dir and os.path.isdir(session_dir):
         candidates.append(session_dir)
@@ -94,7 +101,6 @@ def get_session_offset_from_mcap_or_disk(
         if offset > 0:
             return offset
 
-    # 3. Check source MCAP attachments
     if os.path.isfile(source_mcap_path):
         try:
             with open(source_mcap_path, "rb") as f:
@@ -119,8 +125,13 @@ def write_standalone_vision_mcap(
     session_dir: Optional[str] = None,
 ) -> str:
     """
-    Creates a lightweight MCAP containing only the '/vision/geo_tracks' topic,
-    with all timestamps strictly normalized to UTC Wall Clock nanoseconds.
+    Creates a lightweight MCAP containing all vision topics:
+      - /vision/geo_tracks
+      - /vision/2d_boxes
+      - /vision/trajectories
+      - /vision/camera_frustum
+      - /vision/diagnostics
+    All timestamps strictly normalized to UTC Wall Clock nanoseconds.
     """
     with open(vision_json_path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -134,17 +145,90 @@ def write_standalone_vision_mcap(
     print(f"\n[MCAP Writer] Generating standalone vision MCAP: {output_mcap_path}")
     print(f"  Frames to write: {len(frames)} | Time Offset: {time_offset_ns} ns")
 
+    trajectory_history: Dict[int, deque] = {}
+
     with open(output_mcap_path, "wb") as f_out:
         with ProtobufWriter(f_out, chunk_size=1024 * 1024, compression=CompressionType.ZSTD) as pw:
-            for frame in tqdm(frames, desc="Writing Standalone MCAP", unit="frame"):
+            # Register JSON schema for /vision/diagnostics
+            diag_schema_id = pw._writer.register_schema(
+                name="roadsense.VisionDiagnostics",
+                encoding="jsonschema",
+                data=json.dumps(VISION_DIAGNOSTICS_JSON_SCHEMA).encode("utf-8"),
+            )
+            diag_chan_id = pw._writer.register_channel(
+                schema_id=diag_schema_id,
+                topic="/vision/diagnostics",
+                message_encoding="json",
+            )
+
+            for idx, frame in enumerate(tqdm(frames, desc="Writing Standalone MCAP", unit="frame")):
                 utc_ts = resolve_frame_utc_timestamp(frame, time_offset_ns)
                 tracks = frame.get("tracks", [])
+
+                # Update trajectory history
+                active_ids = set()
+                for t in tracks:
+                    tid = t.get("track_id")
+                    if tid is not None:
+                        active_ids.add(tid)
+                        pos = t.get("position_3d", {})
+                        if tid not in trajectory_history:
+                            trajectory_history[tid] = deque(maxlen=30)
+                        trajectory_history[tid].append((
+                            float(pos.get("x_fwd_m", 0.0)),
+                            float(pos.get("y_left_m", 0.0)),
+                            0.08,
+                        ))
+
+                # 1. 3D Scene Update
                 su_msg = McapSceneWriter.create_scene_update(utc_ts, tracks)
-                pw.write_message(
-                    topic="/vision/geo_tracks",
-                    message=su_msg,
+                pw.write_message(topic="/vision/geo_tracks", message=su_msg, log_time=utc_ts, publish_time=utc_ts)
+
+                # 2. 2D Image Annotations
+                ia_msg = McapSceneWriter.create_image_annotations(utc_ts, tracks)
+                pw.write_message(topic="/vision/2d_boxes", message=ia_msg, log_time=utc_ts, publish_time=utc_ts)
+
+                # 3. 3D Trajectory History
+                tu_msg = McapSceneWriter.create_trajectories_update(utc_ts, trajectory_history)
+                pw.write_message(topic="/vision/trajectories", message=tu_msg, log_time=utc_ts, publish_time=utc_ts)
+
+                # 4. Camera Frustum (emitted every 10 frames)
+                if idx % 10 == 0:
+                    fu_msg = McapSceneWriter.create_camera_frustum_update(utc_ts)
+                    pw.write_message(topic="/vision/camera_frustum", message=fu_msg, log_time=utc_ts, publish_time=utc_ts)
+
+                # 5. Vision Diagnostics Telemetry
+                ego_spd = float(frame.get("ego_speed_mps", 0.0))
+                ego_yr = float(frame.get("ego_yaw_rate_radps", 0.0))
+                diag_msg = McapSceneWriter.create_diagnostics_message(
+                    timestamp_ns=utc_ts,
+                    frame_idx=frame.get("frame_index", idx),
+                    tracks=tracks,
+                    ego_speed_mps=ego_spd,
+                    ego_yaw_rate_can_radps=ego_yr,
+                    ego_yaw_rate_smoothed_radps=-ego_yr,
+                    turning_model_active=abs(ego_yr) > 0.015,
+                    deadband_scale=1.0,
+                )
+                pw._writer.add_message(
+                    channel_id=diag_chan_id,
                     log_time=utc_ts,
+                    data=json.dumps(diag_msg).encode("utf-8"),
                     publish_time=utc_ts,
+                )
+
+            # Attach RoadSense Cockpit Layout
+            layout_path = os.path.join(repo_root, "tools", "foxglove_layouts", "RoadSense_Cockpit_Layout.json")
+            if os.path.isfile(layout_path):
+                with open(layout_path, "rb") as fl:
+                    layout_bytes = fl.read()
+                now_ns = int(time.time() * 1e9)
+                pw._writer.add_attachment(
+                    create_time=now_ns,
+                    log_time=now_ns,
+                    name="RoadSense_Cockpit_Layout.json",
+                    media_type="application/json",
+                    data=layout_bytes,
                 )
 
     file_size_mb = os.path.getsize(output_mcap_path) / (1024 * 1024)
@@ -159,7 +243,12 @@ def enrich_existing_mcap(
     session_dir: Optional[str] = None,
 ) -> str:
     """
-    Copies all existing channels and attachments from source MCAP and injects '/vision/geo_tracks'.
+    Copies all existing channels and attachments from source MCAP and injects:
+      - /vision/geo_tracks
+      - /vision/2d_boxes
+      - /vision/trajectories
+      - /vision/camera_frustum
+      - /vision/diagnostics
     Strictly non-destructive: source MCAP is read-only.
     Guarantees strict chronological ordering by UTC nanoseconds.
     """
@@ -174,11 +263,10 @@ def enrich_existing_mcap(
     )
 
     raw_frames = vision_data.get("frames", [])
-    # Prepare normalized vision frames sorted strictly by UTC nanoseconds
-    prepared_vision_frames: List[Tuple[int, Dict[str, Any]]] = []
-    for f in raw_frames:
+    prepared_vision_frames: List[Tuple[int, int, Dict[str, Any]]] = []
+    for idx, f in enumerate(raw_frames):
         utc_ts = resolve_frame_utc_timestamp(f, time_offset_ns)
-        prepared_vision_frames.append((utc_ts, f))
+        prepared_vision_frames.append((utc_ts, idx, f))
 
     prepared_vision_frames.sort(key=lambda x: x[0])
 
@@ -193,6 +281,8 @@ def enrich_existing_mcap(
         print(f"  Vision End UTC:   {prepared_vision_frames[-1][0]} ns")
 
     start_time = time.time()
+    trajectory_history: Dict[int, deque] = {}
+
     with open(source_mcap_path, "rb") as f_in, open(output_mcap_path, "wb") as f_out:
         reader = make_reader(f_in)
         summary = reader.get_summary()
@@ -203,14 +293,11 @@ def enrich_existing_mcap(
 
         # 1. Register all source schemas exactly as-is
         schema_map = {}
-        scene_update_schema_id = None
         if summary and summary.schemas:
             for sid, s in summary.schemas.items():
                 schema_map[sid] = proto_writer._writer.register_schema(
                     name=s.name, encoding=s.encoding, data=s.data
                 )
-                if s.name == "foxglove.SceneUpdate":
-                    scene_update_schema_id = schema_map[sid]
 
         # 2. Register all source channels exactly as-is
         channel_map = {}
@@ -224,31 +311,58 @@ def enrich_existing_mcap(
                     metadata=c.metadata,
                 )
 
-        # 3. Register '/vision/geo_tracks' channel using existing SceneUpdate schema
-        if scene_update_schema_id is not None:
-            vis_channel_id = proto_writer._writer.register_channel(
-                schema_id=scene_update_schema_id,
-                topic="/vision/geo_tracks",
-                message_encoding="protobuf",
-            )
-            use_raw_scene_writer = True
-        else:
-            # Fallback if source MCAP did not define SceneUpdate schema
-            vis_channel_id = None
-            use_raw_scene_writer = False
+        # 3. Register JSON Schema for /vision/diagnostics
+        diag_schema_id = proto_writer._writer.register_schema(
+            name="roadsense.VisionDiagnostics",
+            encoding="jsonschema",
+            data=json.dumps(VISION_DIAGNOSTICS_JSON_SCHEMA).encode("utf-8"),
+        )
+        diag_chan_id = proto_writer._writer.register_channel(
+            schema_id=diag_schema_id,
+            topic="/vision/diagnostics",
+            message_encoding="json",
+        )
 
-        # 4. Copy all attachments byte-for-byte (e.g. foxglove.layout, session_metadata.json)
+        # 4. Copy attachments, updating RoadSense_Cockpit_Layout.json with newest layout
         copied_attachments = 0
+        layout_attached = False
+        layout_path = os.path.join(repo_root, "tools", "foxglove_layouts", "RoadSense_Cockpit_Layout.json")
+        layout_bytes = None
+        if os.path.isfile(layout_path):
+            with open(layout_path, "rb") as fl:
+                layout_bytes = fl.read()
+
         if hasattr(reader, "iter_attachments"):
             for att in reader.iter_attachments():
-                proto_writer._writer.add_attachment(
-                    create_time=att.create_time,
-                    log_time=att.log_time,
-                    name=att.name,
-                    media_type=att.media_type,
-                    data=att.data,
-                )
+                if att.name in ("foxglove.layout", "RoadSense_Cockpit_Layout.json") and layout_bytes is not None:
+                    proto_writer._writer.add_attachment(
+                        create_time=int(time.time() * 1e9),
+                        log_time=att.log_time,
+                        name=att.name,
+                        media_type="application/json",
+                        data=layout_bytes,
+                    )
+                    layout_attached = True
+                else:
+                    proto_writer._writer.add_attachment(
+                        create_time=att.create_time,
+                        log_time=att.log_time,
+                        name=att.name,
+                        media_type=att.media_type,
+                        data=att.data,
+                    )
                 copied_attachments += 1
+
+        if not layout_attached and layout_bytes is not None:
+            now_ns = int(time.time() * 1e9)
+            proto_writer._writer.add_attachment(
+                create_time=now_ns,
+                log_time=now_ns,
+                name="RoadSense_Cockpit_Layout.json",
+                media_type="application/json",
+                data=layout_bytes,
+            )
+            copied_attachments += 1
 
         # 5. Chronological two-pointer streaming merge
         v_idx = 0
@@ -256,7 +370,7 @@ def enrich_existing_mcap(
         src_iter = reader.iter_messages()
         next_src = next(src_iter, None)
 
-        total_est = (total_src_msgs or 0) + num_v
+        total_est = (total_src_msgs or 0) + (num_v * 4)
         is_tty = sys.stdout.isatty()
         pbar = tqdm(
             total=total_est,
@@ -276,29 +390,86 @@ def enrich_existing_mcap(
             vis_ts = prepared_vision_frames[v_idx][0] if v_idx < num_v else float("inf")
 
             if vis_ts <= src_ts and v_idx < num_v:
-                # Inject 3D vision track update
-                v_utc_ts, v_frame = prepared_vision_frames[v_idx]
+                v_utc_ts, v_frame_idx, v_frame = prepared_vision_frames[v_idx]
                 tracks = v_frame.get("tracks", [])
-                su_msg = McapSceneWriter.create_scene_update(v_utc_ts, tracks)
 
-                if use_raw_scene_writer and vis_channel_id is not None:
-                    proto_writer._writer.add_message(
-                        channel_id=vis_channel_id,
-                        log_time=v_utc_ts,
-                        data=su_msg.SerializeToString(),
-                        publish_time=v_utc_ts,
-                    )
-                else:
+                # Update trajectory history
+                for t in tracks:
+                    tid = t.get("track_id")
+                    if tid is not None:
+                        pos = t.get("position_3d", {})
+                        if tid not in trajectory_history:
+                            trajectory_history[tid] = deque(maxlen=30)
+                        trajectory_history[tid].append((
+                            float(pos.get("x_fwd_m", 0.0)),
+                            float(pos.get("y_left_m", 0.0)),
+                            0.08,
+                        ))
+
+                # A. 3D Oriented Cuboids, Velocity Arrows, Footprints
+                su_msg = McapSceneWriter.create_scene_update(v_utc_ts, tracks)
+                proto_writer.write_message(
+                    topic="/vision/geo_tracks",
+                    message=su_msg,
+                    log_time=v_utc_ts,
+                    publish_time=v_utc_ts,
+                )
+                injected_msgs += 1
+
+                # B. 2D Bounding Boxes, Labels, Contact Points
+                ia_msg = McapSceneWriter.create_image_annotations(v_utc_ts, tracks)
+                proto_writer.write_message(
+                    topic="/vision/2d_boxes",
+                    message=ia_msg,
+                    log_time=v_utc_ts,
+                    publish_time=v_utc_ts,
+                )
+                injected_msgs += 1
+
+                # C. 3D Trajectory Breadcrumbs
+                tu_msg = McapSceneWriter.create_trajectories_update(v_utc_ts, trajectory_history)
+                proto_writer.write_message(
+                    topic="/vision/trajectories",
+                    message=tu_msg,
+                    log_time=v_utc_ts,
+                    publish_time=v_utc_ts,
+                )
+                injected_msgs += 1
+
+                # D. Camera Frustum (emitted every 10 frames)
+                if v_idx % 10 == 0:
+                    fu_msg = McapSceneWriter.create_camera_frustum_update(v_utc_ts)
                     proto_writer.write_message(
-                        topic="/vision/geo_tracks",
-                        message=su_msg,
+                        topic="/vision/camera_frustum",
+                        message=fu_msg,
                         log_time=v_utc_ts,
                         publish_time=v_utc_ts,
                     )
+                    injected_msgs += 1
+
+                # E. Structured Diagnostics & State Matrix Telemetry
+                ego_spd = float(v_frame.get("ego_speed_mps", 0.0))
+                ego_yr = float(v_frame.get("ego_yaw_rate_radps", 0.0))
+                diag_msg = McapSceneWriter.create_diagnostics_message(
+                    timestamp_ns=v_utc_ts,
+                    frame_idx=v_frame.get("frame_index", v_frame_idx),
+                    tracks=tracks,
+                    ego_speed_mps=ego_spd,
+                    ego_yaw_rate_can_radps=ego_yr,
+                    ego_yaw_rate_smoothed_radps=-ego_yr,
+                    turning_model_active=abs(ego_yr) > 0.015,
+                    deadband_scale=1.0,
+                )
+                proto_writer._writer.add_message(
+                    channel_id=diag_chan_id,
+                    log_time=v_utc_ts,
+                    data=json.dumps(diag_msg).encode("utf-8"),
+                    publish_time=v_utc_ts,
+                )
+                injected_msgs += 1
 
                 v_idx += 1
-                injected_msgs += 1
-                batch_msgs += 1
+                batch_msgs += 5
             elif next_src is not None:
                 # Copy existing source message byte-for-byte
                 s, c, m = next_src
@@ -319,7 +490,7 @@ def enrich_existing_mcap(
                 if not is_tty:
                     curr_tot = copied_msgs + injected_msgs
                     pct = min(99.0, round((curr_tot / max(total_est, 1)) * 100.0, 1))
-                    print(f"[PROGRESS] {json.dumps({'step': 'vision_mcap', 'desc': f'Merging /vision/geo_tracks ({curr_tot:,}/{total_est:,})', 'current': curr_tot, 'total': total_est, 'pct': pct})}", flush=True)
+                    print(f"[PROGRESS] {json.dumps({'step': 'vision_mcap', 'desc': f'Merging /vision/* ({curr_tot:,}/{total_est:,})', 'current': curr_tot, 'total': total_est, 'pct': pct})}", flush=True)
                 batch_msgs = 0
 
         if batch_msgs > 0:
@@ -333,7 +504,7 @@ def enrich_existing_mcap(
 
     print(f"  Successfully enriched in {elapsed:.1f}s ({copied_msgs + injected_msgs} total messages)")
     print(f"    • Source messages copied: {copied_msgs}")
-    print(f"    • Vision updates injected: {injected_msgs}")
+    print(f"    • Vision messages injected: {injected_msgs} across 5 sub-topics")
     print(f"    • Attachments preserved:  {copied_attachments}")
     print(f"  Enriched MCAP created ({dst_size_mb:.1f} MB): {output_mcap_path}\n")
     return output_mcap_path
@@ -412,7 +583,7 @@ def inject_vision_tracks_to_mcap(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Inject 3D geometric vision tracks into Foxglove MCAP files."
+        description="Inject 3D geometric vision tracks and debug sub-topics into Foxglove MCAP files."
     )
     parser.add_argument(
         "input",

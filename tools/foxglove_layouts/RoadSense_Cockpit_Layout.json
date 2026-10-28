@@ -46,6 +46,15 @@
         },
         "/radar/tracks": {
           "visible": true
+        },
+        "/vision/geo_tracks": {
+          "visible": true
+        },
+        "/vision/trajectories": {
+          "visible": true
+        },
+        "/vision/camera_frustum": {
+          "visible": true
         }
       },
       "layers": {
@@ -66,6 +75,9 @@
     "camera_view": {
       "cameraTopic": "/camera/video",
       "calibrationTopic": "/camera/calib",
+      "imageAnnotationTopics": [
+        "/vision/2d_boxes"
+      ],
       "transformMarkers": true,
       "synchronize": true,
       "rotation": 180,
@@ -133,6 +145,18 @@
           "enabled": false,
           "color": "#00e5ff",
           "label": "ACC TTI (s)"
+        },
+        {
+          "value": "/vision/diagnostics.ego_yaw_rate_smoothed_degps",
+          "enabled": false,
+          "color": "#e040fb",
+          "label": "Vision Smoothed Yaw Rate (deg/s)"
+        },
+        {
+          "value": "/vision/diagnostics.lead_obstacle.speed_kmh",
+          "enabled": false,
+          "color": "#ea80fc",
+          "label": "Vision Lead Speed (km/h)"
         }
       ],
       "minYValue": 0,

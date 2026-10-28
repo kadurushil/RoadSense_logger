@@ -5,8 +5,16 @@ Orchestrates offline video ingestion, orientation correction, tracking,
 geometric projection, and master timestamp stamping.
 """
 
-from .orientation_handler import OrientationHandler
+try:
+    from .orientation_handler import OrientationHandler
+except ImportError:
+    OrientationHandler = None
+
 from .timeline_loader import TimelineLoader
-from .perception_runner import PerceptionRunner
+
+try:
+    from .perception_runner import PerceptionRunner
+except ImportError:
+    PerceptionRunner = None
 
 __all__ = ["OrientationHandler", "TimelineLoader", "PerceptionRunner"]
