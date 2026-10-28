@@ -33,7 +33,8 @@
 24. [Bug #24: Optical Pitch Sign Inversion ($R_x(-P)$) in MCAP `/tf` Transform & $2\times$ Pitch Discrepancy ($+10.5^\circ$) in Foxglove 3D Visualization](#bug-24-optical-pitch-sign-inversion-r_x-p-in-mcap-tf-transform--2x-pitch-discrepancy-105-in-foxglove-3d-visualization)
 25. [Bug #25: Vision Track Yaw Tilt Due to Conflated Radar Squint in Camera Optical `/tf` Transform](#bug-25-vision-track-yaw-tilt-due-to-conflated-radar-squint-in-camera-optical-tf-transform)
 26. [Bug #26: Perspective-Compensated Lateral Centering Failure in Turning Scenarios & The Zero-Yaw Assumption Breakdown](#bug-26-perspective-compensated-lateral-centering-failure-in-turning-scenarios--the-zero-yaw-assumption-breakdown)
-27. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
+27. [Bug #27: Straight-Line Yaw Rate Fluctuation via IMU Mounting Misalignment & Cross-Axis Roll/Pitch Coupling](#bug-27-straight-line-yaw-rate-fluctuation-via-imu-mounting-misalignment--cross-axis-rollpitch-coupling)
+28. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
 
 ---
 
@@ -1253,6 +1254,42 @@ When a vehicle turns or is viewed at an angle ($\psi \neq 0^\circ$):
 
 ---
 
+## Bug #27: Straight-Line Yaw Rate Fluctuation via IMU Mounting Misalignment & Cross-Axis Roll/Pitch Coupling
+
+### Symptoms
+* During straight-line highway driving ($20\text{--}40\text{ km/h}$) where vehicle steering was zero, the chassis yaw rate signal (`/vehicle/telemetry.yaw_rate_radps`) fluctuated continuously between $-0.03\text{ rad/s}$ and $+0.04\text{ rad/s}$ ($\pm 1.7^\circ/\text{s}$).
+* In the 3D vision tracking pipeline, these micro-fluctuations repeatedly crossed the hard deadband threshold ($0.015\text{ rad/s}$), causing:
+  1. The kinematic turning model to continuously toggle between $0.0\text{ rad/s}$ and $1.5^\circ/\text{s}$ rotation steps.
+  2. The velocity compensation cross-product term ($\omega_{\text{ego}} \cdot x$) to inject $\approx 0.5\text{--}1.0\text{ m/s}$ ($2\text{--}3.6\text{ km/h}$) artificial lateral velocity steps into distant vehicles ($x > 25\text{ m}$), causing visual heading jitter.
+
+### Root Cause Analysis
+1. **Physical Sensor Misalignment (Non-Orthogonal Mounting Angles):**
+   - The chassis IMU / ESC sensor cluster is physically installed on the vehicle chassis with small mechanical mounting angle errors ($\alpha_{\text{roll}}, \beta_{\text{pitch}}, \gamma_{\text{yaw}}$) relative to the vehicle's true structural axes (ISO FLU: Forward, Left, Up).
+   - In production vehicles, an **IMU Calibration Routine** is required:
+     - *Flat-Road Static Calibration:* Parked on a flat horizontal surface to zero out gyro biases ($b_x, b_y, b_z$) and align the gravity vector for pitch and roll.
+     - *Incline / Slope Calibration:* Parked on a slope to isolate the yaw mounting angle.
+     - *Dynamic Straight-Line Driving:* Driving straight with GNSS / wheel tick validation to compute the full $3 \times 3$ mounting rotation matrix $R_{\text{IMU}\to\text{Body}}$.
+2. **Cross-Axis Coupling on Real Roads:**
+   - Because this test vehicle had not undergone factory IMU mounting calibration, the measured $Z$-gyro signal picked up vehicle suspension roll and longitudinal pitch transients:
+     $$\omega_{\text{yaw, meas}} \approx \omega_{\text{yaw, true}} + \sin(\beta_{\text{pitch}}) \cdot \omega_{\text{roll}} - \sin(\alpha_{\text{roll}}) \cdot \omega_{\text{pitch}} + b_z$$
+   - Road camber variations, potholes, suspension sway, and engine throttle squat/dive projected directly onto the yaw rate channel, masquerading as active turning.
+3. **Hard-Step Deadband Discontinuity:**
+   - The orientation tracker employed a binary deadband (`if |yr| < 0.015: yr = 0 else yr`). When fluctuating cross-axis noise stepped across $0.015\text{ rad/s}$, it produced discrete velocity jumps $\Delta v_y = \Delta \omega \cdot x$ rather than a smooth transition.
+
+### Solution & Engineering Takeaway
+1. **Zero-Phase Low-Pass Filtering in `EgoMotionProvider`:**
+   - Applied a centered window smoothing filter (triangular/Gaussian kernel, window $\approx 0.2\text{s}$) over `self.yaw_rates_radps` upon loading.
+   - Attenuates high-frequency roll/pitch suspension bounce ($>2\text{--}3\text{ Hz}$) with **zero time delay / zero phase lag**, keeping cornering turn peaks aligned with camera video frames.
+2. **Continuous Soft-Knee Deadband:**
+   - Replaced the hard step with a smooth Hermite ramp between $0.010\text{ rad/s}$ ($0.57^\circ/\text{s}$, sensor noise floor) and $0.025\text{ rad/s}$ ($1.43^\circ/\text{s}$, full maneuver threshold):
+     $$\text{factor} = \frac{|\omega| - \omega_{\text{inner}}}{\omega_{\text{outer}} - \omega_{\text{inner}}}$$
+     $$\omega_{\text{filtered}} = \operatorname{sgn}(\omega) \cdot \text{factor} \cdot |\omega|$$
+   - Completely eliminates discrete velocity steps during straight-line travel.
+3. **Future Vehicle Calibration Requirement:**
+   - Documented in `Future_stuff.md` (Section 8) that full multi-sensor fusion must incorporate flat-road and slope dynamic IMU calibration matrices to decouple cross-axis dynamics.
+
+---
+
 ## Summary of Core Engineering Rules
 
 1. **Never pass high-frequency raw byte streams through `StateFlow`:** Always use direct callbacks or channels to background workers.
@@ -1286,6 +1323,7 @@ When a vehicle turns or is viewed at an angle ($\psi \neq 0^\circ$):
     For positive downward pitch ($\theta > 0$), $Z_{\text{base}}$ MUST be strictly negative ($-\sin\theta < 0$). If $Z_{\text{base}} = +\sin\theta$, the camera is pointing into the sky, creating a $2 \times \theta$ angular inversion error in visualizers that manifests as projected ground targets floating hundreds of pixels too high.
 25. **Decouple Camera Boresight (`cameraYawDeg`) from Radar Squint (`radarSquintDeg`) in Static `/tf` Trees:** Never apply a relative cross-sensor calibration angle (e.g. `yawDeg`) directly onto the camera optical `/tf` unless the camera is physically panned on the mount. If the camera is aligned with the vehicle body ($0.0^\circ$), applying a $1.0^\circ$ radar mounting squint to `camera_optical` tilts the 3D frustum away from the road, causing 3D bounding boxes to appear tilted by $1.0^\circ$ and shifted laterally by $D \cdot \tan(\psi)$ ($0.61\text{ m}$ / $17.3\text{ px}$ at $35\text{ m}$) against the video.
 26. **Never Apply Zero-Yaw Perspective Boundary Solvers to 3D Bounding Boxes Without Heading Estimation:** Projecting 2D YOLO box edges $[x_1, x_2]$ to asymmetric 3D corner depths ($Z_{\text{near}}$ vs $Z_{\text{far}}$) strictly assumes the target vehicle's longitudinal axis is parallel to the camera boresight ($0^\circ$ yaw). In turning scenarios or non-parallel geometries, this assumption breaks down catastrophically, collapsing box widths to clamp limits and violently shifting the lateral center. Without a 3D heading estimator (or vehicle velocity vector tracker), lateral position must remain anchored to the ground contact patch ray ($Y_{\text{center}} = Y_{\text{contact}}$).
+27. **Account for uncalibrated chassis IMU mounting angles and cross-axis roll/pitch coupling in ego-motion compensation:** When extracting chassis gyro yaw rate ($\omega_{\text{yaw}}$), mounting misalignment relative to vehicle structural axes causes vehicle roll and pitch (from road camber, bumps, and squat/dive) to project directly onto the measured yaw axis. Always apply a zero-phase low-pass smoothing filter and a continuous soft deadband ($0.010\text{--}0.025\text{ rad/s}$) to suppress cross-axis coupling during straight travel until full 3D calibration is executed.
 
 
 

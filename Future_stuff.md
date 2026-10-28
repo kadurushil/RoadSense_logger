@@ -381,5 +381,71 @@ Automotive engineers have several powerful tools to inspect, graph, and analyze 
      $$\theta_{\text{pitch}}(t) = \theta_{\text{nominal}} + \int \omega_{\text{pitch}} dt$$
    - Eliminates metric range jumps entirely, preserving true 3D obstacle distance throughout speed bumps and potholes.
 
+---
+
+## 8. Vehicle IMU 3D Mounting Misalignment, Cross-Axis Coupling & Calibration Routines
+
+### 8.1 Physical Origin of Straight-Line Yaw Rate Fluctuation
+During straight-line highway and arterial travel (where true heading is constant and true yaw rate $\omega_{\text{yaw, true}} \approx 0$), measured chassis yaw rate can still display significant continuous fluctuations ($\pm 0.02\text{ to } \pm 0.04\text{ rad/s}$, equivalent to $\pm 1.1^\circ/\text{s} \text{ to } \pm 2.3^\circ/\text{s}$).
+
+This phenomenon occurs because the physical IMU / ESC sensor cluster is rarely mounted with mathematical perfection relative to the vehicle's structural orthogonal axes (ISO FLU: Forward, Left, Up):
+
+```
+          Vehicle Body Frame (FLU)                    IMU Physical Sensor Frame
+               +Z (Up)                                     +Z_imu
+                  |                                           /
+                  |                                          / (pitch tilt β)
+                  +------> +X (Forward)                     +------> +X_imu
+                 /                                         /
+                / (roll tilt α)                           / (yaw tilt γ)
+              +Y (Left)                                 +Y_imu
+```
+
+Due to the uncalibrated 3D rotation matrix $R_{\text{IMU}\to\text{Body}}(\alpha, \beta, \gamma)$:
+$$\vec{\omega}_{\text{measured}} = R_{\text{IMU}\to\text{Body}}^T \vec{\omega}_{\text{chassis}} + \vec{b}_{\text{gyro}}$$
+
+When driving on a straight but real road:
+1. **Road Camber & Suspension Roll:** Vehicle rolls slightly over road slope and potholes ($\omega_{\text{roll}} \neq 0$).
+2. **Acceleration / Braking Pitch:** Longitudinal throttle and brake inputs cause chassis squat and dive ($\omega_{\text{pitch}} \neq 0$).
+3. **Cross-Axis Leakage:** Due to mounting angles $\alpha$ and $\beta$, the measured $Z$-gyro signal picks up roll and pitch rates:
+   $$\omega_{\text{yaw, meas}} \approx \omega_{\text{yaw, true}} + \sin(\beta_{\text{pitch}}) \cdot \omega_{\text{roll}} - \sin(\alpha_{\text{roll}}) \cdot \omega_{\text{pitch}} + b_z$$
+
+Even with zero vehicle steering ($\omega_{\text{yaw, true}} = 0$), every suspension bounce, road camber fluctuation, or throttle tip-in projects into the yaw gyro channel.
+
+---
+
+### 8.2 Standard Automotive IMU Calibration Routines
+
+In production vehicle dynamics and ADAS integration, mounting misalignments are eliminated via a multi-stage factory and service calibration procedure:
+
+#### Stage 1: Flat-Road Static Leveling (Pitch & Roll Calibration)
+* **Pre-condition:** Vehicle parked on a certified flat, horizontal alignment bay, stationary with engine idling or off ($v = 0$).
+* **Principle:** In a static state, the accelerometer measures purely the Earth's gravity vector $\vec{g} = [0, 0, -9.81\text{ m/s}^2]^T$.
+* **Calibration Equations:**
+  $$\alpha_{\text{roll}} = \arcsin\left(\frac{a_y}{g}\right), \quad \beta_{\text{pitch}} = \arctan\left(-\frac{a_x}{\sqrt{a_y^2 + a_z^2}}\right)$$
+  $$\vec{b}_{\text{gyro}} = \frac{1}{N} \sum_{k=1}^N \vec{\omega}_k \quad (\text{static zero-rate bias})$$
+* **Outcome:** Calibrates out static pitch and roll mounting offsets and nulls baseline sensor drift.
+
+#### Stage 2: Slope / Incline Static Calibration (Yaw-Axis Verification)
+* **Pre-condition:** Vehicle parked on a ramp with known grade / slope ($\theta_{\text{slope}}$).
+* **Principle:** Re-evaluating the gravity decomposition under inclined orientation isolates the remaining orthogonal yaw mounting angle $\gamma_{\text{yaw}}$.
+
+#### Stage 3: Dynamic Straight-Line Driving Calibration (Full Matrix Decoupling)
+* **Pre-condition:** Driving on a straight road segment at moderate constant speed ($30\text{--}60\text{ km/h}$) with valid GNSS lock and zero steering angle ($\delta_{\text{steer}} = 0$).
+* **Principle:** 
+  * GNSS heading differential $\Delta \text{bearing} = 0$, and left/right wheel speed difference $\Delta v_{\text{wheel}} = 0$, guaranteeing $\omega_{\text{yaw, true}} = 0$.
+  * Any non-zero measured yaw rate correlated with suspension vertical/lateral excitation is isolated via least-squares regression to solve the off-diagonal cross-axis coupling terms:
+    $$\min_{R} \sum_k \|\vec{\omega}_{\text{meas}, k} - R^T \vec{\omega}_{\text{true}, k}\|^2$$
+* **Outcome:** Establishes the full $3 \times 3$ mounting orthogonalization matrix $R_{\text{IMU}\to\text{Body}}$ stored in vehicle non-volatile memory.
+
+---
+
+### 8.3 Software Mitigation in Perception Pipeline When Calibration is Missing
+On vehicles or logging sessions where factory calibration has not been performed:
+1. **Zero-Phase Low-Pass Filtering:** Attenuates high-frequency roll/pitch suspension bounce ($>2\text{--}3\text{ Hz}$) before yaw rate enters kinematics.
+2. **Continuous Soft-Knee Deadband:** Suppresses residual cross-axis leakage below $0.025\text{ rad/s}$ ($~1.4^\circ/\text{s}$) during straight-line travel without discontinuous step transitions.
+3. **GNSS / Vision Straight-Line Sanity Check:** In future multi-sensor fusion, force $\omega_{\text{ego}} = 0$ when road lane boundaries remain parallel and wheel speed differential is zero.
+
+
 
 

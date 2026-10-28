@@ -471,6 +471,70 @@ class TestEgoMotionProvider(unittest.TestCase):
         self.assertAlmostEqual(spd, 15.0)
         self.assertAlmostEqual(yr, 0.05)
 
+    def test_ego_motion_provider_yaw_rate_smoothing(self):
+        """
+        Tests that zero-phase centered window smoothing attenuates high-frequency noise
+        without introducing phase delay on turn peaks.
+        """
+        provider = EgoMotionProvider.__new__(EgoMotionProvider)
+        provider.session_dir = "mock"
+        provider.timestamps_ns = [i * 33_333_333 for i in range(25)]
+        provider.speeds_mps = [10.0] * 25
+
+        # Signal: clean pulse with single peak at index 8 + alternating high-frequency noise (+- 0.02 rad/s)
+        base_signal = [0.0]*5 + [0.1, 0.2, 0.3, 0.4, 0.3, 0.2, 0.1] + [0.0]*13
+        noise = [0.02 if i % 2 == 0 else -0.02 for i in range(25)]
+        raw_noisy = [b + n for b, n in zip(base_signal, noise)]
+
+        provider.yaw_rates_radps = list(raw_noisy)
+        provider._smooth_yaw_rates(window_size=7)
+
+        # 1. Attenuation of straight-line high-frequency noise variance
+        straight_noise = [0.02 if i % 2 == 0 else -0.02 for i in range(25)]
+        provider.yaw_rates_radps = list(straight_noise)
+        provider._smooth_yaw_rates(window_size=7)
+        raw_noise_var = sum(n**2 for n in straight_noise) / len(straight_noise)
+        smooth_noise_var = sum(s**2 for s in provider.yaw_rates_radps) / len(provider.yaw_rates_radps)
+        self.assertLess(smooth_noise_var, raw_noise_var * 0.1, "Smoothing filter must reduce noise variance by at least 90%")
+
+        # 2. Peak must remain aligned (zero phase lag) on turn pulse
+        provider.yaw_rates_radps = list(raw_noisy)
+        provider._smooth_yaw_rates(window_size=7)
+        peak_idx_raw = base_signal.index(max(base_signal))
+        peak_idx_smooth = provider.yaw_rates_radps.index(max(provider.yaw_rates_radps))
+        self.assertEqual(peak_idx_smooth, peak_idx_raw, "Zero-phase filter must preserve peak timing exactly")
+
+    def test_soft_deadband_continuity(self):
+        """
+        Tests that soft-knee deadband in VehicleOrientationTracker eliminates
+        step discontinuities as yaw rate crosses the deadband boundary.
+        """
+        tracker = VehicleOrientationTracker(
+            imu_yaw_deadband_inner_radps=0.010,
+            imu_yaw_deadband_outer_radps=0.025,
+        )
+        t_ns = 1_700_000_000_000_000_000
+        dt_ns = 33_333_333
+
+        # Sweep yaw rate across deadband from 0.00 to 0.035 rad/s in small steps
+        yws = []
+        for i in range(36):
+            yr = i * 0.001  # 0.000 to 0.035
+            # For a stationary track, yaw change per frame is -filtered_yr * frame_dt
+            tracker.prev_timestamp_ns[999] = t_ns - dt_ns
+            tracker.latched_yaw[999] = 0.0
+            res = tracker.update(999, 10.0, 0.0, t_ns, 0.0, yr)
+            # Extracted yaw rotation
+            yws.append(res["yaw_rad"])
+            t_ns += dt_ns
+
+        # Verify no abrupt step jump: consecutive differences must be small and smooth
+        diffs = [abs(yws[i+1] - yws[i]) for i in range(len(yws)-1)]
+        max_jump = max(diffs)
+        # Without soft-knee deadband, crossing 0.015 rad/s would cause a jump of 0.015 * 0.0333 ~ 0.0005 rad
+        # With soft-knee ramp, max step per 0.001 yr increment is < 0.0001 rad
+        self.assertLess(max_jump, 0.00015, f"Step jump {max_jump:.6f} exceeded smooth continuity bound")
+
 
 if __name__ == "__main__":
     unittest.main()

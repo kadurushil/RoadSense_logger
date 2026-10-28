@@ -56,13 +56,17 @@ class EgoMotionProvider:
                             try:
                                 d = json.loads(message.data.decode("utf-8"))
                                 spd_kmph = float(d.get("speed_kmph", 0.0))
-                                yr = float(d.get("yaw_rate_radps", 0.0))
+                                # Convert CAN SAE J670 yaw rate (+Right / clockwise)
+                                # to ROS/ISO-8855 base_link frame (+Left / counter-clockwise, +Z Up)
+                                yr_can = float(d.get("yaw_rate_radps", 0.0))
+                                yr_base_link = -yr_can
                                 self.timestamps_ns.append(message.log_time)
                                 self.speeds_mps.append(spd_kmph / 3.6)
-                                self.yaw_rates_radps.append(yr)
+                                self.yaw_rates_radps.append(yr_base_link)
                             except Exception:
                                 continue
                     if self.timestamps_ns:
+                        self._smooth_yaw_rates()
                         return
                 except Exception as e:
                     print(f"[EgoMotionProvider] Warning reading MCAP telemetry: {e}")
@@ -94,6 +98,31 @@ class EgoMotionProvider:
                             self.yaw_rates_radps.append(0.0)
             except Exception as e:
                 print(f"[EgoMotionProvider] Warning reading GNSS fixes: {e}")
+
+    def _smooth_yaw_rates(self, window_size: int = 7) -> None:
+        """
+        Applies a zero-phase centered low-pass filter over raw CAN yaw rates.
+        Attenuates quantization steps and high-frequency chassis vibration (>3 Hz)
+        without introducing phase delay.
+        """
+        if len(self.yaw_rates_radps) < window_size:
+            return
+
+        weights = [1.0, 2.0, 3.0, 4.0, 3.0, 2.0, 1.0]
+        half = len(weights) // 2
+
+        smoothed = []
+        n = len(self.yaw_rates_radps)
+        for i in range(n):
+            val = 0.0
+            w_total = 0.0
+            for j, w in enumerate(weights):
+                idx = max(0, min(n - 1, i - half + j))
+                val += w * self.yaw_rates_radps[idx]
+                w_total += w
+            smoothed.append(val / w_total)
+
+        self.yaw_rates_radps = smoothed
 
     def get_ego_motion(self, timestamp_ns: int) -> Tuple[float, float]:
         """
@@ -139,7 +168,9 @@ class VehicleOrientationTracker:
         max_yaw_rate_rad_s: float = 1.0,           # ~57.3°/s physical steering bound
         smoothing_alpha: float = 0.25,             # Circular IIR filter factor
         lane_attractor_beta: float = 0.15,         # Soft road-lane bimodal alignment
-        imu_yaw_deadband_radps: float = 0.015,     # ~0.85°/s gyro deadband to reject chassis rattle/vibration
+        imu_yaw_deadband_radps: float = 0.015,     # legacy threshold
+        imu_yaw_deadband_inner_radps: float = 0.010,  # ~0.57°/s noise floor below which yr is 0
+        imu_yaw_deadband_outer_radps: float = 0.025,  # ~1.43°/s full transition threshold
     ):
         self.min_frames = min_history_frames
         self.max_frames = max_history_frames
@@ -150,6 +181,8 @@ class VehicleOrientationTracker:
         self.alpha = smoothing_alpha
         self.beta = lane_attractor_beta
         self.imu_yaw_deadband = imu_yaw_deadband_radps
+        self.deadband_inner = imu_yaw_deadband_inner_radps
+        self.deadband_outer = imu_yaw_deadband_outer_radps
 
         # Tracking state dicts keyed by track_id
         self.history: Dict[int, deque] = {}                  # track_id -> deque of (t_ns, x_m, y_m, ego_spd)
@@ -200,16 +233,26 @@ class VehicleOrientationTracker:
                 "vy_mps": 0.0,
             }
 
-        # 1. Delta time and IMU deadband / physical bound filtering
+        # 1. Delta time and Soft-Knee IMU deadband / physical bound filtering
         prev_t = self.prev_timestamp_ns.get(track_id)
         frame_dt = (timestamp_ns - prev_t) / 1e9 if prev_t else 0.033
         self.prev_timestamp_ns[track_id] = timestamp_ns
         frame_dt = max(0.01, min(0.1, frame_dt))
 
-        if abs(ego_yaw_rate_radps) < self.imu_yaw_deadband:
+        # Soft-knee deadband: smooth ramp between deadband_inner and deadband_outer
+        # to eliminate abrupt step jumps when signal crosses deadband
+        abs_yr = abs(ego_yaw_rate_radps)
+        effective_inner = min(self.deadband_inner, self.imu_yaw_deadband)
+        effective_outer = max(self.deadband_outer, self.imu_yaw_deadband * 1.5)
+
+        if abs_yr <= effective_inner:
             filtered_ego_yaw_rate = 0.0
-        else:
+        elif abs_yr >= effective_outer:
             filtered_ego_yaw_rate = max(-1.0, min(1.0, ego_yaw_rate_radps))
+        else:
+            factor = (abs_yr - effective_inner) / (effective_outer - effective_inner)
+            clamped_yr = max(-1.0, min(1.0, ego_yaw_rate_radps))
+            filtered_ego_yaw_rate = factor * clamped_yr
 
         # 2. Kinematic Turning Model: Propagate existing headings in base_link
         # When host vehicle turns by Δθ_ego = ω_ego * Δt, external objects in base_link
