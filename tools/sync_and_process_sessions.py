@@ -452,13 +452,18 @@ def load_gnss_fixes_csv(csv_path):
         with open(csv_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
+                prov = row.get("provider", "gps").strip().lower()
                 fixes.append({
                     "mono_ns": int(row["elapsed_realtime_ns"]),
                     "lat": float(row.get("latitude", 0.0)),
                     "lon": float(row.get("longitude", 0.0)),
                     "speed_kmh": float(row.get("speed_kmh", 0.0)),
-                    "bearing": float(row.get("bearing_deg", 0.0))
+                    "bearing": float(row.get("bearing_deg", 0.0)),
+                    "provider": prov
                 })
+        # If true satellite GPS fixes exist, filter out cellular network fixes for ego speed fallback
+        if any(f.get("provider") == "gps" for f in fixes):
+            fixes = [f for f in fixes if f.get("provider") == "gps"]
     except Exception as e:
         print(f"    [!] Error reading gnss_fixes.csv: {e}")
     return fixes

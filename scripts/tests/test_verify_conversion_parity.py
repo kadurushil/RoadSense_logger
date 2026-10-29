@@ -208,6 +208,32 @@ class TestVerifyConversionParity(unittest.TestCase):
         self.assertEqual(report.overall_status(), "FAIL")
         self.assertEqual(report.categories["time_sync"].status, "FAIL")
 
+    def test_gnss_network_separation(self):
+        """Verify that load_gnss_fixes_csv filters out network fixes when gps is present."""
+        from tools.sync_and_process_sessions import load_gnss_fixes_csv
+        from tools.convert_session_to_mcap import parse_gnss_csv
+        import csv
+
+        csv_path = os.path.join(self.temp_dir.name, "test_gnss.csv")
+        with open(csv_path, "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["elapsed_realtime_ns", "utc_time_ms", "utc_iso", "latitude", "longitude", "altitude_m", "speed_mps", "speed_kmh", "bearing_deg", "accuracy_m", "provider", "satellites"])
+            writer.writerow([1000000000, 1700000000000, "2026-01-01T00:00:00Z", 18.0, 73.0, 500.0, 10.0, 36.0, 90.0, 5.0, "gps", "12/15"])
+            writer.writerow([1050000000, 1700000000500, "2026-01-01T00:00:00Z", 18.1, 73.1, 540.0, 0.0, 0.0, 0.0, 75.0, "network", "12/15"])
+            writer.writerow([2000000000, 1700000001000, "2026-01-01T00:00:01Z", 18.0001, 73.0001, 500.0, 10.5, 37.8, 90.0, 5.0, "gps", "12/15"])
+
+        # In sync_and_process_sessions: only gps fixes must be loaded
+        sync_fixes = load_gnss_fixes_csv(csv_path)
+        self.assertEqual(len(sync_fixes), 2)
+        self.assertTrue(all(f["provider"] == "gps" for f in sync_fixes))
+
+        # In convert_session_to_mcap: parse_gnss_csv must yield all fixes with provider
+        mcap_fixes = list(parse_gnss_csv(csv_path))
+        self.assertEqual(len(mcap_fixes), 3)
+        self.assertEqual(mcap_fixes[0]["provider"], "gps")
+        self.assertEqual(mcap_fixes[1]["provider"], "network")
+        self.assertEqual(mcap_fixes[2]["provider"], "gps")
+
 
 if __name__ == "__main__":
     unittest.main()

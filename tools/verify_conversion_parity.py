@@ -644,7 +644,7 @@ def verify_session_parity(
     else:
         cat_sync.add_detail(f"Tight temporal alignment maintained (Peak delta: {max_sync_delta_ms:.1f} ms).")
 
-    # Verify GNSS LocationFix heading (radians) and ENU velocity alignment in MCAP
+    # Verify GNSS LocationFix heading (radians), ENU velocity alignment, and dual-stream network separation
     if has_mcap and MCAP_AVAILABLE and "/gnss/fix" in mcap_stats:
         try:
             with open(mcap_file, "rb") as mf:
@@ -652,6 +652,11 @@ def verify_session_parity(
                 gnss_samples_checked = 0
                 heading_in_radians = True
                 heading_vel_aligned = True
+                isolated_speed_drops = 0
+                dist_jumps = 0
+                prev_loc = None
+                prev_speed = 0.0
+
                 for schema, ch, msg in reader.iter_messages(topics=["/gnss/fix"]):
                     loc = LocationFix()
                     loc.ParseFromString(msg.data)
@@ -661,23 +666,46 @@ def verify_session_parity(
                     # Check 2: heading must be in radians (0 to 2*pi)
                     if loc.heading > 2 * math.pi + 0.1:
                         heading_in_radians = False
-                    # Check 3: when moving (> 1 m/s), heading angle must match ENU velocity angle
+                    
                     v_speed = math.hypot(loc.velocity.x, loc.velocity.y)
+                    # Check 3: when moving (> 1 m/s), heading angle must match ENU velocity angle
                     if v_speed > 1.0 and loc.heading is not None:
                         vel_heading = (math.atan2(loc.velocity.x, loc.velocity.y) + 2 * math.pi) % (2 * math.pi)
                         diff = abs((loc.heading - vel_heading + math.pi) % (2 * math.pi) - math.pi)
                         if diff > 0.05:  # ~3 degrees
                             heading_vel_aligned = False
+
+                    # Check 4: Check for jumps and sudden drops to 0 speed in /gnss/fix
+                    if prev_loc is not None:
+                        dt = (loc.timestamp.seconds - prev_loc.timestamp.seconds) + (loc.timestamp.nanos - prev_loc.timestamp.nanos) * 1e-9
+                        if dt > 0:
+                            dlat = (loc.latitude - prev_loc.latitude) * 111139.0
+                            dlon = (loc.longitude - prev_loc.longitude) * 111139.0 * math.cos(math.radians(loc.latitude))
+                            dist = math.hypot(dlat, dlon)
+                            if (dist / dt) > 40.0:  # > 40 m/s (144 km/h) jump
+                                dist_jumps += 1
+                        if prev_speed > 2.0 and v_speed == 0.0:
+                            isolated_speed_drops += 1
+
+                    prev_loc = loc
+                    prev_speed = v_speed
                     gnss_samples_checked += 1
-                    if gnss_samples_checked >= 50:
-                        break
 
                 if not heading_in_radians:
                     cat_sync.fail("GNSS LocationFix.heading is formatted in DEGREES instead of RADIANS (causes wild heading in Foxglove).")
                 elif not heading_vel_aligned:
                     cat_sync.warn("GNSS LocationFix.heading deviated from ENU velocity vector during vehicle motion.")
+                elif dist_jumps > 0:
+                    cat_sync.fail(f"/gnss/fix exhibited {dist_jumps} sudden coordinate teleportation jumps (>40 m/s)!")
+                elif isolated_speed_drops > 0:
+                    cat_sync.warn(f"/gnss/fix exhibited {isolated_speed_drops} isolated sudden drops to 0 speed while moving.")
                 else:
-                    cat_sync.add_detail("GNSS LocationFix heading (radians) and ENU velocity vectors verified 100% aligned.")
+                    cat_sync.add_detail("GNSS LocationFix heading, ENU velocity vectors, and continuous trajectory verified 100% clean.")
+
+                if "/gnss/network" in mcap_stats:
+                    net_cnt = mcap_stats["/gnss/network"]
+                    cat_sync.metrics["mcap_gnss_network_messages"] = net_cnt
+                    cat_sync.add_detail(f"Cellular network fixes cleanly decoupled into /gnss/network ({net_cnt} msgs).")
         except Exception as e:
             cat_sync.warn(f"Failed to verify GNSS messages in MCAP: {e}")
 

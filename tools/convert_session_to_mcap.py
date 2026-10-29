@@ -7,12 +7,14 @@ self-contained, Zstandard-compressed Foxglove MCAP (.mcap) file.
 
 Supported Channels & Modalities:
   - /radar/points        : foxglove.PointCloud (3D Doppler-colored point cloud, radar_link)
+  - /radar/clusters      : foxglove.PointCloud (3D Hardware DBSCAN cluster centroids, radar_link)
   - /radar/tracks        : foxglove.SceneUpdate (3D oriented cuboids, velocity vectors, ADAS-highlighted labels)
   - /radar/diagnostics   : roadsense.RadarDiagnostics (TLV 4 tracker stats, ego dynamics, road boundaries)
   - /radar/adas          : roadsense.RadarAdas (TLV 6 FCW alert stage/TTC, ACC POI, BSD warning)
   - /camera/video        : foxglove.CompressedVideo (H.264 Annex B bitstream, camera_optical)
   - /camera/calib        : foxglove.CameraCalibration (Pinhole intrinsics K, D, R, P)
-  - /gnss/fix            : foxglove.LocationFix (GPS satellite track, speed, bearing)
+  - /gnss/fix            : foxglove.LocationFix (Satellite GPS track, speed, bearing in wgs84)
+  - /gnss/network        : foxglove.LocationFix (Cellular / Wi-Fi coarse network triangulation, wgs84)
   - /imu/data            : roadsense.Imu (100 Hz calibrated acc, gyro, linear acc, Euler roll/pitch/yaw)
   - /imu/pose            : foxglove.PoseInFrame (100 Hz orientation quaternion in base_link)
   - /vehicle/telemetry   : roadsense.VehicleTelemetry (Powertrain CAN / TLV 5 dynamics)
@@ -702,13 +704,17 @@ def parse_gnss_csv(gnss_csv_path):
                 alt = float(row["altitude_m"]) if row.get("altitude_m") else 0.0
                 speed = float(row["speed_mps"]) if row.get("speed_mps") else 0.0
                 bearing = float(row["bearing_deg"]) if row.get("bearing_deg") else 0.0
+                accuracy = float(row["accuracy_m"]) if row.get("accuracy_m") else 0.0
+                provider = row.get("provider", "gps").strip().lower()
                 yield {
                     "mono_ns": mono_ns,
                     "lat": lat,
                     "lon": lon,
                     "alt": alt,
                     "speed": speed,
-                    "bearing": bearing
+                    "bearing": bearing,
+                    "accuracy": accuracy,
+                    "provider": provider
                 }
             except (ValueError, KeyError):
                 continue
@@ -1832,11 +1838,14 @@ def convert_session_to_mcap(
                     )
                     count_msg("/radar/adas")
 
-        # Ingest GNSS Satellite Fixes
+        # Ingest GNSS Fixes (Decouple satellite GPS from cellular/network triangulation)
         if os.path.isfile(gnss_csv):
             print(f"    - Ingesting GNSS Fixes: {gnss_csv}")
             print(f"[PROGRESS] {json.dumps({'step': 'gnss', 'desc': 'Ingesting GNSS Satellite Fixes', 'pct': 26})}", flush=True)
-            for fix in parse_gnss_csv(gnss_csv):
+            all_gnss = list(parse_gnss_csv(gnss_csv))
+            has_satellite_gps = any(f["provider"] == "gps" for f in all_gnss)
+
+            for fix in all_gnss:
                 utc_ns = fix["mono_ns"] + time_offset_ns
                 loc_msg = LocationFix()
                 loc_msg.timestamp.seconds = utc_ns // 1_000_000_000
@@ -1852,8 +1861,18 @@ def convert_session_to_mcap(
                 loc_msg.velocity.y = fix["speed"] * math.cos(math.radians(fix["bearing"]))
                 loc_msg.velocity.z = 0.0
 
-                writer.write_message("/gnss/fix", loc_msg, log_time=utc_ns)
-                count_msg("/gnss/fix")
+                is_network = (fix["provider"] == "network" and has_satellite_gps)
+                if is_network:
+                    # Style cellular network triangulation with distinct Amber color (#FF9800)
+                    loc_msg.color.r = 1.0
+                    loc_msg.color.g = 0.6
+                    loc_msg.color.b = 0.0
+                    loc_msg.color.a = 0.8
+                    writer.write_message("/gnss/network", loc_msg, log_time=utc_ns)
+                    count_msg("/gnss/network")
+                else:
+                    writer.write_message("/gnss/fix", loc_msg, log_time=utc_ns)
+                    count_msg("/gnss/fix")
 
         # Ingest IMU Telemetry (100 Hz Accelerometer, Gyroscope & Orientation)
         if os.path.isfile(imu_csv):
