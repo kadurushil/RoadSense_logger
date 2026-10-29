@@ -65,6 +65,31 @@ Overlaying `/vision/2d_boxes` onto `/camera/video` resolves this immediately.
   * Fill: Neon Green (`rgba: 0.10, 1.0, 0.20, 0.95`) with dark border.
   * **Visual Check**: If the green dot is not sitting on the road plane where the tires meet the asphalt, the ground-plane projection $(Z=0)$ will calculate an incorrect longitudinal distance $X_{\text{fwd}}$.
 
+### 3.3 Reverse Landscape Mounts & Video Rotation Transformation (180°)
+In RoadSense data collection, Android smartphones are commonly mounted in reverse landscape mode (USB port facing inward/right). Under zero-cost video demuxing:
+1. The raw H.264 stream `/camera/video` is stored in the MCAP container in native sensor orientation ($180^\circ$ inverted).
+2. Foxglove Studio's camera view panel applies `"rotation": 180` to display the video feed upright on screen.
+3. 3D cuboids (`/vision/geo_tracks`) automatically project correctly because the $180^\circ$ rotation is folded directly into the `camera_optical` `/tf` frame roll.
+4. **2D Video Overlays (`foxglove.ImageAnnotations`)**, however, are rendered in the coordinate space of the raw `/camera/video` stream. Foxglove Studio then applies the panel's $180^\circ$ rotation to the entire canvas (both image and annotations).
+5. Therefore, YOLO bounding boxes $[x_1, y_1, x_2, y_2]$ detected on the upright frame must be transformed to raw sensor coordinates before emitting to `/vision/2d_boxes`:
+
+$$x_{1, \text{raw}} = W - x_2, \quad y_{1, \text{raw}} = H - y_2$$
+$$x_{2, \text{raw}} = W - x_1, \quad y_{2, \text{raw}} = H - y_1$$
+
+* **Contact Patch Dot**:
+  $$u_{\text{raw}} = W - \frac{x_1 + x_2}{2}, \quad v_{\text{raw}} = H - y_2$$
+* **Text Label Anchor**:
+  $$u_{\text{raw}} = W - x_1, \quad v_{\text{raw}} = H - \max(14.0, y_1 - 4.0)$$
+
+When Foxglove Studio applies $(u_{\text{display}}, v_{\text{display}}) = (W - u_{\text{raw}}, H - v_{\text{raw}})$, the display coordinates recover the exact upright box $[x_1, y_1, x_2, y_2]$ and contact point on screen, landing precisely over physical vehicles and matching the 3D projected cuboids 1:1.
+
+### 3.4 Rolling Trajectory Trails (`/vision/trajectories`) & Stale Track Pruning
+To visualize the recent motion path of surrounding traffic without overwhelming system memory and container sizes:
+* **10–15s Rolling Window**: The `TrajectoryTracker` maintains breadcrumb points for up to 15 seconds per obstacle.
+* **10 Hz Subsampling**: Points are captured at 100ms intervals (10 Hz = 150 points for 15s) rather than 30 Hz, producing smooth curves in Foxglove 3D while cutting point density by 3x.
+* **Automatic Stale Track Pruning**: Tracks that are lost or exit the camera FOV remain visible for up to 15 seconds. Once 15 seconds have elapsed without a detection, the track is completely deleted from the active trajectory buffer.
+* **Impact**: In a 20-minute recording with ~1,000 unique tracks, this eliminates serializing dead tracks across all 35,330 frames, reducing `/vision/trajectories` payload from **7.26 GB to 206 MB (35x reduction)** and shrinking the final MCAP from **1.4 GB down to 867 MB**.
+
 ---
 
 ## 4. Deep Dive: `/vision/diagnostics` & The State Matrix

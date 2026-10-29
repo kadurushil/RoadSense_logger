@@ -130,6 +130,70 @@ VISION_DIAGNOSTICS_JSON_SCHEMA = {
 }
 
 
+class TrajectoryTracker:
+    """
+    Maintains rolling trajectory breadcrumbs for active obstacles.
+    Stores the last 10-15 seconds of motion per track (default 15.0 seconds at 10 Hz = 150 points).
+    Automatically prunes stale tracks that have not been observed for more than max_age_seconds
+    to prevent memory growth and eliminate MCAP file bloat.
+    """
+
+    def __init__(
+        self,
+        max_age_seconds: float = 15.0,
+        min_interval_seconds: float = 0.10,
+    ):
+        self.max_age_ns = int(max_age_seconds * 1_000_000_000)
+        self.min_interval_ns = int(min_interval_seconds * 1_000_000_000)
+        self.max_points = max(2, int(max_age_seconds / max(0.01, min_interval_seconds)))
+
+        self.history: Dict[int, deque] = {}
+        self.last_seen_ns: Dict[int, int] = {}
+        self.last_point_ts_ns: Dict[int, int] = {}
+
+    def update(
+        self,
+        timestamp_ns: int,
+        tracks: List[Dict[str, Any]],
+    ) -> Dict[int, deque]:
+        """
+        Updates trajectory breadcrumbs with current frame tracks and prunes stale tracks.
+        """
+        # 1. Ingest currently detected track positions
+        for t in tracks:
+            tid = t.get("track_id")
+            if tid is None:
+                continue
+
+            pos = t.get("position_3d", {})
+            x_fwd = float(pos.get("x_fwd_m", 0.0))
+            y_left = float(pos.get("y_left_m", 0.0))
+            z_up = 0.08  # Ground plane elevation for clear visualization
+
+            if tid not in self.history:
+                self.history[tid] = deque(maxlen=self.max_points)
+                self.last_point_ts_ns[tid] = 0
+
+            # Subsample points at min_interval_ns (e.g. 10 Hz) or if first point
+            if (timestamp_ns - self.last_point_ts_ns[tid]) >= self.min_interval_ns:
+                self.history[tid].append((x_fwd, y_left, z_up))
+                self.last_point_ts_ns[tid] = timestamp_ns
+
+            self.last_seen_ns[tid] = timestamp_ns
+
+        # 2. Prune tracks that haven't been detected in the last max_age_ns
+        stale_ids = [
+            tid for tid, last_ts in self.last_seen_ns.items()
+            if (timestamp_ns - last_ts) > self.max_age_ns or timestamp_ns < last_ts
+        ]
+        for st in stale_ids:
+            self.history.pop(st, None)
+            self.last_seen_ns.pop(st, None)
+            self.last_point_ts_ns.pop(st, None)
+
+        return self.history
+
+
 class McapSceneWriter:
     """Encodes vision detections, 2D overlays, trajectories, and telemetry diagnostics into Foxglove messages."""
 
@@ -144,6 +208,9 @@ class McapSceneWriter:
     def create_image_annotations(
         timestamp_ns: int,
         tracks: List[Dict[str, Any]],
+        image_width: int = 1280,
+        image_height: int = 720,
+        video_rotation_deg: int = 0,
     ) -> ImageAnnotations:
         """
         Creates a foxglove.ImageAnnotations message containing:
@@ -151,10 +218,20 @@ class McapSceneWriter:
           - Track ID / Class / Confidence / Range labels (TextAnnotation)
           - Ground contact patch bottom-center dots (CircleAnnotation)
         Overlays directly onto /camera/video in Foxglove Studio's Image panel.
+
+        Coordinates in `tracks` are in upright camera coordinates (as detected by YOLO).
+        If the underlying /camera/video stream in MCAP has raw sensor orientation
+        (e.g. video_rotation_deg = 180° for reverse landscape phone mounts displayed
+        with "rotation": 180 in Foxglove's Image panel), coordinates are transformed
+        to raw sensor space so that Foxglove's viewer rotation places the annotations
+        directly on top of the physical vehicles.
         """
         msg = ImageAnnotations()
         sec = int(timestamp_ns // 1_000_000_000)
         nsec = int(timestamp_ns % 1_000_000_000)
+
+        w = float(image_width)
+        h = float(image_height)
 
         for t in tracks:
             bbox = t.get("bbox_2d")
@@ -167,6 +244,46 @@ class McapSceneWriter:
             range_m = float(t.get("range_m", 0.0))
             color = McapSceneWriter.get_category_color(cls_name)
 
+            # Map from upright detection coordinates to raw sensor coordinates
+            # based on video_rotation_deg (e.g. 180° reverse landscape)
+            if video_rotation_deg == 180:
+                # Upright (x1, y1) is top-left, (x2, y2) is bottom-right.
+                # In 180° raw space:
+                # rx1 = w - x2, ry1 = h - y2 (raw top-left)
+                # rx2 = w - x1, ry2 = h - y1 (raw bottom-right)
+                rx1, ry1 = w - x2, h - y2
+                rx2, ry2 = w - x1, h - y1
+                box_pts = [(rx1, ry1), (rx2, ry1), (rx2, ry2), (rx1, ry2)]
+                # Contact patch is bottom-center in upright space ((x1 + x2)/2, y2)
+                contact_x = w - ((x1 + x2) / 2.0)
+                contact_y = h - y2
+                # Label is above top-left of box in upright space (x1, y1 - 4)
+                label_x = w - x1
+                label_y = h - max(14.0, y1 - 4.0)
+            elif video_rotation_deg == 90:
+                rx1, ry1 = y1, w - x2
+                rx2, ry2 = y2, w - x1
+                box_pts = [(rx1, ry1), (rx2, ry1), (rx2, ry2), (rx1, ry2)]
+                contact_x = y2
+                contact_y = w - ((x1 + x2) / 2.0)
+                label_x = max(14.0, y1 - 4.0)
+                label_y = w - x1
+            elif video_rotation_deg == 270:
+                rx1, ry1 = h - y2, x1
+                rx2, ry2 = h - y1, x2
+                box_pts = [(rx1, ry1), (rx2, ry1), (rx2, ry2), (rx1, ry2)]
+                contact_x = h - y2
+                contact_y = (x1 + x2) / 2.0
+                label_x = h - max(14.0, y1 - 4.0)
+                label_y = x1
+            else:
+                # 0 degrees: raw video is upright
+                box_pts = [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]
+                contact_x = (x1 + x2) / 2.0
+                contact_y = y2
+                label_x = x1
+                label_y = max(14.0, y1 - 4.0)
+
             # 1. 2D Bounding Box Rectangle (LINE_LOOP)
             poly = msg.points.add()
             poly.timestamp.seconds = sec
@@ -174,7 +291,7 @@ class McapSceneWriter:
             poly.type = PointsAnnotation.Type.LINE_LOOP
             poly.thickness = 2.0
             poly.outline_color.CopyFrom(color)
-            for px, py in [(x1, y1), (x2, y1), (x2, y2), (x1, y2)]:
+            for px, py in box_pts:
                 pt = poly.points.add()
                 pt.x = float(px)
                 pt.y = float(py)
@@ -187,19 +304,18 @@ class McapSceneWriter:
                 txt.text = f"ID #{track_id} | {cls_name.upper()} {conf:.2f} | {range_m:.1f}m"
             else:
                 txt.text = f"ID #{track_id} | {cls_name.upper()} | {range_m:.1f}m"
-            txt.position.x = float(x1)
-            txt.position.y = float(max(14.0, y1 - 4.0))
+            txt.position.x = float(label_x)
+            txt.position.y = float(label_y)
             txt.font_size = 12.0
             txt.text_color.r, txt.text_color.g, txt.text_color.b, txt.text_color.a = 1.0, 1.0, 1.0, 1.0
             txt.background_color.r, txt.background_color.g, txt.background_color.b, txt.background_color.a = 0.05, 0.05, 0.05, 0.65
 
             # 3. Ground Contact Patch Marker (CircleAnnotation)
-            cx = (x1 + x2) / 2.0
             dot = msg.circles.add()
             dot.timestamp.seconds = sec
             dot.timestamp.nanos = nsec
-            dot.position.x = float(cx)
-            dot.position.y = float(y2)
+            dot.position.x = float(contact_x)
+            dot.position.y = float(contact_y)
             dot.diameter = 8.0
             dot.thickness = 1.5
             dot.fill_color.r, dot.fill_color.g, dot.fill_color.b, dot.fill_color.a = 0.10, 1.00, 0.20, 0.95

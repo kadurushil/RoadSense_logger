@@ -21,7 +21,11 @@ from foxglove_schemas_protobuf.PointsAnnotation_pb2 import PointsAnnotation
 from foxglove_schemas_protobuf.LinePrimitive_pb2 import LinePrimitive
 from mcap.reader import make_reader
 
-from tools.vision.mcap.mcap_scene_writer import McapSceneWriter, VISION_DIAGNOSTICS_JSON_SCHEMA
+from tools.vision.mcap.mcap_scene_writer import (
+    McapSceneWriter,
+    TrajectoryTracker,
+    VISION_DIAGNOSTICS_JSON_SCHEMA,
+)
 from tools.vision.mcap.inject_vision_tracks import write_standalone_vision_mcap
 
 
@@ -94,6 +98,53 @@ class TestMcapVisionEnrichment(unittest.TestCase):
         self.assertIn("CAR", lbl1.text)
         self.assertIn("28.1m", lbl1.text)
 
+    def test_image_annotations_generation_rotated_180(self):
+        ia = McapSceneWriter.create_image_annotations(
+            self.ts,
+            self.sample_tracks,
+            image_width=1280,
+            image_height=720,
+            video_rotation_deg=180,
+        )
+        self.assertEqual(len(ia.points), 2)
+        self.assertEqual(len(ia.texts), 2)
+        self.assertEqual(len(ia.circles), 2)
+
+        # Inverted box 1 (Car): [580, 270, 640, 320]
+        # rx1 = 1280 - 640 = 640, ry1 = 720 - 320 = 400
+        # rx2 = 1280 - 580 = 700, ry2 = 720 - 270 = 450
+        box1 = ia.points[0]
+        self.assertEqual(box1.type, PointsAnnotation.Type.LINE_LOOP)
+        self.assertAlmostEqual(box1.points[0].x, 640.0)
+        self.assertAlmostEqual(box1.points[0].y, 400.0)
+        self.assertAlmostEqual(box1.points[2].x, 700.0)
+        self.assertAlmostEqual(box1.points[2].y, 450.0)
+
+        # Contact patch dot: bottom center in upright (610, 320) -> (1280-610, 720-320) = (670, 400)
+        dot1 = ia.circles[0]
+        self.assertAlmostEqual(dot1.position.x, 670.0)
+        self.assertAlmostEqual(dot1.position.y, 400.0)
+
+        # Label: top-left in upright (580, 266) -> (1280-580, 720-266) = (700, 454)
+        lbl1 = ia.texts[0]
+        self.assertAlmostEqual(lbl1.position.x, 700.0)
+        self.assertAlmostEqual(lbl1.position.y, 454.0)
+
+        # Verify that Foxglove's 180° rotation recovers the exact upright bounding box & contact patch
+        disp_x1 = 1280.0 - box1.points[2].x  # 1280 - 700 = 580
+        disp_y1 = 720.0 - box1.points[2].y   # 720 - 450 = 270
+        disp_x2 = 1280.0 - box1.points[0].x  # 1280 - 640 = 640
+        disp_y2 = 720.0 - box1.points[0].y   # 720 - 400 = 320
+        self.assertAlmostEqual(disp_x1, 580.0)
+        self.assertAlmostEqual(disp_y1, 270.0)
+        self.assertAlmostEqual(disp_x2, 640.0)
+        self.assertAlmostEqual(disp_y2, 320.0)
+
+        disp_dot_x = 1280.0 - dot1.position.x
+        disp_dot_y = 720.0 - dot1.position.y
+        self.assertAlmostEqual(disp_dot_x, 610.0)
+        self.assertAlmostEqual(disp_dot_y, 320.0)  # Exactly on bottom edge of vehicle!
+
     def test_scene_update_velocity_arrows_and_footprints(self):
         su = McapSceneWriter.create_scene_update(self.ts, self.sample_tracks)
         entity = su.entities[0]
@@ -128,6 +179,43 @@ class TestMcapVisionEnrichment(unittest.TestCase):
         line = entity.lines[0]
         self.assertEqual(line.type, LinePrimitive.Type.LINE_STRIP)
         self.assertEqual(len(line.points), 3)
+
+    def test_trajectory_tracker_pruning_and_subsampling(self):
+        tracker = TrajectoryTracker(max_age_seconds=15.0, min_interval_seconds=0.10)
+        base_ts = 1_000_000_000_000  # 1000s in ns
+
+        # Frame 1: Track 101 appears at (10, 0)
+        h = tracker.update(base_ts, [{"track_id": 101, "position_3d": {"x_fwd_m": 10.0, "y_left_m": 0.0}}])
+        self.assertIn(101, h)
+        self.assertEqual(len(h[101]), 1)
+
+        # Frame 2: 33ms later (same track, below 100ms interval -> should NOT append new point)
+        h = tracker.update(base_ts + 33_333_333, [{"track_id": 101, "position_3d": {"x_fwd_m": 10.5, "y_left_m": 0.0}}])
+        self.assertEqual(len(h[101]), 1, "Sub-100ms frame should not spam trajectory points")
+
+        # Frame 4: 100ms later -> should append second point
+        h = tracker.update(base_ts + 100_000_000, [{"track_id": 101, "position_3d": {"x_fwd_m": 11.0, "y_left_m": 0.0}}])
+        self.assertEqual(len(h[101]), 2)
+
+        # Frame 5: Track 202 appears at t = base_ts + 1s
+        h = tracker.update(base_ts + 1_000_000_000, [
+            {"track_id": 101, "position_3d": {"x_fwd_m": 12.0, "y_left_m": 0.0}},
+            {"track_id": 202, "position_3d": {"x_fwd_m": 25.0, "y_left_m": -2.0}},
+        ])
+        self.assertIn(101, h)
+        self.assertIn(202, h)
+
+        # Track 101 stops being detected. Track 202 continues for 10 seconds (t = base_ts + 11s)
+        # Track 101 age is 10s <= 15s -> still retained
+        h = tracker.update(base_ts + 11_000_000_000, [{"track_id": 202, "position_3d": {"x_fwd_m": 30.0, "y_left_m": -2.0}}])
+        self.assertIn(101, h, "Track unseen for 10s should remain visible (within 15s window)")
+        self.assertIn(202, h)
+
+        # Advance to t = base_ts + 17s (> 15s since Track 101 was seen)
+        # Track 101 must now be pruned!
+        h = tracker.update(base_ts + 17_000_000_000, [{"track_id": 202, "position_3d": {"x_fwd_m": 35.0, "y_left_m": -2.0}}])
+        self.assertNotIn(101, h, "Track unseen for >15s must be pruned to prevent MCAP bloat")
+        self.assertIn(202, h)
 
     def test_camera_frustum_update(self):
         fu = McapSceneWriter.create_camera_frustum_update(self.ts)

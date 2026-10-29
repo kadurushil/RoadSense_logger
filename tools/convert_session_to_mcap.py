@@ -1861,7 +1861,11 @@ def convert_session_to_mcap(
         if resolved_vision_json:
             print(f"    - Ingesting Vision Tracks & Telemetry Topics: {resolved_vision_json}")
             try:
-                from tools.vision.mcap.mcap_scene_writer import McapSceneWriter, VISION_DIAGNOSTICS_JSON_SCHEMA
+                from tools.vision.mcap.mcap_scene_writer import (
+                    McapSceneWriter,
+                    TrajectoryTracker,
+                    VISION_DIAGNOSTICS_JSON_SCHEMA,
+                )
 
                 v_diag_schema = writer._writer.register_schema(
                     name="roadsense.VisionDiagnostics",
@@ -1877,7 +1881,14 @@ def convert_session_to_mcap(
                 with open(resolved_vision_json, "r", encoding="utf-8") as vf:
                     v_data = json.load(vf)
                 v_frames = v_data.get("frames", [])
-                v_traj_history = {}
+                v_extrinsics = v_data.get("camera_extrinsics", {})
+                # If flip_video is False, video in MCAP has raw sensor orientation (e.g. mp4_rot = 180).
+                # Foxglove camera_view applies "rotation": 180, so annotations must map to raw coordinates.
+                # If flip_video is True, video in MCAP was flipped upright, so effective annotation rotation is 0.
+                effective_annot_rot = 0 if flip_video else mp4_rot
+                img_w = int(v_data.get("image_width", 0)) or int(v_extrinsics.get("cx", 640) * 2) or 1280
+                img_h = int(v_data.get("image_height", 0)) or int(v_extrinsics.get("cy", 360) * 2) or 720
+                v_traj_tracker = TrajectoryTracker(max_age_seconds=15.0, min_interval_seconds=0.10)
 
                 for v_idx, v_f in enumerate(v_frames):
                     if "timestamp_utc_ns" in v_f and v_f["timestamp_utc_ns"] > 1e16:
@@ -1888,17 +1899,7 @@ def convert_session_to_mcap(
                         v_utc = int(v_f.get("timestamp_ns", 0)) + time_offset_ns
 
                     v_tracks = v_f.get("tracks", [])
-                    for vt in v_tracks:
-                        tid = vt.get("track_id")
-                        if tid is not None:
-                            pos = vt.get("position_3d", {})
-                            if tid not in v_traj_history:
-                                v_traj_history[tid] = deque(maxlen=30)
-                            v_traj_history[tid].append((
-                                float(pos.get("x_fwd_m", 0.0)),
-                                float(pos.get("y_left_m", 0.0)),
-                                0.08
-                            ))
+                    v_traj_history = v_traj_tracker.update(v_utc, v_tracks)
 
                     # 1. 3D Scene Update
                     su_m = McapSceneWriter.create_scene_update(v_utc, v_tracks)
@@ -1906,7 +1907,13 @@ def convert_session_to_mcap(
                     count_msg("/vision/geo_tracks")
 
                     # 2. 2D Image Annotations
-                    ia_m = McapSceneWriter.create_image_annotations(v_utc, v_tracks)
+                    ia_m = McapSceneWriter.create_image_annotations(
+                        timestamp_ns=v_utc,
+                        tracks=v_tracks,
+                        image_width=img_w,
+                        image_height=img_h,
+                        video_rotation_deg=effective_annot_rot,
+                    )
                     writer.write_message("/vision/2d_boxes", ia_m, log_time=v_utc)
                     count_msg("/vision/2d_boxes")
 

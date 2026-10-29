@@ -155,6 +155,9 @@ class PerceptionRunner:
         output_data: Dict[str, Any] = {
             "session_name": session_name,
             "time_offset_ns": time_offset_ns,
+            "video_rotation_deg": rotation_deg,
+            "image_width": width,
+            "image_height": height,
             "camera_extrinsics": {
                 "height_m": self.extrinsics.camera_height_m,
                 "pitch_deg": self.extrinsics.pitch_deg,
@@ -431,9 +434,23 @@ class PerceptionRunner:
         print(f"\n[RoadSense Vision] Fast-projecting 3D geometry from 2D tracks: {resolved_path}")
         print(f"  Frames: {frames_to_process}/{total_frames} | Res: {calib_w}x{calib_h} | Time Offset: {time_offset_ns} ns")
 
+        # Resolve video rotation
+        rotation_deg = base_data.get("video_rotation_deg")
+        if rotation_deg is None:
+            video_path = os.path.join(self.session_dir, "camera", "camera_video.mp4")
+            if not os.path.isfile(video_path):
+                video_path = os.path.join(self.session_dir, "camera_video.mp4")
+            if os.path.isfile(video_path):
+                rotation_deg = OrientationHandler.detect_video_rotation(video_path)
+            else:
+                rotation_deg = 180  # Default reverse landscape for RoadSense
+
         output_data: Dict[str, Any] = {
             "session_name": session_name,
             "time_offset_ns": time_offset_ns,
+            "video_rotation_deg": rotation_deg,
+            "image_width": calib_w,
+            "image_height": calib_h,
             "camera_extrinsics": {
                 "height_m": self.extrinsics.camera_height_m,
                 "pitch_deg": self.extrinsics.pitch_deg,

@@ -53,7 +53,11 @@ except ImportError:
     def tqdm(iterable, *args, **kwargs):
         return iterable
 
-from tools.vision.mcap.mcap_scene_writer import McapSceneWriter, VISION_DIAGNOSTICS_JSON_SCHEMA
+from tools.vision.mcap.mcap_scene_writer import (
+    McapSceneWriter,
+    TrajectoryTracker,
+    VISION_DIAGNOSTICS_JSON_SCHEMA,
+)
 from tools.vision.pipeline.timeline_loader import TimelineLoader
 
 
@@ -145,7 +149,23 @@ def write_standalone_vision_mcap(
     print(f"\n[MCAP Writer] Generating standalone vision MCAP: {output_mcap_path}")
     print(f"  Frames to write: {len(frames)} | Time Offset: {time_offset_ns} ns")
 
-    trajectory_history: Dict[int, deque] = {}
+    traj_tracker = TrajectoryTracker(max_age_seconds=15.0, min_interval_seconds=0.10)
+
+    v_ext = data.get("camera_extrinsics", {})
+    v_rot = data.get("video_rotation_deg")
+    if v_rot is None and session_dir:
+        mp4_path = os.path.join(session_dir, "camera", "camera_video.mp4")
+        if not os.path.isfile(mp4_path):
+            mp4_path = os.path.join(session_dir, "camera_video.mp4")
+        if os.path.isfile(mp4_path):
+            try:
+                from tools.vision.pipeline.orientation_handler import OrientationHandler
+                v_rot = OrientationHandler.detect_video_rotation(mp4_path)
+            except Exception:
+                v_rot = 180
+    v_rot = int(v_rot if v_rot is not None else 180)
+    v_w = int(data.get("image_width", 0)) or int(v_ext.get("cx", 640) * 2) or 1280
+    v_h = int(data.get("image_height", 0)) or int(v_ext.get("cy", 360) * 2) or 720
 
     with open(output_mcap_path, "wb") as f_out:
         with ProtobufWriter(f_out, chunk_size=1024 * 1024, compression=CompressionType.ZSTD) as pw:
@@ -165,31 +185,25 @@ def write_standalone_vision_mcap(
                 utc_ts = resolve_frame_utc_timestamp(frame, time_offset_ns)
                 tracks = frame.get("tracks", [])
 
-                # Update trajectory history
-                active_ids = set()
-                for t in tracks:
-                    tid = t.get("track_id")
-                    if tid is not None:
-                        active_ids.add(tid)
-                        pos = t.get("position_3d", {})
-                        if tid not in trajectory_history:
-                            trajectory_history[tid] = deque(maxlen=30)
-                        trajectory_history[tid].append((
-                            float(pos.get("x_fwd_m", 0.0)),
-                            float(pos.get("y_left_m", 0.0)),
-                            0.08,
-                        ))
+                # Update trajectory history (stores last 10-15s, auto-prunes stale tracks)
+                traj_history = traj_tracker.update(utc_ts, tracks)
 
                 # 1. 3D Scene Update
                 su_msg = McapSceneWriter.create_scene_update(utc_ts, tracks)
                 pw.write_message(topic="/vision/geo_tracks", message=su_msg, log_time=utc_ts, publish_time=utc_ts)
 
                 # 2. 2D Image Annotations
-                ia_msg = McapSceneWriter.create_image_annotations(utc_ts, tracks)
+                ia_msg = McapSceneWriter.create_image_annotations(
+                    timestamp_ns=utc_ts,
+                    tracks=tracks,
+                    image_width=v_w,
+                    image_height=v_h,
+                    video_rotation_deg=v_rot,
+                )
                 pw.write_message(topic="/vision/2d_boxes", message=ia_msg, log_time=utc_ts, publish_time=utc_ts)
 
                 # 3. 3D Trajectory History
-                tu_msg = McapSceneWriter.create_trajectories_update(utc_ts, trajectory_history)
+                tu_msg = McapSceneWriter.create_trajectories_update(utc_ts, traj_history)
                 pw.write_message(topic="/vision/trajectories", message=tu_msg, log_time=utc_ts, publish_time=utc_ts)
 
                 # 4. Camera Frustum (emitted every 10 frames)
@@ -281,7 +295,23 @@ def enrich_existing_mcap(
         print(f"  Vision End UTC:   {prepared_vision_frames[-1][0]} ns")
 
     start_time = time.time()
-    trajectory_history: Dict[int, deque] = {}
+    traj_tracker = TrajectoryTracker(max_age_seconds=15.0, min_interval_seconds=0.10)
+
+    v_ext = vision_data.get("camera_extrinsics", {})
+    v_rot = vision_data.get("video_rotation_deg")
+    if v_rot is None and session_dir:
+        mp4_path = os.path.join(session_dir, "camera", "camera_video.mp4")
+        if not os.path.isfile(mp4_path):
+            mp4_path = os.path.join(session_dir, "camera_video.mp4")
+        if os.path.isfile(mp4_path):
+            try:
+                from tools.vision.pipeline.orientation_handler import OrientationHandler
+                v_rot = OrientationHandler.detect_video_rotation(mp4_path)
+            except Exception:
+                v_rot = 180
+    v_rot = int(v_rot if v_rot is not None else 180)
+    v_w = int(vision_data.get("image_width", 0)) or int(v_ext.get("cx", 640) * 2) or 1280
+    v_h = int(vision_data.get("image_height", 0)) or int(v_ext.get("cy", 360) * 2) or 720
 
     with open(source_mcap_path, "rb") as f_in, open(output_mcap_path, "wb") as f_out:
         reader = make_reader(f_in)
@@ -393,18 +423,8 @@ def enrich_existing_mcap(
                 v_utc_ts, v_frame_idx, v_frame = prepared_vision_frames[v_idx]
                 tracks = v_frame.get("tracks", [])
 
-                # Update trajectory history
-                for t in tracks:
-                    tid = t.get("track_id")
-                    if tid is not None:
-                        pos = t.get("position_3d", {})
-                        if tid not in trajectory_history:
-                            trajectory_history[tid] = deque(maxlen=30)
-                        trajectory_history[tid].append((
-                            float(pos.get("x_fwd_m", 0.0)),
-                            float(pos.get("y_left_m", 0.0)),
-                            0.08,
-                        ))
+                # Update trajectory history (stores last 10-15s, auto-prunes stale tracks)
+                traj_history = traj_tracker.update(v_utc_ts, tracks)
 
                 # A. 3D Oriented Cuboids, Velocity Arrows, Footprints
                 su_msg = McapSceneWriter.create_scene_update(v_utc_ts, tracks)
@@ -417,7 +437,13 @@ def enrich_existing_mcap(
                 injected_msgs += 1
 
                 # B. 2D Bounding Boxes, Labels, Contact Points
-                ia_msg = McapSceneWriter.create_image_annotations(v_utc_ts, tracks)
+                ia_msg = McapSceneWriter.create_image_annotations(
+                    timestamp_ns=v_utc_ts,
+                    tracks=tracks,
+                    image_width=v_w,
+                    image_height=v_h,
+                    video_rotation_deg=v_rot,
+                )
                 proto_writer.write_message(
                     topic="/vision/2d_boxes",
                     message=ia_msg,
@@ -427,7 +453,7 @@ def enrich_existing_mcap(
                 injected_msgs += 1
 
                 # C. 3D Trajectory Breadcrumbs
-                tu_msg = McapSceneWriter.create_trajectories_update(v_utc_ts, trajectory_history)
+                tu_msg = McapSceneWriter.create_trajectories_update(v_utc_ts, traj_history)
                 proto_writer.write_message(
                     topic="/vision/trajectories",
                     message=tu_msg,
