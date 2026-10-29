@@ -366,6 +366,7 @@ def parse_radar_stream(radar_bin_path):
             "hw_frame_num": frame_num,
             "subframe": subframe,
             "points": [],
+            "clusters": [],
             "tracks": [],
             "diags": None,
             "can_inputs": None,
@@ -413,6 +414,51 @@ def parse_radar_stream(radar_bin_path):
                             safe_float(z_raw * inv_q),       # Up elevation (ROS +Z)
                             safe_float(doppler_raw * inv_q), # Radial Doppler velocity (m/s)
                             safe_float(snr_db)               # SNR (dB)
+                        ))
+
+                # TLV 2: Target Clusters (16B Extended / 10B / 8B Legacy)
+                elif tlv_type == 2:
+                    calc_stride = (payload_size // num_objs) if num_objs > 0 else 0
+                    stride = 16 if calc_stride >= 16 else (10 if calc_stride >= 10 else (8 if calc_stride >= 8 else (
+                        16 if (payload_size % 16 == 0 and payload_size > 0) else (
+                            10 if (payload_size % 10 == 0 and payload_size > 0) else 8
+                        )
+                    )))
+                    count = min(num_objs, payload_size // stride) if num_objs > 0 else (payload_size // stride)
+                    for i in range(count):
+                        coff = 4 + i * stride
+                        if stride >= 16:
+                            x_raw, y_raw, xs_raw, ys_raw, cid, num_pts, is_out, is_stat, is_dead, _ = struct.unpack_from(
+                                "<hhhhHHBBBB", tlv_data, coff
+                            )
+                            x_val = x_raw * inv_q
+                            y_val = y_raw * inv_q
+                            vx_val = 0.0
+                            vy_val = 0.0
+                        elif stride >= 10:
+                            x_raw, y_raw, xs_raw, ys_raw, cid = struct.unpack_from("<hhhhH", tlv_data, coff)
+                            x_val = x_raw * inv_q
+                            y_val = y_raw * inv_q
+                            vx_val = xs_raw * inv_q
+                            vy_val = ys_raw * inv_q
+                        else:
+                            x_raw, y_raw, xs_raw, ys_raw = struct.unpack_from("<hhhh", tlv_data, coff)
+                            cid = i + 1
+                            x_val = x_raw * inv_q
+                            y_val = y_raw * inv_q
+                            vx_val = 0.0
+                            vy_val = 0.0
+
+                        dist = math.hypot(x_val, y_val)
+                        rad_speed = (x_val * vx_val + y_val * vy_val) / dist if dist > 0 and (vx_val != 0.0 or vy_val != 0.0) else 0.0
+
+                        # Map to ROS base_link frame (+X forward, +Y left, +Z up)
+                        frame_data["clusters"].append((
+                            safe_float(y_val),       # Forward distance (ROS +X)
+                            safe_float(-x_val),      # Left lateral offset (ROS +Y)
+                            0.0,                     # Ground contact (Z=0.0)
+                            safe_float(rad_speed),   # Radial speed (m/s)
+                            20.0                     # Fixed cluster synthetic intensity (dB)
                         ))
 
                 # TLV 3: EKF Tracked Objects (28B v2.2 / 20B / 14B / 12B)
@@ -512,7 +558,18 @@ def parse_radar_stream(radar_bin_path):
                     "roll_rate_radps": safe_float(c[3]),
                     "accel_x_mps2": safe_float(c[4]),
                     "accel_y_mps2": safe_float(c[5]),
-                    "accel_avg_mps2": safe_float(c[6])
+                    "accel_avg_mps2": safe_float(c[6]),
+                    "road_grade_deg": safe_float(c[7]),
+                    "shaft_torque_nm": safe_float(c[8]),
+                    "roll_cf_deg": safe_float(c[9]),
+                    "yaw_cf_deg": safe_float(c[10]),
+                    "timestamp_ms": int(c[11]),
+                    "gear": int(c[12]),
+                    "brake_status": int(c[13]),
+                    "motion_state": int(c[14]),
+                    "is_vcu_can_valid": bool(c[15]),
+                    "imu_stuck_flag": bool(c[16]),
+                    "accel_pedal_pct": 0.0
                 }
 
             # TLV 6: Vehicle Safety ADAS CAN Outputs (24 Bytes: FCW, BSD, ACC)
@@ -1173,7 +1230,18 @@ def convert_session_to_mcap(
                     "roll_rate_radps": {"type": "number"},
                     "accel_x_mps2": {"type": "number"},
                     "accel_y_mps2": {"type": "number"},
-                    "accel_avg_mps2": {"type": "number"}
+                    "accel_avg_mps2": {"type": "number"},
+                    "road_grade_deg": {"type": "number"},
+                    "shaft_torque_nm": {"type": "number"},
+                    "roll_cf_deg": {"type": "number"},
+                    "yaw_cf_deg": {"type": "number"},
+                    "timestamp_ms": {"type": "integer"},
+                    "gear": {"type": "integer"},
+                    "brake_status": {"type": "integer"},
+                    "motion_state": {"type": "integer"},
+                    "is_vcu_can_valid": {"type": "boolean"},
+                    "imu_stuck_flag": {"type": "boolean"},
+                    "accel_pedal_pct": {"type": "number"}
                 }
             }).encode("utf-8")
         )
@@ -1531,6 +1599,22 @@ def convert_session_to_mcap(
                     writer.write_message("/radar/points", pc_msg, log_time=utc_ns)
                     count_msg("/radar/points")
 
+                # 6.1.1 Target Clusters PointCloud (/radar/clusters)
+                cls_pts = r_frame.get("clusters", [])
+                if cls_pts:
+                    cls_msg = PointCloud()
+                    cls_msg.timestamp.seconds = sec
+                    cls_msg.timestamp.nanos = nano
+                    cls_msg.frame_id = "radar_link"
+                    cls_msg.point_stride = 20
+                    cls_msg.fields.extend(point_fields)
+                    c_buf = bytearray(len(cls_pts) * 20)
+                    struct.pack_into(f"<{len(cls_pts)*5}f", c_buf, 0, *[val for pt in cls_pts for val in pt])
+                    cls_msg.data = bytes(c_buf)
+
+                    writer.write_message("/radar/clusters", cls_msg, log_time=utc_ns)
+                    count_msg("/radar/clusters")
+
                 # 6.2 3D Scene Update (EKF Tracks with ADAS Alert Highlighting)
                 # Use static entity ID so Foxglove replaces the previous frame's entity
                 # rather than rendering overlapping ghost tracks from consecutive frames.
@@ -1757,13 +1841,15 @@ def convert_session_to_mcap(
                 loc_msg = LocationFix()
                 loc_msg.timestamp.seconds = utc_ns // 1_000_000_000
                 loc_msg.timestamp.nanos = utc_ns % 1_000_000_000
-                loc_msg.frame_id = "base_link"
+                loc_msg.frame_id = "wgs84"
                 loc_msg.latitude = fix["lat"]
                 loc_msg.longitude = fix["lon"]
                 loc_msg.altitude = fix["alt"]
-                loc_msg.heading = fix["bearing"]
-                loc_msg.velocity.x = fix["speed"] * math.cos(math.radians(fix["bearing"]))
-                loc_msg.velocity.y = fix["speed"] * math.sin(math.radians(fix["bearing"]))
+                # Foxglove LocationFix.heading is in RADIANS clockwise from North
+                loc_msg.heading = math.radians(fix["bearing"])
+                # Geographic ENU velocities: Vx = East speed, Vy = North speed
+                loc_msg.velocity.x = fix["speed"] * math.sin(math.radians(fix["bearing"]))
+                loc_msg.velocity.y = fix["speed"] * math.cos(math.radians(fix["bearing"]))
                 loc_msg.velocity.z = 0.0
 
                 writer.write_message("/gnss/fix", loc_msg, log_time=utc_ns)

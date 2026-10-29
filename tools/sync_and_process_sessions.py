@@ -28,6 +28,7 @@ import struct
 import shutil
 import argparse
 import subprocess
+import bisect
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO_ROOT not in sys.path:
@@ -852,19 +853,30 @@ def parse_radar_frames_bin(radar_bin_path):
                 app_ttc = bsd[3] * 0.1 if bsd[3] != 255 else 25.5
 
                 acc_id = (acc[0] << 8) | acc[1]
-                acc_dist = acc[2] * 0.5
-                acc_rel_v = acc[4] * 0.5 - 64.0
+                acc_target_y = acc[2] * 0.5
+                acc_target_x = acc[3] * 0.2 - 25.6
+                acc_target_vy = acc[4] * 0.5 - 64.0
                 acc_tti = acc[5] * 0.1
+                acc_v_safe = acc[6] * 0.1
+                acc_a_ref = acc[7] * 0.02 - 2.56
 
                 frame_dict["adas_can"] = {
                     "poi_id": int(acc_id),
-                    "acc_dist": safe_float(acc_dist),
-                    "acc_rel_v": safe_float(acc_rel_v),
-                    "acc_rel_a": 0.0,
+                    "acc_dist": safe_float(acc_target_y),
+                    "acc_target_x": safe_float(acc_target_x),
+                    "acc_rel_v": safe_float(acc_target_vy),
+                    "acc_rel_a": safe_float(acc_a_ref),
                     "acc_status": 1 if acc_id > 0 else 0,
                     "tti": safe_float(acc_tti),
+                    "v_safe_mps": safe_float(acc_v_safe),
                     "aeb_risk": 0,
                     "fcw_stage": int(fcw_stage),
+                    "fcw_track_id": int(fcw_trk_id),
+                    "fcw_target_x": safe_float(fcw_tx),
+                    "fcw_target_y": safe_float(fcw_ty),
+                    "fcw_target_vx": safe_float(fcw_tvx),
+                    "fcw_target_vy": safe_float(fcw_tvy),
+                    "fcw_ttc": safe_float(fcw_ttc),
                     "brake_prefill_req": bool(fcw_stage >= 2),
                     "target_confidence": 0.0,
                     "bsd_left_active": bsd_l,
@@ -1195,6 +1207,21 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
     except Exception as e:
         print(f"    [!] MasterTimelineSynchronizer not available ({e}).")
 
+    # Inferred pre-roll fallback if MasterTimelineSynchronizer is unavailable
+    inferred_preroll = 0
+    if not sync_master and cam_frames:
+        scan_limit = min(60, len(cam_frames))
+        for i in range(1, scan_limit):
+            dt_ms = (cam_frames[i]["mono_ns"] - cam_frames[i - 1]["mono_ns"]) / 1e6
+            if dt_ms >= 200.0:
+                inferred_preroll = i
+                break
+        if inferred_preroll > 0:
+            print(f"    [+] Inferred pre-roll boundary: {inferred_preroll} preview frames skipped.")
+
+    # Pre-index GNSS timestamps for fast O(log M) binary search
+    gnss_mono_times = [g["mono_ns"] for g in gnss_fixes] if gnss_fixes else []
+
     mapping_records = []
     viz_radar_frames = []
     tracks_trajectory_map = {}
@@ -1215,7 +1242,7 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
             )
         else:
             v_frame_idx, v_time_delta, v_cam_mono_ns, cam_hw_fn = find_nearest_camera_frame(
-                cam_frames, mono_ns, max_video_frames=mp4_frame_count
+                cam_frames, mono_ns, max_video_frames=mp4_frame_count, preroll_offset=inferred_preroll
             )
 
         if v_frame_idx is not None:
@@ -1229,12 +1256,15 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
                 "camera_hw_frame_number": cam_hw_fn
             })
 
-        # Fallback ego speed from GNSS
+        # Fallback ego speed from GNSS via fast binary search
         ego_speed_kmh = 0.0
-        if gnss_fixes:
-            closest_gnss = min(gnss_fixes, key=lambda g: abs(g["mono_ns"] - mono_ns))
-            if abs(closest_gnss["mono_ns"] - mono_ns) < 2e9:
-                ego_speed_kmh = closest_gnss["speed_kmh"]
+        if gnss_mono_times:
+            pos = bisect.bisect_left(gnss_mono_times, mono_ns)
+            candidates = [p for p in (pos - 1, pos) if 0 <= p < len(gnss_mono_times)]
+            if candidates:
+                best_g = min(candidates, key=lambda p: abs(gnss_mono_times[p] - mono_ns))
+                if abs(gnss_mono_times[best_g] - mono_ns) < 2e9:
+                    ego_speed_kmh = gnss_fixes[best_g]["speed_kmh"]
         ego_vy_mps = safe_float(ego_speed_kmh / 3.6)
 
         # TLV 4 Tracker Diagnostics
@@ -1280,12 +1310,20 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
             adas_data = [{
                 "poi_id": 0,
                 "acc_dist": 0.0,
+                "acc_target_x": 0.0,
                 "acc_rel_v": 0.0,
                 "acc_rel_a": 0.0,
                 "acc_status": 0,
                 "tti": 10.23,
+                "v_safe_mps": 0.0,
                 "aeb_risk": 0,
                 "fcw_stage": 0,
+                "fcw_track_id": 0,
+                "fcw_target_x": 0.0,
+                "fcw_target_y": 0.0,
+                "fcw_target_vx": 0.0,
+                "fcw_target_vy": 0.0,
+                "fcw_ttc": 10.23,
                 "brake_prefill_req": False,
                 "target_confidence": 0.0,
                 "bsd_left_active": False,

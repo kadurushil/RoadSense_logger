@@ -44,6 +44,13 @@
           "pointSize": 4,
           "pointShape": "circle"
         },
+        "/radar/clusters": {
+          "visible": true,
+          "colorField": "velocity",
+          "colorMap": "viridis",
+          "pointSize": 6,
+          "pointShape": "square"
+        },
         "/radar/tracks": {
           "visible": true
         },
