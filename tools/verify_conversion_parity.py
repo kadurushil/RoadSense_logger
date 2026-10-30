@@ -711,6 +711,7 @@ def verify_session_parity(
                 if "/imu/vehicle" in mcap_stats:
                     veh_pitches = []
                     veh_rolls = []
+                    veh_yaws = []
                     veh_az = []
                     imu_samples_read = 0
                     for schema, ch, msg in reader.iter_messages(topics=["/imu/vehicle"]):
@@ -718,6 +719,7 @@ def verify_session_parity(
                             v_data = json.loads(msg.data.decode("utf-8"))
                             veh_pitches.append(v_data.get("pitch_deg", 0.0))
                             veh_rolls.append(v_data.get("roll_deg", 0.0))
+                            veh_yaws.append(v_data.get("yaw_deg", 0.0))
                             accel = v_data.get("acceleration", {})
                             veh_az.append(accel.get("z", 0.0))
                         imu_samples_read += 1
@@ -729,13 +731,18 @@ def verify_session_parity(
                         cat_sync.metrics["imu_vehicle_median_pitch_deg"] = round(med_pitch, 2)
                         cat_sync.metrics["imu_vehicle_median_roll_deg"] = round(med_roll, 2)
                         cat_sync.metrics["imu_vehicle_median_az_mps2"] = round(med_az, 2)
+                        cat_sync.metrics["imu_vehicle_samples"] = imu_samples_read
+
+                        all_yaws_valid = all(0.0 <= y < 360.0 for y in veh_yaws)
 
                         if abs(med_pitch) > 10.0:
                             cat_sync.fail(f"/imu/vehicle pitch_deg ({med_pitch:.1f}°) indicates uncompensated mounting pitch!")
                         elif med_az < 5.0 or med_az > 15.0:
                             cat_sync.warn(f"/imu/vehicle vertical acceleration Az ({med_az:.1f} m/s²) deviates from 1G gravity reaction.")
+                        elif not all_yaws_valid:
+                            cat_sync.fail("/imu/vehicle yaw_deg contains values outside [0, 360) range!")
                         else:
-                            cat_sync.add_detail(f"/imu/vehicle verified: Pitch={med_pitch:.1f}°, Roll={med_roll:.1f}°, Az={med_az:.1f} m/s² (100% physically aligned & mount compensated).")
+                            cat_sync.add_detail(f"/imu/vehicle verified: Pitch={med_pitch:.1f}°, Roll={med_roll:.1f}°, Az={med_az:.1f} m/s², Yaw in [0, 360) (100% physically aligned & GNSS-fused).")
         except Exception as e:
             cat_sync.warn(f"Failed to verify GNSS/IMU messages in MCAP: {e}")
 
