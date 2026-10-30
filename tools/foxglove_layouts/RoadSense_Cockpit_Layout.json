@@ -118,22 +118,22 @@
           "label": "Filtered Vx (m/s)"
         },
         {
-          "value": "/imu/data.pitch_deg",
+          "value": "/imu/vehicle.pitch_deg",
           "enabled": false,
           "color": "#9966ff",
-          "label": "IMU Pitch (deg)"
+          "label": "Vehicle Pitch (deg)"
         },
         {
-          "value": "/imu/data.lin_ax",
+          "value": "/imu/vehicle.lin_ax",
           "enabled": false,
           "color": "#33ccff",
-          "label": "IMU Lin Accel X (m/s²)"
+          "label": "Vehicle Lin Accel X (m/s²)"
         },
         {
-          "value": "/imu/data.gz",
+          "value": "/imu/vehicle.gz",
           "enabled": false,
           "color": "#ffcc00",
-          "label": "IMU Yaw Rate Gz (rad/s)"
+          "label": "Vehicle Yaw Rate Gz (rad/s)"
         },
         {
           "value": "/radar/adas.fcw.stage",

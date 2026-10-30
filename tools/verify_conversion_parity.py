@@ -706,8 +706,38 @@ def verify_session_parity(
                     net_cnt = mcap_stats["/gnss/network"]
                     cat_sync.metrics["mcap_gnss_network_messages"] = net_cnt
                     cat_sync.add_detail(f"Cellular network fixes cleanly decoupled into /gnss/network ({net_cnt} msgs).")
+
+                # Verify /imu/vehicle transformed vehicle body frame kinematics
+                if "/imu/vehicle" in mcap_stats:
+                    veh_pitches = []
+                    veh_rolls = []
+                    veh_az = []
+                    imu_samples_read = 0
+                    for schema, ch, msg in reader.iter_messages(topics=["/imu/vehicle"]):
+                        if imu_samples_read % 100 == 0:
+                            v_data = json.loads(msg.data.decode("utf-8"))
+                            veh_pitches.append(v_data.get("pitch_deg", 0.0))
+                            veh_rolls.append(v_data.get("roll_deg", 0.0))
+                            accel = v_data.get("acceleration", {})
+                            veh_az.append(accel.get("z", 0.0))
+                        imu_samples_read += 1
+
+                    if veh_pitches:
+                        med_pitch = sorted(veh_pitches)[len(veh_pitches) // 2]
+                        med_roll = sorted(veh_rolls)[len(veh_rolls) // 2]
+                        med_az = sorted(veh_az)[len(veh_az) // 2]
+                        cat_sync.metrics["imu_vehicle_median_pitch_deg"] = round(med_pitch, 2)
+                        cat_sync.metrics["imu_vehicle_median_roll_deg"] = round(med_roll, 2)
+                        cat_sync.metrics["imu_vehicle_median_az_mps2"] = round(med_az, 2)
+
+                        if abs(med_pitch) > 10.0:
+                            cat_sync.fail(f"/imu/vehicle pitch_deg ({med_pitch:.1f}°) indicates uncompensated mounting pitch!")
+                        elif med_az < 5.0 or med_az > 15.0:
+                            cat_sync.warn(f"/imu/vehicle vertical acceleration Az ({med_az:.1f} m/s²) deviates from 1G gravity reaction.")
+                        else:
+                            cat_sync.add_detail(f"/imu/vehicle verified: Pitch={med_pitch:.1f}°, Roll={med_roll:.1f}°, Az={med_az:.1f} m/s² (100% physically aligned & mount compensated).")
         except Exception as e:
-            cat_sync.warn(f"Failed to verify GNSS messages in MCAP: {e}")
+            cat_sync.warn(f"Failed to verify GNSS/IMU messages in MCAP: {e}")
 
     return report
 

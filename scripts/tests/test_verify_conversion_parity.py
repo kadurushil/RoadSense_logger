@@ -13,6 +13,7 @@ Verifies that the parity validator correctly catches:
 import os
 import sys
 import json
+import math
 import struct
 import tempfile
 import unittest
@@ -233,6 +234,49 @@ class TestVerifyConversionParity(unittest.TestCase):
         self.assertEqual(mcap_fixes[0]["provider"], "gps")
         self.assertEqual(mcap_fixes[1]["provider"], "network")
         self.assertEqual(mcap_fixes[2]["provider"], "gps")
+
+    def test_imu_vehicle_frame_transformation(self):
+        """Verify parse_imu_csv transforms raw Reverse Landscape phone IMU into vehicle base_link with calibration compensation."""
+        from tools.convert_session_to_mcap import parse_imu_csv
+        import csv
+
+        csv_path = os.path.join(self.temp_dir.name, "test_imu.csv")
+        with open(csv_path, "w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["elapsed_realtime_ns", "wall_time_ms", "ax", "ay", "az", "gx", "gy", "gz", "qx", "qy", "qz", "qw", "lin_ax", "lin_ay", "lin_az"])
+            # Sample from real windshield reverse landscape mount (pitch ~ 5.01 deg, roll ~ -0.35 deg)
+            writer.writerow([1000000000, 1700000000000, -9.37569, 0.03472, -0.34955, -0.01976, 0.01263, 0.06464, 0.67451, 0.03698, -0.73598, 0.04482, 0.10416, -0.00486, -0.01460])
+
+        calib_params = {
+            "pitchDeg": 5.03427,
+            "rollDeg": -0.35610,
+            "cameraYawDeg": 0.0
+        }
+
+        # Test with mounting calibration compensation
+        samples = list(parse_imu_csv(csv_path, calib_params=calib_params))
+        self.assertEqual(len(samples), 1)
+        raw_sample, veh_sample = samples[0]
+
+        # 1. Raw phone frame preserved for /imu/data
+        self.assertAlmostEqual(raw_sample["ax"], -9.37569, places=4)
+        self.assertAlmostEqual(raw_sample["pitch_deg"], 84.98, delta=1.0)  # Phone portrait pitch
+
+        # 2. Transformed vehicle body frame for /imu/vehicle (ISO 8855 FLU)
+        # Vertical acceleration Az is positive normal reaction against gravity
+        self.assertGreater(veh_sample["acceleration"]["z"], 9.0)
+        self.assertGreater(veh_sample["az"], 9.0)
+
+        # 3. Attitude angles in vehicle chassis (compensated for mounting pitch and roll)
+        # In vehicle base_link on flat ground, pitch and roll should be centered near 0.0°
+        self.assertAlmostEqual(veh_sample["pitch_deg"], 0.02, delta=0.2)   # Compensated vehicle pitch (~0°)
+        self.assertAlmostEqual(veh_sample["roll_deg"], 0.01, delta=0.2)    # Compensated vehicle roll (~0°)
+
+        # 4. Vehicle quaternion norm = 1.0 and upright (dominant qw)
+        q = veh_sample["orientation"]
+        norm = math.sqrt(q["x"]**2 + q["y"]**2 + q["z"]**2 + q["w"]**2)
+        self.assertAlmostEqual(norm, 1.0, places=4)
+        self.assertGreater(q["w"], 0.99)  # Upright vehicle body frame scalar component
 
 
 if __name__ == "__main__":

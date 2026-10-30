@@ -15,8 +15,9 @@ Supported Channels & Modalities:
   - /camera/calib        : foxglove.CameraCalibration (Pinhole intrinsics K, D, R, P)
   - /gnss/fix            : foxglove.LocationFix (Satellite GPS track, speed, bearing in wgs84)
   - /gnss/network        : foxglove.LocationFix (Cellular / Wi-Fi coarse network triangulation, wgs84)
-  - /imu/data            : roadsense.Imu (100 Hz calibrated acc, gyro, linear acc, Euler roll/pitch/yaw)
-  - /imu/pose            : foxglove.PoseInFrame (100 Hz orientation quaternion in base_link)
+  - /imu/data            : roadsense.Imu (100 Hz raw phone accelerometer, gyroscope, linear acc, raw Euler angles)
+  - /imu/vehicle         : roadsense.ImuVehicle (100 Hz transformed vehicle body kinematics in base_link FLU)
+  - /imu/pose            : foxglove.PoseInFrame (100 Hz vehicle orientation quaternion in base_link)
   - /vehicle/telemetry   : roadsense.VehicleTelemetry (Powertrain CAN / TLV 5 dynamics)
   - /tf                  : foxglove.FrameTransforms (6-DOF extrinsics base_link -> radar_link, camera_optical)
   - /diagnostics/logs    : foxglove.Log (Session flight recorder logs)
@@ -630,11 +631,75 @@ def parse_radar_stream(radar_bin_path):
         yield frame_data
 
 
-def parse_imu_csv(imu_csv_path):
-    """Generator yielding IMU sensor readings from imu_frames.csv with nanosecond timestamps."""
+def parse_imu_csv(imu_csv_path, calib_params=None):
+    """Generator yielding (raw_sample, vehicle_sample) tuples from imu_frames.csv.
+    
+    - raw_sample: Unmodified phone HAL sensor coordinates (for /imu/data)
+    - vehicle_sample: Transformed into vehicle body frame (base_link ISO 8855 FLU),
+      compensated for the 6-DOF windshield mounting angles (pitchDeg, rollDeg, cameraYawDeg)
+      from radar_camera_calib.json (for /imu/vehicle).
+    """
     if not os.path.isfile(imu_csv_path):
         return
     import csv
+    import numpy as np
+
+    # Build the calibrated 3D rotation matrix mapping Phone Body Frame -> Vehicle base_link FLU:
+    # R_base_from_phone = R_cam_to_base @ R_opt_from_phone
+    # where R_cam_to_base = (Rz(roll) @ Rx(pitch) @ Ry(yaw) @ R0)^T
+    if calib_params:
+        calib_pitch = math.radians(float(calib_params.get("pitchDeg", 0.0)))
+        calib_roll = math.radians(float(calib_params.get("rollDeg", 0.0)))
+        calib_yaw = math.radians(float(calib_params.get("cameraYawDeg", calib_params.get("yawDeg", 0.0))))
+
+        R0 = np.array([
+            [ 0, -1,  0],
+            [ 0,  0, -1],
+            [ 1,  0,  0]
+        ], dtype=float)
+
+        Ry = np.array([
+            [ math.cos(calib_yaw), 0, -math.sin(calib_yaw)],
+            [ 0,                  1,  0],
+            [ math.sin(calib_yaw), 0,  math.cos(calib_yaw)]
+        ], dtype=float)
+
+        Rx = np.array([
+            [ 1, 0,                     0],
+            [ 0, math.cos(calib_pitch), -math.sin(calib_pitch)],
+            [ 0, math.sin(calib_pitch),  math.cos(calib_pitch)]
+        ], dtype=float)
+
+        Rz = np.array([
+            [ math.cos(calib_roll), math.sin(calib_roll), 0],
+            [-math.sin(calib_roll), math.cos(calib_roll), 0],
+            [ 0,                   0,                   1]
+        ], dtype=float)
+
+        R_total = Rz @ Rx @ Ry @ R0
+
+        # R_opt_from_phone: Phone frame (portrait) -> Camera optical RDF in ROTATION_270
+        # X_opt = +Y_phone (passenger right), Y_opt = +X_phone (down), Z_opt = -Z_phone (forward)
+        R_opt_from_phone = np.array([
+            [ 0,  1,  0],
+            [ 1,  0,  0],
+            [ 0,  0, -1]
+        ], dtype=float)
+
+        R_base_from_phone = R_total.T @ R_opt_from_phone
+    else:
+        # Fallback nominal swap without mounting calibration angles
+        R_base_from_phone = np.array([
+            [ 0,  0, -1],
+            [ 0, -1,  0],
+            [-1,  0,  0]
+        ], dtype=float)
+
+    # Pre-extract matrix coefficients for zero-allocation per-sample transformations
+    m00, m01, m02 = float(R_base_from_phone[0, 0]), float(R_base_from_phone[0, 1]), float(R_base_from_phone[0, 2])
+    m10, m11, m12 = float(R_base_from_phone[1, 0]), float(R_base_from_phone[1, 1]), float(R_base_from_phone[1, 2])
+    m20, m21, m22 = float(R_base_from_phone[2, 0]), float(R_base_from_phone[2, 1]), float(R_base_from_phone[2, 2])
+
     with open(imu_csv_path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -655,22 +720,22 @@ def parse_imu_csv(imu_csv_path):
                 lin_ay = float(row.get("lin_ay", 0.0))
                 lin_az = float(row.get("lin_az", 0.0))
 
-                # Compute Euler angles from rotation vector quaternion (degrees)
+                # --- 1. Raw Phone Coordinate Frame (for /imu/data) ---
                 sinr_cosp = 2.0 * (qw * qx + qy * qz)
                 cosr_cosp = 1.0 - 2.0 * (qx * qx + qy * qy)
-                roll_deg = math.degrees(math.atan2(sinr_cosp, cosr_cosp))
+                roll_deg_raw = math.degrees(math.atan2(sinr_cosp, cosr_cosp))
 
                 sinp = 2.0 * (qw * qy - qz * qx)
                 if abs(sinp) >= 1.0:
-                    pitch_deg = math.copysign(90.0, sinp)
+                    pitch_deg_raw = math.copysign(90.0, sinp)
                 else:
-                    pitch_deg = math.degrees(math.asin(sinp))
+                    pitch_deg_raw = math.degrees(math.asin(sinp))
 
                 siny_cosp = 2.0 * (qw * qz + qx * qy)
                 cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz)
-                yaw_deg = math.degrees(math.atan2(siny_cosp, cosy_cosp))
+                yaw_deg_raw = math.degrees(math.atan2(siny_cosp, cosy_cosp))
 
-                yield {
+                raw_sample = {
                     "mono_ns": mono_ns,
                     "wall_ms": wall_ms,
                     "acceleration": {"x": ax, "y": ay, "z": az},
@@ -681,10 +746,118 @@ def parse_imu_csv(imu_csv_path):
                     "gx": gx, "gy": gy, "gz": gz,
                     "lin_ax": lin_ax, "lin_ay": lin_ay, "lin_az": lin_az,
                     "qx": qx, "qy": qy, "qz": qz, "qw": qw,
-                    "roll_deg": round(roll_deg, 2),
-                    "pitch_deg": round(pitch_deg, 2),
-                    "yaw_deg": round(yaw_deg, 2)
+                    "roll_deg": round(roll_deg_raw, 2),
+                    "pitch_deg": round(pitch_deg_raw, 2),
+                    "yaw_deg": round(yaw_deg_raw, 2)
                 }
+
+                # --- 2. Transformed Vehicle Body Frame (base_link FLU for /imu/vehicle) ---
+                # Linear acceleration, gravity reaction, and angular velocity in vehicle base_link
+                v_ax = m00 * ax + m01 * ay + m02 * az
+                v_ay = m10 * ax + m11 * ay + m12 * az
+                v_az = m20 * ax + m21 * ay + m22 * az
+
+                v_lin_ax = m00 * lin_ax + m01 * lin_ay + m02 * lin_az
+                v_lin_ay = m10 * lin_ax + m11 * lin_ay + m12 * lin_az
+                v_lin_az = m20 * lin_ax + m21 * lin_ay + m22 * lin_az
+
+                v_gx = m00 * gx + m01 * gy + m02 * gz
+                v_gy = m10 * gx + m11 * gy + m12 * gz
+                v_gz = m20 * gx + m21 * gy + m22 * gz
+
+                # Compute vehicle attitude in world: R_world_from_base = R_world_from_phone @ R_base_from_phone.T
+                p00 = 1.0 - 2.0 * (qy * qy + qz * qz)
+                p01 = 2.0 * (qx * qy - qz * qw)
+                p02 = 2.0 * (qx * qz + qy * qw)
+
+                p10 = 2.0 * (qx * qy + qz * qw)
+                p11 = 1.0 - 2.0 * (qx * qx + qz * qz)
+                p12 = 2.0 * (qy * qz - qx * qw)
+
+                p20 = 2.0 * (qx * qz - qy * qw)
+                p21 = 2.0 * (qy * qz + qx * qw)
+                p22 = 1.0 - 2.0 * (qx * qx + qy * qy)
+
+                # Matrix multiplication: R_wb = R_wp @ R_bp.T
+                wb00 = p00 * m00 + p01 * m01 + p02 * m02
+                wb01 = p00 * m10 + p01 * m11 + p02 * m12
+                wb02 = p00 * m20 + p01 * m21 + p02 * m22
+
+                wb10 = p10 * m00 + p11 * m01 + p12 * m02
+                wb11 = p10 * m10 + p11 * m11 + p12 * m12
+                wb12 = p10 * m20 + p11 * m21 + p12 * m22
+
+                wb20 = p20 * m00 + p21 * m01 + p22 * m02
+                wb21 = p20 * m10 + p21 * m11 + p22 * m12
+                wb22 = p20 * m20 + p21 * m21 + p22 * m22
+
+                # Vehicle body Euler angles (compensated for mounting angles):
+                v_pitch_deg = math.degrees(math.asin(max(-1.0, min(1.0, wb20))))
+                v_roll_deg = math.degrees(math.atan2(wb21, wb22))
+                v_yaw_deg = math.degrees(math.atan2(wb10, wb00)) % 360.0
+
+                # Convert R_world_from_base to normalized quaternion [qx, qy, qz, qw]
+                tr = wb00 + wb11 + wb22
+                if tr > 0:
+                    s = 0.5 / math.sqrt(tr + 1.0)
+                    vq_w = 0.25 / s
+                    vq_x = (wb21 - wb12) * s
+                    vq_y = (wb02 - wb20) * s
+                    vq_z = (wb10 - wb01) * s
+                elif wb00 > wb11 and wb00 > wb22:
+                    s = 2.0 * math.sqrt(1.0 + wb00 - wb11 - wb22)
+                    vq_w = (wb21 - wb12) / s
+                    vq_x = 0.25 * s
+                    vq_y = (wb01 + wb10) / s
+                    vq_z = (wb02 + wb20) / s
+                elif wb11 > wb22:
+                    s = 2.0 * math.sqrt(1.0 + wb11 - wb00 - wb22)
+                    vq_w = (wb02 - wb20) / s
+                    vq_x = (wb01 + wb10) / s
+                    vq_y = 0.25 * s
+                    vq_z = (wb12 + wb21) / s
+                else:
+                    s = 2.0 * math.sqrt(1.0 + wb22 - wb00 - wb11)
+                    vq_w = (wb10 - wb01) / s
+                    vq_x = (wb02 + wb20) / s
+                    vq_y = (wb12 + wb21) / s
+                    vq_z = 0.25 * s
+
+                q_norm = math.sqrt(vq_x * vq_x + vq_y * vq_y + vq_z * vq_z + vq_w * vq_w)
+                if q_norm > 0:
+                    vq_x /= q_norm
+                    vq_y /= q_norm
+                    vq_z /= q_norm
+                    vq_w /= q_norm
+                if vq_w < 0:
+                    vq_x, vq_y, vq_z, vq_w = -vq_x, -vq_y, -vq_z, -vq_w
+
+                vehicle_sample = {
+                    "mono_ns": mono_ns,
+                    "wall_ms": wall_ms,
+                    "acceleration": {"x": round(v_ax, 5), "y": round(v_ay, 5), "z": round(v_az, 5)},
+                    "angular_velocity": {"x": round(v_gx, 5), "y": round(v_gy, 5), "z": round(v_gz, 5)},
+                    "linear_acceleration": {"x": round(v_lin_ax, 5), "y": round(v_lin_ay, 5), "z": round(v_lin_az, 5)},
+                    "orientation": {"x": round(vq_x, 5), "y": round(vq_y, 5), "z": round(vq_z, 5), "w": round(vq_w, 5)},
+                    "ax": round(v_ax, 5),
+                    "ay": round(v_ay, 5),
+                    "az": round(v_az, 5),
+                    "gx": round(v_gx, 5),
+                    "gy": round(v_gy, 5),
+                    "gz": round(v_gz, 5),
+                    "lin_ax": round(v_lin_ax, 5),
+                    "lin_ay": round(v_lin_ay, 5),
+                    "lin_az": round(v_lin_az, 5),
+                    "qx": round(vq_x, 5),
+                    "qy": round(vq_y, 5),
+                    "qz": round(vq_z, 5),
+                    "qw": round(vq_w, 5),
+                    "roll_deg": round(v_roll_deg, 2),
+                    "pitch_deg": round(v_pitch_deg, 2),
+                    "yaw_deg": round(v_yaw_deg, 2)
+                }
+
+                yield raw_sample, vehicle_sample
             except (ValueError, KeyError):
                 continue
 
@@ -1423,6 +1596,72 @@ def convert_session_to_mcap(
             schema_id=imu_schema_id
         )
 
+        imu_vehicle_schema_id = writer._writer.register_schema(
+            name="roadsense.ImuVehicle",
+            encoding="jsonschema",
+            data=json.dumps({
+                "type": "object",
+                "properties": {
+                    "elapsed_realtime_ns": {"type": "integer"},
+                    "wall_time_ms": {"type": "integer"},
+                    "acceleration": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number"},
+                            "y": {"type": "number"},
+                            "z": {"type": "number"}
+                        }
+                    },
+                    "angular_velocity": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number"},
+                            "y": {"type": "number"},
+                            "z": {"type": "number"}
+                        }
+                    },
+                    "linear_acceleration": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number"},
+                            "y": {"type": "number"},
+                            "z": {"type": "number"}
+                        }
+                    },
+                    "orientation": {
+                        "type": "object",
+                        "properties": {
+                            "x": {"type": "number"},
+                            "y": {"type": "number"},
+                            "z": {"type": "number"},
+                            "w": {"type": "number"}
+                        }
+                    },
+                    "ax": {"type": "number"},
+                    "ay": {"type": "number"},
+                    "az": {"type": "number"},
+                    "gx": {"type": "number"},
+                    "gy": {"type": "number"},
+                    "gz": {"type": "number"},
+                    "lin_ax": {"type": "number"},
+                    "lin_ay": {"type": "number"},
+                    "lin_az": {"type": "number"},
+                    "qx": {"type": "number"},
+                    "qy": {"type": "number"},
+                    "qz": {"type": "number"},
+                    "qw": {"type": "number"},
+                    "roll_deg": {"type": "number"},
+                    "pitch_deg": {"type": "number"},
+                    "yaw_deg": {"type": "number"}
+                }
+            }).encode("utf-8")
+        )
+        imu_vehicle_chan_id = writer._writer.register_channel(
+            topic="/imu/vehicle",
+            message_encoding="json",
+            schema_id=imu_vehicle_schema_id
+        )
+
         # 5. Emit Static Transforms & Camera Calibration
         base_sec = start_wall_ms // 1000
         base_nano = (start_wall_ms % 1000) * 1_000_000
@@ -1878,7 +2117,7 @@ def convert_session_to_mcap(
         if os.path.isfile(imu_csv):
             print(f"    - Ingesting IMU Telemetry (100 Hz): {imu_csv}")
             print(f"[PROGRESS] {json.dumps({'step': 'imu', 'desc': 'Ingesting IMU Telemetry (100 Hz)', 'pct': 28})}", flush=True)
-            for imu_sample in parse_imu_csv(imu_csv):
+            for imu_sample, imu_vehicle in parse_imu_csv(imu_csv, calib_params=calib_params):
                 utc_ns = imu_sample["mono_ns"] + time_offset_ns
                 writer._writer.add_message(
                     channel_id=imu_chan_id,
@@ -1888,15 +2127,23 @@ def convert_session_to_mcap(
                 )
                 count_msg("/imu/data")
 
-                # Orientation Pose in base_link
+                writer._writer.add_message(
+                    channel_id=imu_vehicle_chan_id,
+                    log_time=utc_ns,
+                    data=json.dumps(imu_vehicle).encode("utf-8"),
+                    publish_time=utc_ns
+                )
+                count_msg("/imu/vehicle")
+
+                # Orientation Pose in base_link (using transformed vehicle orientation)
                 pose_msg = PoseInFrame()
                 pose_msg.timestamp.seconds = utc_ns // 1_000_000_000
                 pose_msg.timestamp.nanos = utc_ns % 1_000_000_000
                 pose_msg.frame_id = "base_link"
-                pose_msg.pose.orientation.x = imu_sample["qx"]
-                pose_msg.pose.orientation.y = imu_sample["qy"]
-                pose_msg.pose.orientation.z = imu_sample["qz"]
-                pose_msg.pose.orientation.w = imu_sample["qw"]
+                pose_msg.pose.orientation.x = imu_vehicle["qx"]
+                pose_msg.pose.orientation.y = imu_vehicle["qy"]
+                pose_msg.pose.orientation.z = imu_vehicle["qz"]
+                pose_msg.pose.orientation.w = imu_vehicle["qw"]
                 writer.write_message("/imu/pose", pose_msg, log_time=utc_ns)
                 count_msg("/imu/pose")
 
