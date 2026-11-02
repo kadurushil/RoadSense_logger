@@ -162,7 +162,7 @@ class TrajectoryTracker:
         # 1. Ingest currently detected track positions
         for t in tracks:
             tid = t.get("track_id")
-            if tid is None:
+            if tid is None or tid == 0:
                 continue
 
             pos = t.get("position_3d", {})
@@ -238,7 +238,8 @@ class McapSceneWriter:
             if not bbox or len(bbox) < 4:
                 continue
             x1, y1, x2, y2 = float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3])
-            track_id = t.get("track_id", "?")
+            raw_tid = t.get("track_id")
+            track_id_str = str(raw_tid) if (raw_tid is not None and raw_tid != 0) else "?"
             cls_name = str(t.get("class_name", "obj"))
             conf = float(t.get("confidence", 0.0))
             range_m = float(t.get("range_m", 0.0))
@@ -301,9 +302,9 @@ class McapSceneWriter:
             txt.timestamp.seconds = sec
             txt.timestamp.nanos = nsec
             if conf > 0:
-                txt.text = f"ID #{track_id} | {cls_name.upper()} {conf:.2f} | {range_m:.1f}m"
+                txt.text = f"ID #{track_id_str} | {cls_name.upper()} {conf:.2f} | {range_m:.1f}m"
             else:
-                txt.text = f"ID #{track_id} | {cls_name.upper()} | {range_m:.1f}m"
+                txt.text = f"ID #{track_id_str} | {cls_name.upper()} | {range_m:.1f}m"
             txt.position.x = float(label_x)
             txt.position.y = float(label_y)
             txt.font_size = 12.0
@@ -348,7 +349,8 @@ class McapSceneWriter:
         for t in tracks:
             pos = t.get("position_3d", {})
             dim = t.get("dimensions_3d", {})
-            track_id = t.get("track_id", "?")
+            raw_tid = t.get("track_id")
+            track_id_str = str(raw_tid) if (raw_tid is not None and raw_tid != 0) else "?"
             cls_name = t.get("class_name", "obj")
             range_m = float(t.get("range_m", 0.0))
 
@@ -392,7 +394,7 @@ class McapSceneWriter:
             yaw_deg = t.get("yaw_deg")
             speed_str = f" | {float(speed_mps) * 3.6:.0f}km/h" if (speed_mps is not None and float(speed_mps) >= 0.6) else ""
             yaw_str = f" | {yaw_deg:.0f}°" if yaw_deg is not None else ""
-            txt.text = f"ID #{track_id} | {cls_name.upper()} | {range_m:.1f}m{speed_str}{yaw_str}"
+            txt.text = f"ID #{track_id_str} | {cls_name.upper()} | {range_m:.1f}m{speed_str}{yaw_str}"
             txt.pose.position.x = x_fwd
             txt.pose.position.y = y_left
             txt.pose.position.z = z_up + (height_m / 2.0) + 0.35
@@ -584,18 +586,23 @@ class McapSceneWriter:
         lead_obs: Optional[Dict[str, Any]] = None
         min_range = float("inf")
         for t in tracks:
-            r = float(t.get("range_m", float("inf")))
-            pos = t.get("position_3d", {})
-            xf = float(pos.get("x_fwd_m", 0.0))
+            r = float(t.get("range_m") or float("inf"))
+            pos = t.get("position_3d") or {}
+            xf = float(pos.get("x_fwd_m") or 0.0)
             if xf > 0.5 and r < min_range:
                 min_range = r
                 spd_mps = float(t.get("speed_mps") or 0.0)
+                raw_tid = t.get("track_id")
+                try:
+                    lead_tid = int(raw_tid) if raw_tid is not None else 0
+                except (ValueError, TypeError):
+                    lead_tid = 0
                 lead_obs = {
-                    "track_id": int(t.get("track_id", 0)),
+                    "track_id": lead_tid,
                     "class_name": str(t.get("class_name", "obj")),
                     "range_m": round(r, 2),
                     "x_fwd_m": round(xf, 2),
-                    "y_left_m": round(float(pos.get("y_left_m", 0.0)), 2),
+                    "y_left_m": round(float(pos.get("y_left_m") or 0.0), 2),
                     "speed_kmh": round(spd_mps * 3.6, 2),
                     "vx_mps": round(float(t.get("vx_mps") or 0.0), 2),
                     "vy_mps": round(float(t.get("vy_mps") or 0.0), 2),
@@ -606,15 +613,19 @@ class McapSceneWriter:
         # Build Tier 3 Per-Track diagnostics & State Matrix
         diag_tracks = []
         for t in tracks:
-            track_id = int(t.get("track_id", 0))
-            pos = t.get("position_3d", {})
-            xf = float(pos.get("x_fwd_m", 0.0))
-            yl = float(pos.get("y_left_m", 0.0))
+            raw_tid = t.get("track_id")
+            try:
+                track_id = int(raw_tid) if raw_tid is not None else 0
+            except (ValueError, TypeError):
+                track_id = 0
+            pos = t.get("position_3d") or {}
+            xf = float(pos.get("x_fwd_m") or 0.0)
+            yl = float(pos.get("y_left_m") or 0.0)
             vx = float(t.get("vx_mps") or 0.0)
             vy = float(t.get("vy_mps") or 0.0)
             spd = float(t.get("speed_mps") or 0.0)
             yaw_deg = float(t.get("yaw_deg") or 0.0)
-            raw_secant_deg = float(t.get("raw_heading_deg", yaw_deg) or yaw_deg)
+            raw_secant_deg = float(t.get("raw_heading_deg") or yaw_deg)
             jitter_deg = abs(raw_secant_deg - yaw_deg)
             if jitter_deg > 180.0:
                 jitter_deg = 360.0 - jitter_deg
@@ -638,8 +649,8 @@ class McapSceneWriter:
             diag_tracks.append({
                 "track_id": track_id,
                 "class_name": str(t.get("class_name", "obj")),
-                "confidence": round(float(t.get("confidence", 0.0)), 3),
-                "range_m": round(float(t.get("range_m", 0.0)), 2),
+                "confidence": round(float(t.get("confidence") or 0.0), 3),
+                "range_m": round(float(t.get("range_m") or 0.0), 2),
                 "azimuth_deg": round(math.degrees(math.atan2(yl, max(0.001, xf))), 2),
                 "is_moving": bool(t.get("is_moving", False)),
                 "speed_kmh": round(spd * 3.6, 2),

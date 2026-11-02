@@ -50,8 +50,21 @@ from mcap_protobuf.writer import Writer as ProtobufWriter
 try:
     from tqdm import tqdm
 except ImportError:
-    def tqdm(iterable, *args, **kwargs):
-        return iterable
+    class _DummyTqdm:
+        def __init__(self, iterable=None, *args, **kwargs):
+            self.iterable = iterable
+        def __iter__(self):
+            return iter(self.iterable) if self.iterable is not None else iter([])
+        def update(self, *args, **kwargs):
+            pass
+        def close(self):
+            pass
+        def __enter__(self):
+            return self
+        def __exit__(self, *args):
+            pass
+    def tqdm(iterable=None, *args, **kwargs):
+        return _DummyTqdm(iterable, *args, **kwargs)
 
 from tools.vision.mcap.mcap_scene_writer import (
     McapSceneWriter,

@@ -241,7 +241,7 @@ class PerceptionRunner:
                 )
 
                 frame_tracks_3d.append({
-                    "track_id": det["track_id"],
+                    "track_id": track_id,
                     "class_name": det["class_name"],
                     "confidence": det["confidence"],
                     "bbox_2d": det["bbox_xyxy"],
