@@ -209,7 +209,21 @@ class RadarConnectionManager(private val context: Context) {
                         _connectionState.value = RadarConnectionState.Error(e.message ?: "Unknown IO Error")
                     }
                 }).apply {
-                    readBufferSize = 65536
+                    readBufferSize = 16384
+                    try {
+                        setReadQueue(16)
+                        Log.i(TAG, "Configured asynchronous multi-buffered readQueue=16 (256 KB kernel buffer)")
+                        com.bajajauto.roadsense.logging.AppLogger.i(
+                            TAG,
+                            "Configured asynchronous multi-buffered readQueue=16 (256 KB kernel buffer) to eliminate CP2105 FIFO overflow"
+                        )
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not set readQueue on USB serial port: ${e.message}")
+                        com.bajajauto.roadsense.logging.AppLogger.w(
+                            TAG,
+                            "Could not set readQueue on USB serial port: ${e.message}"
+                        )
+                    }
                     start()
                 }
             }
