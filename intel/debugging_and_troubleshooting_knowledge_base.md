@@ -34,7 +34,8 @@
 25. [Bug #25: Vision Track Yaw Tilt Due to Conflated Radar Squint in Camera Optical `/tf` Transform](#bug-25-vision-track-yaw-tilt-due-to-conflated-radar-squint-in-camera-optical-tf-transform)
 26. [Bug #26: Perspective-Compensated Lateral Centering Failure in Turning Scenarios & The Zero-Yaw Assumption Breakdown](#bug-26-perspective-compensated-lateral-centering-failure-in-turning-scenarios--the-zero-yaw-assumption-breakdown)
 27. [Bug #27: Straight-Line Yaw Rate Fluctuation via IMU Mounting Misalignment & Cross-Axis Roll/Pitch Coupling](#bug-27-straight-line-yaw-rate-fluctuation-via-imu-mounting-misalignment--cross-axis-rollpitch-coupling)
-28. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
+28. [Bug #28: Radar Track Dropouts at High Speed via CP2105 Hardware FIFO Overflow & Cascading Desync Swallowing](#bug-28-radar-track-dropouts-at-high-speed-via-cp2105-hardware-fifo-overflow--cascading-desync-swallowing)
+29. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
 
 ---
 
@@ -1290,6 +1291,94 @@ When a vehicle turns or is viewed at an angle ($\psi \neq 0^\circ$):
 
 ---
 
+## Bug #28: Radar Track Dropouts at High Speed via CP2105 Hardware FIFO Overflow & Cascading Desync Swallowing
+
+### Symptoms
+* During fast driving on open roads, especially in cluttered or dense point cloud environments (>100–150 detected points per frame), vehicle radar tracks (visual bounding boxes, trajectory trails, and track IDs) intermittently vanished from the cockpit viewfinder and downstream log replays for 100–250 ms (2–5 consecutive cycles).
+* Paradoxically, raw point clouds (TLV Type 1) appeared mostly intact or only slightly delayed, while tracker output (TLV Type 3) completely vanished during these events.
+* In post-mission session audits via `scripts/session_health_check.py`, 824 sequence gap anomalies were flagged in a single 10-minute drive (`session_20261030_173008`), representing a 7.67% frame corruption rate.
+* Meanwhile, the on-device diagnostic log (`session_debug.log`) reported 0 warnings or dropped frames, and `SessionSyncAuditor.kt` falsely graded the session "GOLD" because it only checked macroscopic frame rate ($10,738\text{ frames} / 576.9\text{s} = 18.61\text{ Hz} \ge 15\text{ Hz}$) with hardcoded `anomalyCount = 0`.
+
+### Root Cause Analysis
+
+#### 1. Asymmetric TLV Memory Layout (Why Tracks Disappeared While Points Remained)
+TI mmWave UART output frames pack data structures sequentially into a single serial byte payload:
+```text
+[TI_MAGIC (8B)] -> [Frame Header (40B)] -> [TLV 1: Points (~1.5–2.4 KB)] -> [TLV 2: Clusters (~0.2 KB)] -> [TLV 3: Target List (~0.4–0.6 KB)] -> [TLV 4: Target Index (~0.1 KB)]
+```
+When point clouds expand in dense environments or high-speed driving, the frame payload swells to 2.5–3.5 KB:
+* **TLV 1 (Points)** sits at the payload head, immediately following the 48-byte header (byte offset 48 to ~2,400).
+* **TLV 3 (Tracks)** sits near the tail of the payload (byte offset ~2,600 to 3,200).
+
+When hardware serial communication drops bytes from the tail of a packet, TLV 1 is successfully delivered and parsed, while TLV 3 is truncated and never decoded. This explains why point clouds appeared intact on screen while tracker bounding boxes periodically disappeared.
+
+#### 2. The 1.84 ms Hardware FIFO Saturation on Silicon Labs CP2105
+The TI AWR1843BOOST evaluation board routes its high-speed radar data port through a Silicon Labs CP2105 Dual USB-to-UART bridge. The CP2105 hardware RX FIFO is only **576 bytes**.
+
+Operating at 3,125,000 baud (3.125 Mbps, 8-N-1):
+
+$$\text{Throughput} = \frac{3,125,000\text{ bits/s}}{10\text{ bits/byte}} = 312,500\text{ bytes/s} = 312.5\text{ bytes/ms}$$
+
+The maximum time the Android host can pause before the CP2105 hardware FIFO overflows is:
+
+$$T_{\text{overflow}} = \frac{576\text{ bytes}}{312.5\text{ bytes/ms}} \approx 1.84\text{ ms}$$
+
+If the Android USB reader thread pauses or experiences thread scheduling latency for $\ge 1.84\text{ ms}$ while a 3 KB packet is streaming over the wire, the hardware FIFO overflows and silently drops incoming bytes.
+
+#### 3. Thread Coupling & Garbage Collection Jitter
+In the initial architecture, the single USB read thread (`SerialInputOutputManager`) synchronously executed:
+1. Disk writing (`RawUartRecorder.write(data)`), which performed redundant `.clone()` memory allocations on incoming byte arrays, generating heavy garbage collection (GC) churn.
+2. Direct packet assembly (`RadarPacketAssembler.appendBytes(data)`).
+3. TLV parsing and downstream coroutine dispatch.
+
+Any brief disk I/O stall or Android ART garbage collection pause (2–5 ms) easily exceeded the 1.84 ms threshold, causing tail bytes of large frames to be physically dropped on the wire.
+
+#### 4. Cascading Desync Swallowing in `RadarPacketAssembler` (The "Frankenstein" Frame Bug)
+The most insidious degradation occurred in the state machine of `RadarPacketAssembler.kt`:
+1. When Frame $N$ lost its tail (e.g. 600 bytes dropped by the UART bridge), Frame $N$'s header had already declared `totalPacketLen = 3200 bytes`.
+2. `RadarPacketAssembler` accumulated 2,600 bytes. Because it had not yet reached `totalPacketLen`, it remained in state `WAITING_FOR_PAYLOAD`.
+3. When Frame $N+1$ arrived 50 ms later starting with `TI_MAGIC` (`0x0102 0x0304 0x0506 0x0708`), the assembler **blindly swallowed the first 600 bytes of Frame $N+1$** (including its magic word, 40-byte header, and initial points) to satisfy Frame $N$'s declared byte count!
+4. Frame $N$ was then emitted as an invalid "Frankenstein" frame (failed checksum/parsing, zero tracks).
+5. Crucially, because Frame $N+1$'s magic word was swallowed into Frame $N$'s tail, Frame $N+1$ was completely lost as well—turning a single partial drop into a cascading multi-frame outage (100–150 ms).
+
+This cascading effect accounted for all 824 sequence gaps observed in `session_20261030_173008`.
+
+#### 5. Diagnostic Blindness in On-Device Flight Recorder
+Neither `RadarViewModel` nor `RadarSessionRecorder` verified sequence continuity (`frameNumber == lastFrameNumber + 1`). `SessionSyncAuditor.kt` on device only checked gross frame count divided by elapsed time ($10,738 / 576.9\text{s} = 18.61\text{ Hz} \ge 15\text{ Hz}$), with `anomalyCount = 0` hardcoded. Consequently, `session_debug.log` emitted zero warnings and falsely awarded "GOLD" sync status despite hundreds of corrupted frames.
+
+### Solution & Engineering Takeaways
+
+#### 1. Decoupled Architecture with Ultra-Fast In-Memory Queue
+Segregated the hardware USB reader thread from all disk I/O and frame parsing:
+* The USB reader thread pushes raw byte chunks directly into an `ArrayBlockingQueue<ByteArray>(2048)`.
+* Enqueue latency is $< 2\text{ µs}$ (pure array pointer update), leaving the thread free to poll the CP2105 USB buffer well within the 1.84 ms deadline.
+* A dedicated `RadarProcessingWorker` thread at `Process.THREAD_PRIORITY_URGENT_DISPLAY` (`-8`) drains the queue, feeds `RawUartRecorder`, and drives packet assembly.
+* The `SerialInputOutputManager` thread was promoted to `Process.THREAD_PRIORITY_URGENT_AUDIO` (`-19`) and `Thread.MAX_PRIORITY` (`10`) with a 64 KB read buffer (`readBufferSize = 65536`).
+
+#### 2. Preemptive Magic Word Desync Guard in `RadarPacketAssembler`
+In `RadarPacketAssembler.kt`, whenever the assembler is accumulating bytes in state `WAITING_FOR_PAYLOAD`, before appending incoming bytes, it inspects whether the new chunk contains the `TI_MAGIC` word (`0x02, 0x01, 0x04, 0x03, 0x06, 0x05, 0x08, 0x07`):
+* If `TI_MAGIC` is detected at offset $K$ before Frame $N$ has finished assembling, the assembler recognizes that Frame $N$'s tail was dropped on the wire.
+* It immediately discards incomplete Frame $N$, resets state to idle, and restarts assembly cleanly at offset $K$ for Frame $N+1$.
+* This prevents Frame $N+1$ from ever being swallowed into Frame $N$'s tail, eliminating cascading multi-frame outages.
+
+#### 3. Concurrency Hardening & Reconnect Queue Flush
+* Added `@Synchronized` on `RadarPacketAssembler` methods (`appendBytes` and `reset`) to guarantee thread-safe state machine mutations across workers.
+* Added reconnect flush (`rawByteQueue.clear()`) in `scanAndConnect()` and `disconnect()` to prevent stale buffers from leaking across connection cycles.
+* Added real-time log warning if `rawByteQueue` ever encounters congestion (`queue.size > 100`).
+
+#### 4. Elimination of Redundant Byte Cloning with Defensive Toggle
+* Removed redundant `.clone()` allocations in `RadarSessionRecorder.kt` and `RawUartRecorder.kt`, passing the byte array directly since the producer does not mutate the buffer post-dispatch.
+* Added a configurable safety switch `const val ENFORCE_DEFENSIVE_BYTE_CLONING = false` in recorders for instant fallback if debugging buffer mutability in future BSPs.
+* Optimized `SessionTimelineWriter.kt` to use fast string templates instead of expensive `String.format()` invocations.
+
+#### 5. Verification & Benchmark Results
+* **Replay Benchmark on 15.5 MB Real-World Flight Dump (`session_20261030_173008`):**
+  - Legacy Assembler: 9,914 valid frames, **824 corrupted Frankenstein frames** (7.67% corruption rate).
+  - Hardened Assembler: **10,166 valid frames (+252 frames recovered), 0 corrupted frames (0.00% corruption rate)**.
+* **Unit Testing:** 5-stage edge case test suite in `RadarPacketAssemblerTest.kt` passing all edge cases (split magic words across chunk boundaries, 1-byte streaming fragmentation, garbage injection, cascading dropouts, exact boundary frames).
+
+---
+
 ## Summary of Core Engineering Rules
 
 1. **Never pass high-frequency raw byte streams through `StateFlow`:** Always use direct callbacks or channels to background workers.
@@ -1324,6 +1413,7 @@ When a vehicle turns or is viewed at an angle ($\psi \neq 0^\circ$):
 25. **Decouple Camera Boresight (`cameraYawDeg`) from Radar Squint (`radarSquintDeg`) in Static `/tf` Trees:** Never apply a relative cross-sensor calibration angle (e.g. `yawDeg`) directly onto the camera optical `/tf` unless the camera is physically panned on the mount. If the camera is aligned with the vehicle body ($0.0^\circ$), applying a $1.0^\circ$ radar mounting squint to `camera_optical` tilts the 3D frustum away from the road, causing 3D bounding boxes to appear tilted by $1.0^\circ$ and shifted laterally by $D \cdot \tan(\psi)$ ($0.61\text{ m}$ / $17.3\text{ px}$ at $35\text{ m}$) against the video.
 26. **Never Apply Zero-Yaw Perspective Boundary Solvers to 3D Bounding Boxes Without Heading Estimation:** Projecting 2D YOLO box edges $[x_1, x_2]$ to asymmetric 3D corner depths ($Z_{\text{near}}$ vs $Z_{\text{far}}$) strictly assumes the target vehicle's longitudinal axis is parallel to the camera boresight ($0^\circ$ yaw). In turning scenarios or non-parallel geometries, this assumption breaks down catastrophically, collapsing box widths to clamp limits and violently shifting the lateral center. Without a 3D heading estimator (or vehicle velocity vector tracker), lateral position must remain anchored to the ground contact patch ray ($Y_{\text{center}} = Y_{\text{contact}}$).
 27. **Account for uncalibrated chassis IMU mounting angles and cross-axis roll/pitch coupling in ego-motion compensation:** When extracting chassis gyro yaw rate ($\omega_{\text{yaw}}$), mounting misalignment relative to vehicle structural axes causes vehicle roll and pitch (from road camber, bumps, and squat/dive) to project directly onto the measured yaw axis. Always apply a zero-phase low-pass smoothing filter and a continuous soft deadband ($0.010\text{--}0.025\text{ rad/s}$) to suppress cross-axis coupling during straight travel until full 3D calibration is executed.
+28. **Decouple high-speed UART hardware reading from disk I/O and frame parsing via bounded queues, and guard packet assemblers against cascading desync:** When receiving high-bandwidth sensor streams (e.g. 3.125 Mbps UART) over USB-to-UART bridges with shallow hardware FIFOs (e.g. CP2105 576-byte FIFO overflowing in 1.84 ms), the hardware read thread must only enqueue raw byte buffers into a high-capacity memory queue (`< 2 µs` per chunk) at `THREAD_PRIORITY_URGENT_AUDIO`. All disk recording and frame assembly must execute on a decoupled worker thread. Crucially, the packet assembler must inspect incoming chunks for header magic words while awaiting payload bytes: if a new magic word appears before declared frame bytes finish arriving, the assembler must immediately truncate the incomplete frame and realign to the new frame, preventing dropped packet tails from swallowing subsequent frames into cascading desync outages.
 
 
 

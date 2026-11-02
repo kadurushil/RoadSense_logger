@@ -77,6 +77,10 @@ class ImuRingBuffer(
     var droppedFrames = 0L
         private set
 
+    @Volatile
+    var peakOccupancy = 0
+        private set
+
     /**
      * Enqueues an IMU sample into the ring buffer without allocating any memory.
      * Called exclusively by the producer (RoadSense-ImuThread).
@@ -92,7 +96,11 @@ class ImuRingBuffer(
     ): Boolean {
         val currentHead = head
         val currentTail = tail
-        if (currentHead - currentTail >= capacity) {
+        val occupied = (currentHead - currentTail).toInt()
+        if (occupied > peakOccupancy) {
+            peakOccupancy = occupied
+        }
+        if (occupied >= capacity) {
             droppedFrames++
             return false
         }
@@ -166,5 +174,6 @@ class ImuRingBuffer(
         head = 0L
         tail = 0L
         droppedFrames = 0L
+        peakOccupancy = 0
     }
 }

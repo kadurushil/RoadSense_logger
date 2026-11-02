@@ -8,6 +8,7 @@ import android.location.GnssStatus
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.location.OnNmeaMessageListener
 import android.os.Build
 import android.os.Bundle
 import android.os.Looper
@@ -96,12 +97,34 @@ class GnssLocationManager(private val context: Context) {
         }
     } else null
 
+    private val nmeaListeners = CopyOnWriteArrayList<(String, Long) -> Unit>()
+
+    private val nmeaListener = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        OnNmeaMessageListener { message, timestamp ->
+            for (listener in nmeaListeners) {
+                try {
+                    listener(message, timestamp)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in NMEA listener callback", e)
+                }
+            }
+        }
+    } else null
+
     fun addFixListener(listener: (GnssFix) -> Unit) {
         fixListeners.add(listener)
     }
 
     fun removeFixListener(listener: (GnssFix) -> Unit) {
         fixListeners.remove(listener)
+    }
+
+    fun addNmeaListener(listener: (String, Long) -> Unit) {
+        nmeaListeners.add(listener)
+    }
+
+    fun removeNmeaListener(listener: (String, Long) -> Unit) {
+        nmeaListeners.remove(listener)
     }
 
     /**
@@ -166,6 +189,15 @@ class GnssLocationManager(private val context: Context) {
                 locationManager.registerGnssStatusCallback(gnssStatusCallback, null)
             }
 
+            // 4. Register raw NMEA message listener
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && nmeaListener != null) {
+                try {
+                    locationManager.addNmeaListener(nmeaListener, null)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not register NMEA listener: ${e.message}")
+                }
+            }
+
             // Check if last known location is immediately available
             locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)?.let { lastLoc ->
                 val fix = mapToGnssFix(lastLoc)
@@ -192,6 +224,11 @@ class GnssLocationManager(private val context: Context) {
             locationManager.removeUpdates(locationListener)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && gnssStatusCallback != null) {
                 locationManager.unregisterGnssStatusCallback(gnssStatusCallback)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && nmeaListener != null) {
+                try {
+                    locationManager.removeNmeaListener(nmeaListener)
+                } catch (_: Exception) {}
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping location updates", e)

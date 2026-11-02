@@ -172,6 +172,14 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val hexBuilder = StringBuilder()
     private val MAX_HEX_CHARS = 4000
 
+    // Telemetry and watermark monitoring
+    @Volatile private var peakRawByteQueueDepth = 0
+    @Volatile private var totalRawByteChunksEnqueued = 0L
+    @Volatile private var totalRawByteChunksDropped = 0L
+    @Volatile private var lastObservedRadarSeq = -1L
+    @Volatile private var totalRadarSequenceGaps = 0L
+    @Volatile private var totalRadarDroppedFrames = 0L
+
     // Persistent UI settings
     private val _radarMaxRange = MutableStateFlow(appPreferences.radarMaxRange)
     val radarMaxRange: StateFlow<Float> = _radarMaxRange.asStateFlow()
@@ -286,6 +294,12 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         // Dedicated worker thread for processing raw UART chunks, disk recording, and TLV decoding
         radarProcessingThread = Thread({
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
+            val tid = android.os.Process.myTid()
+            val osPriority = android.os.Process.getThreadPriority(tid)
+            com.bajajauto.roadsense.logging.AppLogger.i(
+                "RadarWorker",
+                "RadarProcessingWorker online (TID=$tid, OS Priority=$osPriority, TargetPriority=${android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY}, QueueCapacity=2048)"
+            )
             var lastPreviewMs = 0L
 
             while (isRadarWorkerRunning && !Thread.currentThread().isInterrupted) {
@@ -322,6 +336,19 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                         _latestPacket.value = lastPacket
 
                         for (packet in assembledPackets) {
+                            val seq = packet.header.frameNumber
+                            if (sessionRecorder.currentSession != null) {
+                                if (lastObservedRadarSeq != -1L && seq != lastObservedRadarSeq + 1L) {
+                                    val gap = seq - lastObservedRadarSeq - 1L
+                                    totalRadarSequenceGaps++
+                                    totalRadarDroppedFrames += gap
+                                    com.bajajauto.roadsense.logging.AppLogger.w(
+                                        "RadarSession",
+                                        "RADAR_FRAME_DROP: Expected #${lastObservedRadarSeq + 1}, got #$seq (Gap of $gap frames, Total dropped: $totalRadarDroppedFrames)"
+                                    )
+                                }
+                                lastObservedRadarSeq = seq
+                            }
                             sessionRecorder.writeFrame(packet, hostMonoNs, hostWallMs)
                         }
 
@@ -342,8 +369,24 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
         // Non-blocking zero-loss callback on USB IO thread: enqueues directly into rawByteQueue (< 2 µs)
         connectionManager.addDataListener { bytes ->
+            val currentSize = rawByteQueue.size
+            if (currentSize > peakRawByteQueueDepth) {
+                peakRawByteQueueDepth = currentSize
+            }
+            if (currentSize >= 512 && currentSize % 256 == 0) {
+                com.bajajauto.roadsense.logging.AppLogger.w(
+                    "RadarQueue",
+                    "Radar rawByteQueue congestion: $currentSize / 2048 slots occupied (${currentSize * 100 / 2048}%)"
+                )
+            }
             if (!rawByteQueue.offer(bytes)) {
-                android.util.Log.w("RadarViewModel", "Radar raw byte queue full! Dropping chunk of ${bytes.size} B")
+                totalRawByteChunksDropped++
+                com.bajajauto.roadsense.logging.AppLogger.e(
+                    "RadarQueue",
+                    "Radar rawByteQueue FULL! Dropped chunk of ${bytes.size} B (Total dropped: $totalRawByteChunksDropped)"
+                )
+            } else {
+                totalRawByteChunksEnqueued++
             }
         }
 
@@ -352,6 +395,13 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             gnssFixesThisSec++
             gnssSessionRecorder.recordFix(fix)
             syncAssociator.updateGnss(fix)
+        }
+
+        // GNSS raw NMEA listener: stream raw sentences to gnss_raw.nmea during active recording
+        gnssLocationManager.addNmeaListener { sentence, timestamp ->
+            if (gnssSessionRecorder.isRecording.value) {
+                gnssSessionRecorder.recordNmea(sentence, timestamp)
+            }
         }
 
         // Camera frame shutter listener: automatically records frame metadata if session recording is active and MediaRecorder is running
@@ -495,6 +545,12 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         }
         val session = sessionRecorder.startSession()
         if (session != null) {
+            lastObservedRadarSeq = -1L
+            totalRadarSequenceGaps = 0L
+            totalRadarDroppedFrames = 0L
+            peakRawByteQueueDepth = 0
+            totalRawByteChunksEnqueued = 0L
+            totalRawByteChunksDropped = 0L
             val res = cameraEngine.selectedResolution.value
             val camId = cameraEngine.selectedCamera.value?.id
             val streamIntrinsics = CameraIntrinsicsProvider.getStreamIntrinsics(
@@ -540,6 +596,14 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         imuManager.stopSessionRecording()
         sessionRecorder.currentSession?.totalImuFrames = imuFrames
         val stopped = sessionRecorder.stopSession()
+        val totalRecorded = stopped?.totalRadarFrames ?: 0L
+        com.bajajauto.roadsense.logging.AppLogger.i(
+            "RadarSession",
+            "Radar Session Telemetry: framesRecorded=$totalRecorded, " +
+            "droppedFrames=$totalRadarDroppedFrames, sequenceGaps=$totalRadarSequenceGaps, " +
+            "queuePeakDepth=$peakRawByteQueueDepth/2048 (${peakRawByteQueueDepth * 100 / 2048}%), " +
+            "chunksDropped=$totalRawByteChunksDropped"
+        )
         _latestSessionAudit.value = stopped?.syncAuditResult
         return stopped
     }

@@ -16,6 +16,7 @@ import java.io.IOException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
+import com.bajajauto.roadsense.logging.AppLogger
 import com.bajajauto.roadsense.sync.CrossSensorSyncAssociator
 
 /**
@@ -50,6 +51,9 @@ class RadarSessionRecorder(
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread({
             Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+            val tid = Process.myTid()
+            val osPriority = Process.getThreadPriority(tid)
+            AppLogger.i(TAG, "RadarSessionRecorder-Worker started (TID=$tid, OS Priority=$osPriority, TargetPriority=${Process.THREAD_PRIORITY_URGENT_DISPLAY})")
             runnable.run()
         }, "RadarSessionRecorder-Worker").apply {
             priority = Thread.MAX_PRIORITY - 1

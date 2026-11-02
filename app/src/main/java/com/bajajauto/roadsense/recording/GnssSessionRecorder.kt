@@ -29,11 +29,15 @@ class GnssSessionRecorder(
         private const val BUFFER_SIZE = 16 * 1024 // 16 KB buffer
         const val GNSS_DIR_NAME = "gnss"
         const val GNSS_CSV_NAME = "gnss_fixes.csv"
+        const val GNSS_NMEA_NAME = "gnss_raw.nmea"
     }
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread({
             Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+            val tid = Process.myTid()
+            val osPriority = Process.getThreadPriority(tid)
+            Log.i(TAG, "GnssSessionRecorder-Worker started (TID=$tid, OS Priority=$osPriority, TargetPriority=${Process.THREAD_PRIORITY_URGENT_DISPLAY})")
             runnable.run()
         }, "GnssSessionRecorder-Worker").apply {
             priority = Thread.MAX_PRIORITY - 1
@@ -51,6 +55,7 @@ class GnssSessionRecorder(
 
     private var activeSession: SessionInfo? = null
     private var csvWriter: BufferedWriter? = null
+    private var nmeaWriter: BufferedWriter? = null
     private var gnssFile: File? = null
 
     /**
@@ -74,14 +79,18 @@ class GnssSessionRecorder(
                 writer.flush()
             }
 
+            val nmeaFile = File(gnssDir, GNSS_NMEA_NAME)
+            val nWriter = BufferedWriter(FileWriter(nmeaFile, true), BUFFER_SIZE)
+
             activeSession = sessionInfo
             csvWriter = writer
+            nmeaWriter = nWriter
             gnssFile = file
             _fixesRecorded.value = 0L
             isRecordingActive = true
             _isRecording.value = true
 
-            Log.i(TAG, "Started GNSS recording to ${file.absolutePath}")
+            Log.i(TAG, "Started GNSS recording to ${file.absolutePath} (raw NMEA: ${nmeaFile.name})")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start GNSS recording", e)
         }
@@ -127,6 +136,28 @@ class GnssSessionRecorder(
     }
 
     /**
+     * Appends a raw NMEA sentence directly to "gnss/gnss_raw.nmea".
+     * Non-blocking: processed on a dedicated background I/O thread.
+     */
+    fun recordNmea(sentence: String, timestamp: Long) {
+        if (!isRecordingActive) return
+
+        executor.execute {
+            if (!isRecordingActive) return@execute
+            try {
+                nmeaWriter?.let { writer ->
+                    writer.write(sentence)
+                    if (!sentence.endsWith("\n")) {
+                        writer.newLine()
+                    }
+                }
+            } catch (e: IOException) {
+                Log.e(TAG, "Error writing raw NMEA sentence", e)
+            }
+        }
+    }
+
+    /**
      * Stops GNSS recording, flushes buffered data to disk, and closes the writer.
      */
     fun stopRecording(): Long {
@@ -140,11 +171,14 @@ class GnssSessionRecorder(
             try {
                 csvWriter?.flush()
                 csvWriter?.close()
+                nmeaWriter?.flush()
+                nmeaWriter?.close()
                 Log.i(TAG, "Stopped GNSS recording. Total fixes written: $count")
             } catch (e: IOException) {
-                Log.e(TAG, "Error closing GNSS CSV writer", e)
+                Log.e(TAG, "Error closing GNSS writers", e)
             } finally {
                 csvWriter = null
+                nmeaWriter = null
                 activeSession = null
                 gnssFile = null
             }

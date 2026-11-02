@@ -188,9 +188,55 @@ object SessionSyncAuditor {
             streamName = "IMU"
         )
 
-        // 3. Audit Radar Stream (radar/radar_frames.bin)
-        val isRadarRecorded = sessionInfo.totalRadarFrames > 0L || File(sessionInfo.radarDir, "radar_frames.bin").exists()
-        val radarStats = if (isRadarRecorded && sessionInfo.totalRadarFrames > 0L) {
+        // 3. Audit Radar Stream (radar/radar_frames.bin & session_timeline.csv)
+        val timelineCsv = File(sessionInfo.sessionDir, "session_timeline.csv")
+        val radarMonoList = mutableListOf<Long>()
+        val radarSeqList = mutableListOf<Long>()
+        if (timelineCsv.exists()) {
+            try {
+                BufferedReader(FileReader(timelineCsv)).use { reader ->
+                    reader.readLine() // Header
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        val parts = line!!.split(",")
+                        if (parts.size >= 4 && parts[1].trim() == "RADAR" && parts[2].trim() == "FRAME") {
+                            val monoNs = parts[0].trim().toLongOrNull()
+                            val seqId = parts[3].trim().toLongOrNull()
+                            if (monoNs != null) radarMonoList.add(monoNs)
+                            if (seqId != null) radarSeqList.add(seqId)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing session_timeline.csv for radar frames", e)
+            }
+        }
+
+        var radarSequenceDrops = 0
+        for (i in 1 until radarSeqList.size) {
+            val diff = radarSeqList[i] - radarSeqList[i - 1]
+            if (diff > 1L) {
+                radarSequenceDrops += (diff - 1L).toInt()
+            }
+        }
+
+        val isRadarRecorded = radarMonoList.isNotEmpty() || sessionInfo.totalRadarFrames > 0L || File(sessionInfo.radarDir, "radar_frames.bin").exists()
+        val radarStats = if (radarMonoList.size >= 2) {
+            val baseStats = computeStreamStats(
+                timestampsNs = radarMonoList,
+                nominalRateHz = 20f,
+                anomalyThresholdMs = 75f, // Intervals > 75ms @ 20 Hz nominal
+                streamName = "Radar"
+            )
+            if (radarSequenceDrops > 0) {
+                baseStats.copy(
+                    anomalyCount = radarSequenceDrops,
+                    status = "WARN ($radarSequenceDrops dropped sequence frames)"
+                )
+            } else {
+                baseStats
+            }
+        } else if (isRadarRecorded && sessionInfo.totalRadarFrames > 0L) {
             val dur = if (cameraStats.durationSec > 0f) cameraStats.durationSec else 1.0f
             val hz = sessionInfo.totalRadarFrames / dur
             StreamStats(
@@ -270,10 +316,11 @@ object SessionSyncAuditor {
         } else null
 
         // 7. Overall Certification Grade
+        val radarDrops = radarStats?.anomalyCount ?: 0
         val grade = when {
             camImuProximity.evaluatedFrames == 0 -> "INCOMPLETE"
-            camImuProximity.meanDeltaMs <= 4.0f && (radCamProximity == null || radCamProximity.meanDeltaMs <= 16.67f) && cameraStats.anomalyCount <= 1 -> "GOLD"
-            camImuProximity.meanDeltaMs <= 7.5f && (radCamProximity == null || radCamProximity.meanDeltaMs <= 33.33f) && cameraStats.anomalyCount <= 3 -> "SILVER"
+            camImuProximity.meanDeltaMs <= 4.0f && (radCamProximity == null || radCamProximity.meanDeltaMs <= 16.67f) && cameraStats.anomalyCount <= 1 && radarDrops == 0 -> "GOLD"
+            camImuProximity.meanDeltaMs <= 7.5f && (radCamProximity == null || radCamProximity.meanDeltaMs <= 33.33f) && cameraStats.anomalyCount <= 3 && radarDrops <= 3 -> "SILVER"
             else -> "WARN"
         }
 
@@ -288,7 +335,10 @@ object SessionSyncAuditor {
             if (cameraStats.anomalyCount > 1) {
                 append(" | ${cameraStats.anomalyCount} Cam Drops!")
             } else if (cameraStats.anomalyCount == 1) {
-                append(" | 1 Startup Pause")
+                append(" | 1 Cam Startup Pause")
+            }
+            if (radarDrops > 0) {
+                append(" | $radarDrops Radar Drops!")
             }
         }
 

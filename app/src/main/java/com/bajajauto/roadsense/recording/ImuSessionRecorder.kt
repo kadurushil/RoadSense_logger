@@ -99,6 +99,9 @@ class ImuSessionRecorder(
             // Spawn dedicated consumer worker thread
             workerThread = Thread({
                 Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+                val tid = Process.myTid()
+                val osPriority = Process.getThreadPriority(tid)
+                AppLogger.i(TAG, "ImuSessionRecorder-Worker started (TID=$tid, OS Priority=$osPriority, TargetPriority=${Process.THREAD_PRIORITY_URGENT_AUDIO})")
                 ringBuffer.consumerThread = Thread.currentThread()
 
                 var writer: BufferedWriter? = null
@@ -149,7 +152,7 @@ class ImuSessionRecorder(
                         writer?.close()
                     } catch (_: IOException) {}
                     _framesRecorded.value = totalFramesWritten
-                    AppLogger.i(TAG, "Closed IMU CSV writer: $totalFramesWritten frames written")
+                    AppLogger.i(TAG, "Closed IMU CSV writer: $totalFramesWritten frames written. Peak ring buffer occupancy: ${ringBuffer.peakOccupancy}/4096 (${ringBuffer.peakOccupancy * 100 / 4096}%), dropped: ${ringBuffer.droppedFrames}")
                 }
             }, "ImuSessionRecorder-Worker").apply {
                 priority = Thread.MAX_PRIORITY - 1
