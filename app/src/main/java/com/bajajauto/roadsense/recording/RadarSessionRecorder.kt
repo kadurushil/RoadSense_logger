@@ -126,7 +126,7 @@ class RadarSessionRecorder(
     fun writeRawBytes(bytes: ByteArray) {
         if (!isRecordingActive || bytes.isEmpty()) return
 
-        val chunk = bytes.clone()
+        val chunk = bytes
         executor.execute {
             if (!isRecordingActive) return@execute
             try {
@@ -154,7 +154,7 @@ class RadarSessionRecorder(
 
         syncAssociator?.pushRadar(hostMonoNs, packet.header)
 
-        val payload = (if (packet.fullPacketBytes.isNotEmpty()) packet.fullPacketBytes else packet.payload).clone()
+        val payload = if (packet.fullPacketBytes.isNotEmpty()) packet.fullPacketBytes else packet.payload
         executor.execute {
             if (!isRecordingActive) return@execute
             try {

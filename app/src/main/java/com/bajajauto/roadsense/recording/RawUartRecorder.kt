@@ -116,7 +116,7 @@ class RawUartRecorder(private val context: Context) {
     fun write(data: ByteArray) {
         if (!isRecordingActive || data.isEmpty()) return
 
-        val chunk = data.clone()
+        val chunk = data
         executor.execute {
             if (!isRecordingActive) return@execute
             try {

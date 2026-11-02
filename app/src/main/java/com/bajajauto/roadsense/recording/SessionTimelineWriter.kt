@@ -88,25 +88,13 @@ class SessionTimelineWriter {
     ) {
         if (!isWriterActive) return
 
-        // Clean summary string from comma/newline to preserve strict CSV column boundaries
-        val sanitizedSummary = summary.replace(",", ";").replace("\n", " ").trim()
-
         executor.execute {
             if (!isWriterActive) return@execute
             try {
+                // Clean summary string from comma/newline to preserve strict CSV column boundaries
+                val sanitizedSummary = summary.replace(",", ";").replace("\n", " ").trim()
                 bufferedWriter?.let { writer ->
-                    writer.write(
-                        String.format(
-                            Locale.US,
-                            "%d,%s,%s,%d,%s,%s\n",
-                            elapsedRealtimeNs,
-                            sensor,
-                            event,
-                            sequenceId,
-                            relativePath,
-                            sanitizedSummary
-                        )
-                    )
+                    writer.write("$elapsedRealtimeNs,$sensor,$event,$sequenceId,$relativePath,$sanitizedSummary\n")
                     totalEntries++
                 }
             } catch (e: IOException) {
