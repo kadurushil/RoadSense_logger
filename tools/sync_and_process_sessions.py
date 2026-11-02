@@ -839,6 +839,15 @@ def parse_radar_frames_bin(radar_bin_path):
                     "accel_pedal_pct": 0.0
                 }
 
+            # --- TLV 7: Subsystem Version Information (12 Bytes) ---
+            elif tlv_type == 7 and len(tlv_data) >= 12:
+                dss_v, mss_v, trk_v = struct.unpack_from("<III", tlv_data, 0)
+                frame_dict["version_info"] = {
+                    "dss_version": f"{(dss_v >> 24) & 0xFF}.{(dss_v >> 16) & 0xFF}.{(dss_v >> 8) & 0xFF}",
+                    "mss_version": f"{(mss_v >> 24) & 0xFF}.{(mss_v >> 16) & 0xFF}.{(mss_v >> 8) & 0xFF}",
+                    "tracking_version": f"{(trk_v >> 24) & 0xFF}.{(trk_v >> 16) & 0xFF}.{(trk_v >> 8) & 0xFF}"
+                }
+
             # --- TLV 6: Vehicle Safety ADAS Outputs (24 Bytes) ---
             elif tlv_type == 6 and len(tlv_data) >= 24:
                 fcw = tlv_data[0:8]
@@ -863,7 +872,9 @@ def parse_radar_frames_bin(radar_bin_path):
                 acc_target_vy = acc[4] * 0.5 - 64.0
                 acc_tti = acc[5] * 0.1
                 acc_v_safe = acc[6] * 0.1
-                acc_a_ref = acc[7] * 0.02 - 2.56
+                # Master Spec v4.0 / MSS v1.0.1: Byte 7 is ACC_ADAS_FSM_State_St_enum
+                acc_fsm_state = int(acc[7])
+                acc_a_ref = 0.0
 
                 frame_dict["adas_can"] = {
                     "poi_id": int(acc_id),
@@ -871,6 +882,7 @@ def parse_radar_frames_bin(radar_bin_path):
                     "acc_target_x": safe_float(acc_target_x),
                     "acc_rel_v": safe_float(acc_target_vy),
                     "acc_rel_a": safe_float(acc_a_ref),
+                    "fsm_state": int(acc_fsm_state),
                     "acc_status": 1 if acc_id > 0 else 0,
                     "tti": safe_float(acc_tti),
                     "v_safe_mps": safe_float(acc_v_safe),

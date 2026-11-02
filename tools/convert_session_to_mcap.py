@@ -575,6 +575,15 @@ def parse_radar_stream(radar_bin_path):
                     "accel_pedal_pct": 0.0
                 }
 
+            # TLV 7: Subsystem Version Information (12 Bytes: DSS, MSS, Tracking)
+            elif tlv_type == 7 and len(tlv_data) >= 12:
+                dss_v, mss_v, trk_v = struct.unpack_from("<III", tlv_data, 0)
+                frame_data["version_info"] = {
+                    "dss_version": f"{(dss_v >> 24) & 0xFF}.{(dss_v >> 16) & 0xFF}.{(dss_v >> 8) & 0xFF}",
+                    "mss_version": f"{(mss_v >> 24) & 0xFF}.{(mss_v >> 16) & 0xFF}.{(mss_v >> 8) & 0xFF}",
+                    "tracking_version": f"{(trk_v >> 24) & 0xFF}.{(trk_v >> 16) & 0xFF}.{(trk_v >> 8) & 0xFF}"
+                }
+
             # TLV 6: Vehicle Safety ADAS CAN Outputs (24 Bytes: FCW, BSD, ACC)
             elif tlv_type == 6 and len(tlv_data) >= 24:
                 fcw_bytes = tlv_data[0:8]
@@ -599,7 +608,9 @@ def parse_radar_stream(radar_bin_path):
                 acc_target_vy = acc4 * 0.5 - 64.0
                 acc_tti = acc5 * 0.1
                 acc_v_safe = acc6 * 0.1
-                acc_a_ref = acc7 * 0.02 - 2.56
+                # Master Spec v4.0 / MSS v1.0.1: Byte 7 is ACC_ADAS_FSM_State_St_enum (0: IDLE, 1: FCW, 2: ACC, 3: AEB)
+                acc_fsm_state = int(acc7)
+                acc_a_ref = 0.0
 
                 frame_data["can_outputs"] = {
                     "fcw": {
@@ -618,6 +629,7 @@ def parse_radar_stream(radar_bin_path):
                         "target_vy": safe_float(acc_target_vy),
                         "tti_sec": safe_float(acc_tti),
                         "v_safe_mps": safe_float(acc_v_safe),
+                        "fsm_state": int(acc_fsm_state),
                         "a_ref_mps2": safe_float(acc_a_ref)
                     },
                     "bsd": {
@@ -1292,6 +1304,7 @@ def convert_session_to_mcap(
                             "target_vy": {"type": "number"},
                             "tti_sec": {"type": "number"},
                             "v_safe_mps": {"type": "number"},
+                            "fsm_state": {"type": "integer"},
                             "a_ref_mps2": {"type": "number"}
                         }
                     },

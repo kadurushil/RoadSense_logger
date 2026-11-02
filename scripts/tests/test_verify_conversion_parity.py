@@ -64,8 +64,9 @@ def build_synthetic_session(temp_dir: str, num_frames: int = 5, corrupt_mode: st
             )
 
             # TLV 6: ADAS CAN (24B payload: fcw(8) + bsd(8) + acc(8))
+            # Byte 7 of ACC frame is ACC_ADAS_FSM_State_St_enum = 2 (ACC mode per Master Spec v4.0)
             tlv6_hdr = struct.pack("<II", 6, 24)
-            tlv6_payload = b"\x00" * 16 + bytes([1, 2, 54, 138, 138, 102, 117, 128])
+            tlv6_payload = b"\x00" * 16 + bytes([1, 2, 54, 138, 138, 102, 117, 2])
 
             tlvs = tlv1_hdr + desc + pt_raw + tlv5_hdr + tlv5_payload + tlv6_hdr + tlv6_payload
             total_len = 40 + len(tlvs)
@@ -102,6 +103,7 @@ def build_synthetic_session(temp_dir: str, num_frames: int = 5, corrupt_mode: st
                     "acc_target_x": 2.0,
                     "acc_rel_v": 5.0,
                     "acc_rel_a": 0.0,
+                    "fsm_state": 2,
                     "acc_status": 1,
                     "tti": 10.2,
                     "v_safe_mps": 11.7,
