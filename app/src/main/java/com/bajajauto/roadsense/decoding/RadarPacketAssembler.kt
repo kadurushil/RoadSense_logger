@@ -81,6 +81,20 @@ class RadarPacketAssembler {
                 continue
             }
 
+            // Preemptive Magic Word Guard:
+            // Check if another magic word arrives prematurely before totalPacketLen bytes.
+            // If bytes were dropped on the UART bus, the tail of this frame is lost, and the next frame
+            // has already started. We must discard the truncated frame immediately rather than swallowing
+            // the next frame's header and magic word.
+            val searchEnd = kotlin.math.min(bytes.size, magicIndex + totalPacketLen)
+            val embeddedMagicIndex = findMagicWord(bytes, startIndex = magicIndex + RadarHeader.MAGIC_WORD.size)
+            if (embeddedMagicIndex in (magicIndex + RadarHeader.MAGIC_WORD.size) until searchEnd) {
+                val remaining = bytes.copyOfRange(embeddedMagicIndex, bytes.size)
+                buffer.reset()
+                buffer.write(remaining)
+                continue
+            }
+
             // Check if full packet is available
             if (availableAfterMagic < totalPacketLen) {
                 // Need more bytes to complete the packet
@@ -128,9 +142,11 @@ class RadarPacketAssembler {
         return packets
     }
 
-    private fun findMagicWord(bytes: ByteArray): Int {
+    fun findMagicWord(bytes: ByteArray, startIndex: Int = 0): Int {
         val magic = RadarHeader.MAGIC_WORD
-        for (i in 0..(bytes.size - magic.size)) {
+        val limit = bytes.size - magic.size
+        if (startIndex > limit) return -1
+        for (i in startIndex..limit) {
             var match = true
             for (j in magic.indices) {
                 if (bytes[i + j] != magic[j]) {

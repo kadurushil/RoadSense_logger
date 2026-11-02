@@ -181,10 +181,10 @@ class RadarConnectionManager(private val context: Context) {
                     override fun onNewData(data: ByteArray) {
                         if (!threadPrioritySet) {
                             try {
-                                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
-                                Thread.currentThread().priority = Thread.MAX_PRIORITY - 1
+                                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+                                Thread.currentThread().priority = Thread.MAX_PRIORITY
                                 threadPrioritySet = true
-                                Log.i(TAG, "Boosted SerialInputOutputManager thread to THREAD_PRIORITY_URGENT_DISPLAY")
+                                Log.i(TAG, "Boosted SerialInputOutputManager thread to THREAD_PRIORITY_URGENT_AUDIO")
                             } catch (e: Exception) {
                                 Log.w(TAG, "Could not set SerialInputOutputManager thread priority: ${e.message}")
                             }
@@ -209,7 +209,7 @@ class RadarConnectionManager(private val context: Context) {
                         _connectionState.value = RadarConnectionState.Error(e.message ?: "Unknown IO Error")
                     }
                 }).apply {
-                    readBufferSize = 32768
+                    readBufferSize = 65536
                     start()
                 }
             }

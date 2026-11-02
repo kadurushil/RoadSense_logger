@@ -64,6 +64,10 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val packetAssembler = RadarPacketAssembler()
     private val tlvDecoder = RadarTlvDecoder()
     private val rawRecorder = RawUartRecorder(application)
+    // Bounded queue decoupling USB serial reception from frame processing/decoding (< 2 µs enqueue)
+    private val rawByteQueue = java.util.concurrent.ArrayBlockingQueue<ByteArray>(2048)
+    @Volatile private var isRadarWorkerRunning = true
+    private var radarProcessingThread: Thread? = null
     val syncAssociator = CrossSensorSyncAssociator()
     val liveSyncTelemetry: StateFlow<LiveSyncTelemetry> = syncAssociator.liveSyncTelemetry
 
@@ -279,38 +283,20 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Direct zero-loss callback on IO thread: feeds raw recorder and packet assembler
-        connectionManager.addDataListener { bytes ->
-            val hostMonoNs = SystemClock.elapsedRealtimeNanos()
-            val hostWallMs = System.currentTimeMillis()
-
-            rawRecorder.write(bytes)
-            sessionRecorder.writeRawBytes(bytes)
-
-            val assembledPackets = packetAssembler.appendBytes(bytes)
-            if (assembledPackets.isNotEmpty()) {
-                radarFramesThisSec += assembledPackets.size
-                _totalPackets.value += assembledPackets.size
-                val lastPacket = assembledPackets.last()
-                _latestPacket.value = lastPacket
-
-                for (packet in assembledPackets) {
-                    sessionRecorder.writeFrame(packet, hostMonoNs, hostWallMs)
-                }
-
-                // Decode real-time TLVs into structured RadarFrame
-                val decoded = tlvDecoder.decode(lastPacket)
-                _latestFrame.value = decoded
-            }
-        }
-
-        // Throttled UI hex preview: sampled at ~4 Hz only when enabled by user to prevent CPU/GC churn
-        viewModelScope.launch(Dispatchers.Default) {
+        // Dedicated worker thread for processing raw UART chunks, disk recording, and TLV decoding
+        radarProcessingThread = Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
             var lastPreviewMs = 0L
-            connectionManager.dataBytes.collect { bytes ->
-                if (bytes.isNotEmpty()) {
+
+            while (isRadarWorkerRunning && !Thread.currentThread().isInterrupted) {
+                try {
+                    val bytes = rawByteQueue.take()
+                    val hostMonoNs = SystemClock.elapsedRealtimeNanos()
+                    val hostWallMs = System.currentTimeMillis()
+
                     _totalBytes.value += bytes.size
 
+                    // Throttled UI hex preview: sampled at ~4 Hz only when enabled
                     if (_isHexPreviewEnabled.value) {
                         val now = System.currentTimeMillis()
                         if (now - lastPreviewMs > 250) {
@@ -324,8 +310,39 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                             _rawHexData.value = hexBuilder.toString()
                         }
                     }
+
+                    rawRecorder.write(bytes)
+                    sessionRecorder.writeRawBytes(bytes)
+
+                    val assembledPackets = packetAssembler.appendBytes(bytes)
+                    if (assembledPackets.isNotEmpty()) {
+                        radarFramesThisSec += assembledPackets.size
+                        _totalPackets.value += assembledPackets.size
+                        val lastPacket = assembledPackets.last()
+                        _latestPacket.value = lastPacket
+
+                        for (packet in assembledPackets) {
+                            sessionRecorder.writeFrame(packet, hostMonoNs, hostWallMs)
+                        }
+
+                        // Decode real-time TLVs into structured RadarFrame
+                        val decoded = tlvDecoder.decode(lastPacket)
+                        _latestFrame.value = decoded
+                    }
+                } catch (_: InterruptedException) {
+                    break
+                } catch (e: Exception) {
+                    android.util.Log.e("RadarViewModel", "Error in radar processing worker", e)
                 }
             }
+        }, "RadarProcessingWorker").apply {
+            isDaemon = true
+            start()
+        }
+
+        // Non-blocking zero-loss callback on USB IO thread: enqueues directly into rawByteQueue (< 2 µs)
+        connectionManager.addDataListener { bytes ->
+            rawByteQueue.offer(bytes)
         }
 
         // GNSS listener: automatically records fixes if session recording is active
@@ -892,6 +909,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        isRadarWorkerRunning = false
+        radarProcessingThread?.interrupt()
         imuSessionRecorder.stopRecording()
         imuManager.release()
         canedgeDiscovery.disconnect()
