@@ -214,6 +214,45 @@ private fun RadarHardwareStatusCard(
                     fontFamily = FontFamily.Monospace
                 )
             }
+
+            latestFrame?.versionInfo?.let { ver ->
+                Spacer(modifier = Modifier.height(6.dp))
+                Surface(
+                    color = Color(0xFF11141C),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 3.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "DSS: v${ver.dssVersion}",
+                            color = Color(0xFF80D8FF),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "MSS: v${ver.mssVersion}",
+                            color = Color(0xFF69F0AE),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "TRK: v${ver.trackingVersion}",
+                            color = Color(0xFFFFD54F),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -380,8 +419,9 @@ private fun RadarTargetHudCard(
 
                         if (accPoiId != null || (accTarget?.targetY ?: 0f) > 0f) {
                             val accLabel = if (matchedAccTid != null) "#$matchedAccTid" else if (accPoiId != null) "#$accPoiId" else "Lead"
+                            val fsmBadge = accTarget?.adasFsmStateName?.let { " • $it" } ?: ""
                             Text(
-                                text = "ACC POI: $accLabel (${"%.1f".format(accTarget?.targetY ?: 0f)}m)",
+                                text = "ACC POI: $accLabel (${"%.1f".format(accTarget?.targetY ?: 0f)}m$fsmBadge)",
                                 color = Color(0xFF00E5FF),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,

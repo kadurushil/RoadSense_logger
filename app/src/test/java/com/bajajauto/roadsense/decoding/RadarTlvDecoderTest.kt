@@ -520,7 +520,8 @@ class RadarTlvDecoderTest {
         buf.put(0.toByte())
 
         // ACC (8 bytes): poiId=42 (b0=0, b1=42), targetY=25m (b2=50), targetX=0m (b3=128),
-        // targetVy=-10m/s (b4=108 -> 108*0.5 - 64 = -10), tti=2.5s (b5=25), vSafe=15m/s (b6=150), aRef=0m/s2 (b7=128)
+        // targetVy=-10m/s (b4=108 -> 108*0.5 - 64 = -10), tti=2.5s (b5=25), vSafe=15m/s (b6=150),
+        // Byte 7: ACC_ADAS_FSM_State_St_enum = 2 (ACC mode per Master Spec v4.0 / MSS v1.0.1)
         buf.put(0.toByte())
         buf.put(42.toByte())
         buf.put(50.toByte())
@@ -528,7 +529,7 @@ class RadarTlvDecoderTest {
         buf.put(108.toByte())
         buf.put(25.toByte())
         buf.put(150.toByte())
-        buf.put(128.toByte())
+        buf.put(2.toByte())
 
         val payload = buf.array()
         val header = RadarHeader(
@@ -568,7 +569,8 @@ class RadarTlvDecoderTest {
         assertEquals(-10.0f, canOut.acc.targetVy, 0.01f)
         assertEquals(2.5f, canOut.acc.ttiSec, 0.01f)
         assertEquals(15.0f, canOut.acc.vSafeMps, 0.01f)
-        assertEquals(0.0f, canOut.acc.aRefMps2, 0.01f)
+        assertEquals(2, canOut.acc.adasFsmState)
+        assertEquals("ACC", canOut.acc.adasFsmStateName)
 
         // Raw hex representations present
         assertEquals(16, canOut.fcwRawHex.length)
@@ -649,6 +651,122 @@ class RadarTlvDecoderTest {
         assertEquals(10, frame.diagnostics!!.numInliers)
         assertEquals(55555L, frame.canInputs!!.timestampMs)
         assertEquals(0, frame.canOutputs!!.fcw.stage)
+        assertEquals("v2.2", frame.tlvVersion)
+    }
+
+    @Test
+    fun decode_12ByteVersionInfo_parsesDssMssTrackingVersionsCorrectly() {
+        // TLV 7: Type=7 (4B), Length=12 (4B), followed by 12 bytes (<III)
+        // DSS: 0x01000000 -> 1.0.0
+        // MSS: 0x01000100 -> 1.0.1
+        // Trk: 0x010000FF -> 1.0.0
+        val buf = ByteBuffer.allocate(8 + 12).order(ByteOrder.LITTLE_ENDIAN)
+        buf.putInt(7) // Type: Version Info
+        buf.putInt(12) // Length: 12 bytes
+
+        buf.putInt(0x01000000)
+        buf.putInt(0x01000100)
+        buf.putInt(0x010000FF.toInt())
+
+        val payload = buf.array()
+        val header = RadarHeader(
+            version = 0x01020003L,
+            totalPacketLen = 40 + payload.size,
+            platform = 0xA1843L,
+            frameNumber = 106L,
+            timeCpuCycles = 123456L,
+            numDetectedObj = 0,
+            numTLVs = 1,
+            subFrameNumber = 0
+        )
+
+        val frame = decoder.decode(RawRadarPacket(header, payload))
+        assertNotNull(frame.versionInfo)
+        assertEquals("1.0.0", frame.versionInfo!!.dssVersion)
+        assertEquals("1.0.1", frame.versionInfo!!.mssVersion)
+        assertEquals("1.0.0", frame.versionInfo!!.trackingVersion)
+    }
+
+    @Test
+    fun decode_completeMultiTlvPacket_parsesAll7TlvsSimultaneously() {
+        val tlv1Len = 4 + 1 * 12
+        val tlv2Len = 4 + 1 * 16
+        val tlv3Len = 4 + 1 * 28
+        val tlv4Len = 48
+        val tlv5Len = 56
+        val tlv6Len = 24
+        val tlv7Len = 12
+
+        val totalLen = (8 + tlv1Len) + (8 + tlv2Len) + (8 + tlv3Len) + (8 + tlv4Len) + (8 + tlv5Len) + (8 + tlv6Len) + (8 + tlv7Len)
+        val buf = ByteBuffer.allocate(totalLen).order(ByteOrder.LITTLE_ENDIAN)
+
+        // TLV 1
+        buf.putInt(1); buf.putInt(tlv1Len)
+        buf.putShort(1.toShort()); buf.putShort(7.toShort())
+        buf.putShort(0.toShort()); buf.putShort(5120.toShort()); buf.putShort(128.toShort()); buf.putShort(256.toShort()); buf.putShort(0.toShort())
+        buf.put(1.toByte()); buf.put(0.toByte())
+
+        // TLV 2
+        buf.putInt(2); buf.putInt(tlv2Len)
+        buf.putShort(1.toShort()); buf.putShort(7.toShort())
+        buf.putShort(128.toShort()); buf.putShort(256.toShort()); buf.putShort(128.toShort()); buf.putShort(128.toShort())
+        buf.putShort(1.toShort()); buf.putShort(10.toShort()); buf.put(0.toByte()); buf.put(1.toByte()); buf.put(0.toByte()); buf.put(0.toByte())
+
+        // TLV 3
+        buf.putInt(3); buf.putInt(tlv3Len)
+        buf.putShort(1.toShort()); buf.putShort(7.toShort())
+        buf.putShort(128.toShort()); buf.putShort(256.toShort()); buf.putShort(0.toShort()); buf.putShort((-128).toShort())
+        buf.putShort(256.toShort()); buf.putShort(128.toShort()); buf.putShort(0.toShort())
+        buf.putShort(99.toShort()); buf.putShort(3.toShort()); buf.putShort(1.toShort()); buf.putShort(150.toShort())
+        buf.put(1.toByte()); buf.put(0.toByte()); buf.put(2.toByte()); buf.put(90.toByte()); buf.putShort(0.toShort())
+
+        // TLV 4
+        buf.putInt(4); buf.putInt(tlv4Len)
+        buf.putShort(10.toShort()); buf.put(1.toByte()); buf.put(1.toByte())
+        for (i in 0 until 10) buf.putFloat(1.0f)
+        buf.putShort(1500.toShort()); buf.put(0.toByte()); buf.put(0.toByte())
+
+        // TLV 5
+        buf.putInt(5); buf.putInt(tlv5Len)
+        for (i in 0 until 11) buf.putFloat(2.0f)
+        buf.putInt(55555); buf.put(1.toByte()); buf.put(0.toByte()); buf.put(1.toByte()); buf.put(1.toByte()); buf.put(0.toByte())
+        buf.put(0.toByte()); buf.put(0.toByte()); buf.put(0.toByte())
+
+        // TLV 6
+        buf.putInt(6); buf.putInt(tlv6Len)
+        for (i in 0 until 23) buf.put(0.toByte())
+        buf.put(2.toByte()) // FSM state = 2 (ACC)
+
+        // TLV 7
+        buf.putInt(7); buf.putInt(tlv7Len)
+        buf.putInt(0x01000000) // DSS 1.0.0
+        buf.putInt(0x01000100) // MSS 1.0.1
+        buf.putInt(0x010000FF.toInt()) // Trk 1.0.0
+
+        val payload = buf.array()
+        val header = RadarHeader(
+            version = 0x01020003L,
+            totalPacketLen = 40 + payload.size,
+            platform = 0xA1843L,
+            frameNumber = 200L,
+            timeCpuCycles = 999999L,
+            numDetectedObj = 1,
+            numTLVs = 7,
+            subFrameNumber = 0
+        )
+
+        val frame = decoder.decode(RawRadarPacket(header, payload))
+        assertEquals(1, frame.points.size)
+        assertEquals(1, frame.clusters.size)
+        assertEquals(1, frame.tracks.size)
+        assertNotNull(frame.diagnostics)
+        assertNotNull(frame.canInputs)
+        assertNotNull(frame.canOutputs)
+        assertNotNull(frame.versionInfo)
+
+        assertEquals(2, frame.canOutputs!!.acc.adasFsmState)
+        assertEquals("ACC", frame.canOutputs!!.acc.adasFsmStateName)
+        assertEquals("1.0.1", frame.versionInfo!!.mssVersion)
         assertEquals("v2.2", frame.tlvVersion)
     }
 }

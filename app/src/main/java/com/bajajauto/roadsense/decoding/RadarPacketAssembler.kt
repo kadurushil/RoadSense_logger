@@ -67,9 +67,14 @@ class RadarPacketAssembler {
             val numTLVs = headerBuffer.int
             val subFrameNumber = headerBuffer.int
 
-            // Validate packet length
-            if (totalPacketLen < RadarHeader.HEADER_SIZE_BYTES || totalPacketLen > MAX_PACKET_SIZE) {
-                // Invalid packet length in header, discard magic word byte and continue searching
+            // Validate packet length and physical header boundaries (MSS v1.0.1 / Master Spec v4.0)
+            if (totalPacketLen < RadarHeader.HEADER_SIZE_BYTES ||
+                totalPacketLen > MAX_PACKET_SIZE ||
+                totalPacketLen % 4 != 0 ||
+                numTLVs !in 0..10 ||
+                subFrameNumber !in 0..7 ||
+                numDetectedObj !in 0..2048) {
+                // Corrupted frame header rejected, discard magic word byte and continue searching
                 val remaining = bytes.copyOfRange(magicIndex + 1, bytes.size)
                 buffer.reset()
                 buffer.write(remaining)

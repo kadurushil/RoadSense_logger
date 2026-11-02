@@ -87,7 +87,8 @@ data class RadarCluster(
     val numPoints: Int = 0,
     val isOutlier: Boolean = false,
     val isStationary: Boolean = false,
-    val isDeadZone: Boolean = false
+    val isDeadZone: Boolean = false,
+    val isInDeadZone: Boolean = isDeadZone
 )
 
 /**
@@ -159,6 +160,10 @@ data class RadarBsdAlert(
 
 /**
  * Adaptive Cruise Control target state decoded from radar CAN output (TLV Type 6, frame 0x327).
+ *
+ * In Master Spec v4.0 / MSS v1.0.1, Byte 7 encodes the operational state of the Forward ADAS
+ * State Machine (0: IDLE, 1: FCW_ALERT, 2: ACC_GOVERN, 3: AEB_OVERRIDE), replacing the legacy
+ * reference acceleration [aRefMps2].
  */
 data class RadarAccTarget(
     val poiId: Int,
@@ -167,7 +172,31 @@ data class RadarAccTarget(
     val targetVy: Float,
     val ttiSec: Float,
     val vSafeMps: Float,
-    val aRefMps2: Float
+    val adasFsmState: Int = 0,
+    @Deprecated("Replaced by adasFsmState in Master Spec v4.0 / MSS v1.0.1")
+    val aRefMps2: Float = 0f
+) {
+    val adasFsmStateName: String
+        get() = when (adasFsmState) {
+            0 -> "IDLE"
+            1 -> "FCW"
+            2 -> "ACC"
+            3 -> "AEB"
+            else -> "STATE_$adasFsmState"
+        }
+}
+
+/**
+ * Subsystem version telemetry broadcast by TI mmWave radar (TLV Type 7, 12 bytes).
+ * Encoded as 3x uint32 (Major << 24 | Minor << 16 | Patch << 8).
+ */
+data class RadarVersionInfo(
+    val dssVersion: String,
+    val mssVersion: String,
+    val trackingVersion: String,
+    val rawDss: Long = 0,
+    val rawMss: Long = 0,
+    val rawTracking: Long = 0
 )
 
 /**
@@ -194,6 +223,7 @@ data class RadarFrame(
     val diagnostics: RadarTrackerDiagnostics? = null,
     val canInputs: RadarCanInputs? = null,
     val canOutputs: RadarCanOutputs? = null,
+    val versionInfo: RadarVersionInfo? = null,
     val rawPacket: RawRadarPacket,
     val tlvVersion: String = "v2.2"
 )

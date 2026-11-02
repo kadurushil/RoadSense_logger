@@ -11,6 +11,7 @@ import com.bajajauto.roadsense.models.RadarFrame
 import com.bajajauto.roadsense.models.RadarPoint
 import com.bajajauto.roadsense.models.RadarTrack
 import com.bajajauto.roadsense.models.RadarTrackerDiagnostics
+import com.bajajauto.roadsense.models.RadarVersionInfo
 import com.bajajauto.roadsense.models.RawRadarPacket
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -38,6 +39,7 @@ class RadarTlvDecoder {
         const val TLV_TRACKER_DIAGS = 4
         const val TLV_CAN_INPUTS = 5
         const val TLV_CAN_OUTPUTS = 6
+        const val TLV_VERSION_INFO = 7
 
         // Legacy / Alternative aliases
         const val TLV_PARKING_ASSIST = 4
@@ -63,6 +65,7 @@ class RadarTlvDecoder {
         var diagnostics: RadarTrackerDiagnostics? = null
         var canInputs: RadarCanInputs? = null
         var canOutputs: RadarCanOutputs? = null
+        var versionInfo: RadarVersionInfo? = null
 
         var hasV22 = false
         var hasV21 = false
@@ -121,6 +124,12 @@ class RadarTlvDecoder {
                         hasV22 = true
                     }
                 }
+                TLV_VERSION_INFO -> {
+                    if (tlvLength >= 12) {
+                        versionInfo = parseVersionInfo(valueBuffer, tlvLength)
+                        hasV22 = true
+                    }
+                }
                 else -> {
                     // Other TLVs - skipped cleanly
                 }
@@ -145,6 +154,7 @@ class RadarTlvDecoder {
             diagnostics = diagnostics,
             canInputs = canInputs,
             canOutputs = canOutputs,
+            versionInfo = versionInfo,
             rawPacket = packet,
             tlvVersion = tlvVersion
         )
@@ -307,7 +317,8 @@ class RadarTlvDecoder {
                         numPoints = numPoints,
                         isOutlier = isOutlier,
                         isStationary = isStationary,
-                        isDeadZone = isDeadZone
+                        isDeadZone = isDeadZone,
+                        isInDeadZone = isDeadZone
                     )
                 )
             }
@@ -629,6 +640,8 @@ class RadarTlvDecoder {
         val acc6 = accBytes[6].toInt() and 0xFF
         val acc7 = accBytes[7].toInt() and 0xFF
 
+        // Master Spec v4.0 / MSS v1.0.1: Byte 7 is ACC_ADAS_FSM_State_St_enum (0: IDLE, 1: FCW, 2: ACC, 3: AEB)
+        val adasFsmState = acc7 and 0x03
         val acc = RadarAccTarget(
             poiId = (acc0 shl 8) or acc1,
             targetY = acc2 * 0.5f,
@@ -636,7 +649,8 @@ class RadarTlvDecoder {
             targetVy = acc4 * 0.5f - 64.0f,
             ttiSec = acc5 * 0.1f,
             vSafeMps = acc6 * 0.1f,
-            aRefMps2 = acc7 * 0.02f - 2.56f
+            adasFsmState = adasFsmState,
+            aRefMps2 = 0f
         )
 
         val hexChars = "0123456789abcdef"
@@ -657,6 +671,35 @@ class RadarTlvDecoder {
             fcwRawHex = bytesToHex(fcwBytes),
             bsdRawHex = bytesToHex(bsdBytes),
             accRawHex = bytesToHex(accBytes)
+        )
+    }
+
+    /**
+     * Parses TLV 7: Subsystem Version Information (12 bytes).
+     * Format: <III (DSS version, MSS version, Tracking version)
+     * Semantic integers are encoded as: Major << 24 | Minor << 16 | Patch << 8
+     */
+    private fun parseVersionInfo(buffer: ByteBuffer, length: Int): RadarVersionInfo? {
+        if (length < 12) return null
+
+        val dssRaw = buffer.int.toLong() and 0xFFFFFFFFL
+        val mssRaw = buffer.int.toLong() and 0xFFFFFFFFL
+        val trkRaw = buffer.int.toLong() and 0xFFFFFFFFL
+
+        fun toSemVer(v: Long): String {
+            val major = (v ushr 24) and 0xFF
+            val minor = (v ushr 16) and 0xFF
+            val patch = (v ushr 8) and 0xFF
+            return "$major.$minor.$patch"
+        }
+
+        return RadarVersionInfo(
+            dssVersion = toSemVer(dssRaw),
+            mssVersion = toSemVer(mssRaw),
+            trackingVersion = toSemVer(trkRaw),
+            rawDss = dssRaw,
+            rawMss = mssRaw,
+            rawTracking = trkRaw
         )
     }
 }
