@@ -21,6 +21,7 @@ class RadarPacketAssembler {
     /**
      * Appends new bytes and returns any fully assembled packets found in the stream.
      */
+    @Synchronized
     fun appendBytes(incoming: ByteArray): List<RawRadarPacket> {
         buffer.write(incoming)
         val packets = mutableListOf<RawRadarPacket>()
@@ -159,6 +160,7 @@ class RadarPacketAssembler {
         return -1
     }
 
+    @Synchronized
     fun reset() {
         buffer.reset()
     }

@@ -1,6 +1,7 @@
 package com.bajajauto.roadsense.decoding
 
 import com.bajajauto.roadsense.models.RadarHeader
+import com.bajajauto.roadsense.models.RawRadarPacket
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -12,22 +13,30 @@ class RadarPacketAssemblerTest {
 
     private val assembler = RadarPacketAssembler()
 
+    private fun createFrameBytes(frameNumber: Long, totalPacketLen: Int): ByteArray {
+        val buf = ByteBuffer.allocate(totalPacketLen).order(ByteOrder.LITTLE_ENDIAN)
+        buf.put(RadarHeader.MAGIC_WORD)
+        buf.putInt(0x01020003) // version
+        buf.putInt(totalPacketLen)
+        buf.putInt(0xA1843)
+        buf.putInt(frameNumber.toInt())
+        buf.putInt(50000)
+        buf.putInt(0)
+        buf.putInt(1)
+        buf.putInt(0)
+        val payloadLen = totalPacketLen - RadarHeader.HEADER_SIZE_BYTES
+        if (payloadLen > 0) {
+            buf.put(ByteArray(payloadLen))
+        }
+        return buf.array()
+    }
+
     @Test
     fun appendBytes_validFrame_assemblesPacketSuccessfully() {
         val totalLen = 48
-        val buf = ByteBuffer.allocate(totalLen).order(ByteOrder.LITTLE_ENDIAN)
-        buf.put(RadarHeader.MAGIC_WORD)
-        buf.putInt(0x01020003) // version
-        buf.putInt(totalLen) // totalPacketLen
-        buf.putInt(0xA1843) // platform
-        buf.putInt(1001) // frameNumber
-        buf.putInt(50000) // timeCpuCycles
-        buf.putInt(0) // numDetectedObj
-        buf.putInt(1) // numTLVs
-        buf.putInt(0) // subFrameNumber
-        buf.putLong(0L) // 8 bytes dummy payload
+        val bytes = createFrameBytes(1001L, totalLen)
 
-        val packets = assembler.appendBytes(buf.array())
+        val packets = assembler.appendBytes(bytes)
         assertEquals(1, packets.size)
         assertEquals(1001L, packets[0].header.frameNumber)
         assertEquals(totalLen, packets[0].header.totalPacketLen)
@@ -125,19 +134,9 @@ class RadarPacketAssemblerTest {
         badBuf.putLong(0L)
 
         // Valid frame (frame 1007)
-        val goodBuf = ByteBuffer.allocate(48).order(ByteOrder.LITTLE_ENDIAN)
-        goodBuf.put(RadarHeader.MAGIC_WORD)
-        goodBuf.putInt(0x01020003)
-        goodBuf.putInt(48)
-        goodBuf.putInt(0xA1843)
-        goodBuf.putInt(1007)
-        goodBuf.putInt(60000)
-        goodBuf.putInt(0)
-        goodBuf.putInt(1)
-        goodBuf.putInt(0)
-        goodBuf.putLong(0L)
+        val goodBytes = createFrameBytes(1007L, 48)
 
-        val stream = badBuf.array() + goodBuf.array()
+        val stream = badBuf.array() + goodBytes
         val packets = assembler.appendBytes(stream)
 
         assertEquals(1, packets.size)
@@ -148,37 +147,15 @@ class RadarPacketAssemblerTest {
     fun appendBytes_truncatedFrameWithPrematureNextMagic_recoversNextFrameWithoutSwallowing() {
         // Frame 1 has a valid header claiming totalPacketLen = 120 bytes,
         // but only 64 bytes were received over UART before the tail was lost to buffer overflow.
-        val truncatedFrame1 = ByteBuffer.allocate(64).order(ByteOrder.LITTLE_ENDIAN)
-        truncatedFrame1.put(RadarHeader.MAGIC_WORD)
-        truncatedFrame1.putInt(0x01020003)
-        truncatedFrame1.putInt(120) // Claims 120 bytes, but only 64 bytes present!
-        truncatedFrame1.putInt(0xA1843)
-        truncatedFrame1.putInt(2001) // Frame 2001
-        truncatedFrame1.putInt(50000)
-        truncatedFrame1.putInt(0)
-        truncatedFrame1.putInt(1)
-        truncatedFrame1.putInt(0)
-        truncatedFrame1.put(ByteArray(24)) // 40 + 24 = 64 bytes
+        val truncatedFrame1 = createFrameBytes(2001L, 120).copyOfRange(0, 64)
 
         // Frame 2 follows immediately at byte 64 with a complete valid 48-byte packet
-        val completeFrame2 = ByteBuffer.allocate(48).order(ByteOrder.LITTLE_ENDIAN)
-        completeFrame2.put(RadarHeader.MAGIC_WORD)
-        completeFrame2.putInt(0x01020003)
-        completeFrame2.putInt(48)
-        completeFrame2.putInt(0xA1843)
-        completeFrame2.putInt(2002) // Frame 2002
-        completeFrame2.putInt(60000)
-        completeFrame2.putInt(0)
-        completeFrame2.putInt(1)
-        completeFrame2.putInt(0)
-        completeFrame2.putLong(0L) // 40 + 8 = 48 bytes
+        val completeFrame2 = createFrameBytes(2002L, 48)
 
         // Stream concatenates truncated Frame 1 (64 bytes) with full Frame 2 (48 bytes) = 112 bytes total
-        val stream = truncatedFrame1.array() + completeFrame2.array()
+        val stream = truncatedFrame1 + completeFrame2
         val packets = assembler.appendBytes(stream)
 
-        // Preemptive Magic Word Guard must detect Frame 2's magic word inside Frame 1's expected 120-byte window,
-        // discard truncated Frame 1, and parse Frame 2 cleanly without swallowing its magic word or header!
         assertEquals(1, packets.size)
         assertEquals(2002L, packets[0].header.frameNumber)
         assertEquals(48, packets[0].header.totalPacketLen)
@@ -187,19 +164,7 @@ class RadarPacketAssemblerTest {
     @Test
     fun appendBytes_frameSplitAcrossMultipleChunks_assemblesSuccessfullyWhenComplete() {
         val totalLen = 64
-        val buf = ByteBuffer.allocate(totalLen).order(ByteOrder.LITTLE_ENDIAN)
-        buf.put(RadarHeader.MAGIC_WORD)
-        buf.putInt(0x01020003)
-        buf.putInt(totalLen)
-        buf.putInt(0xA1843)
-        buf.putInt(3001)
-        buf.putInt(50000)
-        buf.putInt(0)
-        buf.putInt(1)
-        buf.putInt(0)
-        buf.put(ByteArray(24))
-
-        val allBytes = buf.array()
+        val allBytes = createFrameBytes(3001L, totalLen)
         val chunk1 = allBytes.copyOfRange(0, 30) // partial header/payload
         val chunk2 = allBytes.copyOfRange(30, totalLen) // remainder
 
@@ -214,35 +179,78 @@ class RadarPacketAssemblerTest {
 
     @Test
     fun appendBytes_consecutiveValidFramesInSingleStream_assemblesAllCleanly() {
-        val buf1 = ByteBuffer.allocate(48).order(ByteOrder.LITTLE_ENDIAN)
-        buf1.put(RadarHeader.MAGIC_WORD)
-        buf1.putInt(0x01020003)
-        buf1.putInt(48)
-        buf1.putInt(0xA1843)
-        buf1.putInt(4001)
-        buf1.putInt(50000)
-        buf1.putInt(0)
-        buf1.putInt(1)
-        buf1.putInt(0)
-        buf1.putLong(0L)
+        val f1 = createFrameBytes(4001L, 48)
+        val f2 = createFrameBytes(4002L, 48)
 
-        val buf2 = ByteBuffer.allocate(48).order(ByteOrder.LITTLE_ENDIAN)
-        buf2.put(RadarHeader.MAGIC_WORD)
-        buf2.putInt(0x01020003)
-        buf2.putInt(48)
-        buf2.putInt(0xA1843)
-        buf2.putInt(4002)
-        buf2.putInt(60000)
-        buf2.putInt(0)
-        buf2.putInt(1)
-        buf2.putInt(0)
-        buf2.putLong(0L)
-
-        val stream = buf1.array() + buf2.array()
+        val stream = f1 + f2
         val packets = assembler.appendBytes(stream)
 
         assertEquals(2, packets.size)
         assertEquals(4001L, packets[0].header.frameNumber)
         assertEquals(4002L, packets[1].header.frameNumber)
+    }
+
+    @Test
+    fun appendBytes_splitMagicWordAcrossChunkBoundaryInTruncatedStream_recoversCleanly() {
+        val f1Trunc = createFrameBytes(5001L, 120).copyOfRange(0, 50)
+        val f2Full = createFrameBytes(5002L, 48)
+
+        // Split Frame 2's magic word across chunk boundary (first 4 bytes in chunk1, next 4 bytes in chunk2)
+        val chunk1 = f1Trunc + f2Full.copyOfRange(0, 4)
+        val chunk2 = f2Full.copyOfRange(4, 48)
+
+        val p1 = assembler.appendBytes(chunk1)
+        assertEquals(0, p1.size)
+
+        val p2 = assembler.appendBytes(chunk2)
+        assertEquals(1, p2.size)
+        assertEquals(5002L, p2[0].header.frameNumber)
+        assertEquals(48, p2[0].header.totalPacketLen)
+    }
+
+    @Test
+    fun appendBytes_extremeOneByteStreamingFragmentation_assemblesPacketSuccessfully() {
+        val frame = createFrameBytes(6001L, 48)
+        val packets = mutableListOf<RawRadarPacket>()
+
+        for (b in frame) {
+            packets.addAll(assembler.appendBytes(byteArrayOf(b)))
+        }
+
+        assertEquals(1, packets.size)
+        assertEquals(6001L, packets[0].header.frameNumber)
+    }
+
+    @Test
+    fun appendBytes_garbageBytesBetweenTruncatedAndNextFrame_skipsGarbageAndRecoversNextFrame() {
+        val f1 = createFrameBytes(7001L, 120).copyOfRange(0, 45)
+        val garbage = byteArrayOf(0xDE.toByte(), 0xAD.toByte(), 0xBE.toByte(), 0xEF.toByte(), 0x00, 0x11, 0x22, 0x33)
+        val f2 = createFrameBytes(7002L, 48)
+
+        val packets = assembler.appendBytes(f1 + garbage + f2)
+        assertEquals(1, packets.size)
+        assertEquals(7002L, packets[0].header.frameNumber)
+    }
+
+    @Test
+    fun appendBytes_multipleConsecutiveTruncatedFrames_survivesCascadeAndRecoversNextValidFrame() {
+        val f1 = createFrameBytes(8001L, 120).copyOfRange(0, 50)
+        val f2 = createFrameBytes(8002L, 120).copyOfRange(0, 60)
+        val f3 = createFrameBytes(8003L, 48)
+
+        val packets = assembler.appendBytes(f1 + f2 + f3)
+        assertEquals(1, packets.size)
+        assertEquals(8003L, packets[0].header.frameNumber)
+    }
+
+    @Test
+    fun appendBytes_exactPacketBoundaryFollowedByNextFrame_doesNotFalselyTriggerTruncation() {
+        val f1 = createFrameBytes(9001L, 48)
+        val f2 = createFrameBytes(9002L, 48)
+
+        val packets = assembler.appendBytes(f1 + f2)
+        assertEquals(2, packets.size)
+        assertEquals(9001L, packets[0].header.frameNumber)
+        assertEquals(9002L, packets[1].header.frameNumber)
     }
 }

@@ -342,7 +342,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
         // Non-blocking zero-loss callback on USB IO thread: enqueues directly into rawByteQueue (< 2 µs)
         connectionManager.addDataListener { bytes ->
-            rawByteQueue.offer(bytes)
+            if (!rawByteQueue.offer(bytes)) {
+                android.util.Log.w("RadarViewModel", "Radar raw byte queue full! Dropping chunk of ${bytes.size} B")
+            }
         }
 
         // GNSS listener: automatically records fixes if session recording is active
@@ -573,6 +575,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun scanAndConnect() {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped Scan & Connect USB radar")
+        rawByteQueue.clear()
         packetAssembler.reset()
         connectionManager.scanAndConnect()
     }
@@ -580,6 +583,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnect() {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped Disconnect radar")
         connectionManager.disconnect()
+        rawByteQueue.clear()
+        packetAssembler.reset()
     }
 
     fun sendConfig(command: String) {
