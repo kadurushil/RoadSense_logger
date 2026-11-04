@@ -2,58 +2,67 @@ package com.bajajauto.roadsense.decoding
 
 import com.bajajauto.roadsense.models.RadarHeader
 import com.bajajauto.roadsense.models.RawRadarPacket
-import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Stateful assembler that consumes raw UART byte chunks, searches for the TI magic word,
+ * High-performance stateful assembler that consumes raw UART byte chunks, searches for the TI magic word,
  * parses the 40-byte header, and emits complete RawRadarPackets.
+ *
+ * Uses an in-memory linear sliding buffer to achieve zero-allocation byte ingestion and prevent ART GC sweeps.
  */
 class RadarPacketAssembler {
 
     companion object {
         private const val MAX_PACKET_SIZE = 65536
+        private const val INITIAL_BUFFER_CAPACITY = 131072 // 128 KB pre-allocated pool
     }
 
-    private val buffer = ByteArrayOutputStream()
+    private var internalBuffer = ByteArray(INITIAL_BUFFER_CAPACITY)
+    private var bufferSize = 0
 
     /**
      * Appends new bytes and returns any fully assembled packets found in the stream.
      */
     @Synchronized
     fun appendBytes(incoming: ByteArray): List<RawRadarPacket> {
-        buffer.write(incoming)
+        if (incoming.isEmpty()) return emptyList()
+
+        if (bufferSize + incoming.size > internalBuffer.size) {
+            // Dynamically expand buffer if unusually large frame burst arrives
+            val newCapacity = (bufferSize + incoming.size) * 2
+            internalBuffer = internalBuffer.copyOf(newCapacity)
+        }
+        System.arraycopy(incoming, 0, internalBuffer, bufferSize, incoming.size)
+        bufferSize += incoming.size
+
         val packets = mutableListOf<RawRadarPacket>()
 
         while (true) {
-            val bytes = buffer.toByteArray()
-            val magicIndex = findMagicWord(bytes)
+            val magicIndex = findMagicWord(internalBuffer, startIndex = 0, length = bufferSize)
 
             if (magicIndex == -1) {
                 // Keep the last 7 bytes in case magic word was split across chunks
-                if (bytes.size > 7) {
-                    val keepBytes = bytes.copyOfRange(bytes.size - 7, bytes.size)
-                    buffer.reset()
-                    buffer.write(keepBytes)
+                if (bufferSize > 7) {
+                    System.arraycopy(internalBuffer, bufferSize - 7, internalBuffer, 0, 7)
+                    bufferSize = 7
                 }
                 break
             }
 
             // Discard any junk bytes prior to the magic word
-            val availableAfterMagic = bytes.size - magicIndex
+            val availableAfterMagic = bufferSize - magicIndex
             if (availableAfterMagic < RadarHeader.HEADER_SIZE_BYTES) {
                 // Need more bytes to complete the 40-byte header
                 if (magicIndex > 0) {
-                    val remaining = bytes.copyOfRange(magicIndex, bytes.size)
-                    buffer.reset()
-                    buffer.write(remaining)
+                    System.arraycopy(internalBuffer, magicIndex, internalBuffer, 0, availableAfterMagic)
+                    bufferSize = availableAfterMagic
                 }
                 break
             }
 
             // Parse header (40 bytes starting at magicIndex)
-            val headerBuffer = ByteBuffer.wrap(bytes, magicIndex, RadarHeader.HEADER_SIZE_BYTES)
+            val headerBuffer = ByteBuffer.wrap(internalBuffer, magicIndex, RadarHeader.HEADER_SIZE_BYTES)
                 .order(ByteOrder.LITTLE_ENDIAN)
 
             // Skip magic word (8 bytes)
@@ -76,9 +85,9 @@ class RadarPacketAssembler {
                 subFrameNumber !in 0..7 ||
                 numDetectedObj !in 0..2048) {
                 // Corrupted frame header rejected, discard magic word byte and continue searching
-                val remaining = bytes.copyOfRange(magicIndex + 1, bytes.size)
-                buffer.reset()
-                buffer.write(remaining)
+                val remainingLen = bufferSize - (magicIndex + 1)
+                System.arraycopy(internalBuffer, magicIndex + 1, internalBuffer, 0, remainingLen)
+                bufferSize = remainingLen
                 continue
             }
 
@@ -87,12 +96,16 @@ class RadarPacketAssembler {
             // If bytes were dropped on the UART bus, the tail of this frame is lost, and the next frame
             // has already started. We must discard the truncated frame immediately rather than swallowing
             // the next frame's header and magic word.
-            val searchEnd = kotlin.math.min(bytes.size, magicIndex + totalPacketLen)
-            val embeddedMagicIndex = findMagicWord(bytes, startIndex = magicIndex + RadarHeader.MAGIC_WORD.size)
+            val searchEnd = kotlin.math.min(bufferSize, magicIndex + totalPacketLen)
+            val embeddedMagicIndex = findMagicWord(
+                internalBuffer,
+                startIndex = magicIndex + RadarHeader.MAGIC_WORD.size,
+                length = searchEnd
+            )
             if (embeddedMagicIndex in (magicIndex + RadarHeader.MAGIC_WORD.size) until searchEnd) {
-                val remaining = bytes.copyOfRange(embeddedMagicIndex, bytes.size)
-                buffer.reset()
-                buffer.write(remaining)
+                val remainingLen = bufferSize - embeddedMagicIndex
+                System.arraycopy(internalBuffer, embeddedMagicIndex, internalBuffer, 0, remainingLen)
+                bufferSize = remainingLen
                 continue
             }
 
@@ -100,9 +113,8 @@ class RadarPacketAssembler {
             if (availableAfterMagic < totalPacketLen) {
                 // Need more bytes to complete the packet
                 if (magicIndex > 0) {
-                    val remaining = bytes.copyOfRange(magicIndex, bytes.size)
-                    buffer.reset()
-                    buffer.write(remaining)
+                    System.arraycopy(internalBuffer, magicIndex, internalBuffer, 0, availableAfterMagic)
+                    bufferSize = availableAfterMagic
                 }
                 break
             }
@@ -121,31 +133,31 @@ class RadarPacketAssembler {
 
             val payloadSize = totalPacketLen - RadarHeader.HEADER_SIZE_BYTES
             val payload = if (payloadSize > 0) {
-                bytes.copyOfRange(magicIndex + RadarHeader.HEADER_SIZE_BYTES, magicIndex + totalPacketLen)
+                internalBuffer.copyOfRange(magicIndex + RadarHeader.HEADER_SIZE_BYTES, magicIndex + totalPacketLen)
             } else {
                 byteArrayOf()
             }
-            val fullPacket = bytes.copyOfRange(magicIndex, magicIndex + totalPacketLen)
+            val fullPacket = internalBuffer.copyOfRange(magicIndex, magicIndex + totalPacketLen)
 
             packets.add(RawRadarPacket(header, payload, hostTimestampNs = System.nanoTime(), fullPacketBytes = fullPacket))
 
             // Advance buffer past this completed packet
             val remainingOffset = magicIndex + totalPacketLen
-            val remaining = if (remainingOffset < bytes.size) {
-                bytes.copyOfRange(remainingOffset, bytes.size)
+            val remainingLen = bufferSize - remainingOffset
+            if (remainingLen > 0) {
+                System.arraycopy(internalBuffer, remainingOffset, internalBuffer, 0, remainingLen)
+                bufferSize = remainingLen
             } else {
-                byteArrayOf()
+                bufferSize = 0
             }
-            buffer.reset()
-            buffer.write(remaining)
         }
 
         return packets
     }
 
-    fun findMagicWord(bytes: ByteArray, startIndex: Int = 0): Int {
+    fun findMagicWord(bytes: ByteArray, startIndex: Int = 0, length: Int = bytes.size): Int {
         val magic = RadarHeader.MAGIC_WORD
-        val limit = bytes.size - magic.size
+        val limit = length - magic.size
         if (startIndex > limit) return -1
         for (i in startIndex..limit) {
             var match = true
@@ -162,6 +174,6 @@ class RadarPacketAssembler {
 
     @Synchronized
     fun reset() {
-        buffer.reset()
+        bufferSize = 0
     }
 }

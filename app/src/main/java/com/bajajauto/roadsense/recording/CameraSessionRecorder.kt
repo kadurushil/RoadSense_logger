@@ -14,6 +14,7 @@ import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 import com.bajajauto.roadsense.logging.AppLogger
 import com.bajajauto.roadsense.sync.CrossSensorSyncAssociator
@@ -33,6 +34,7 @@ class CameraSessionRecorder(
     companion object {
         private const val TAG = "CameraSessionRecorder"
         private const val BUFFER_SIZE = 16 * 1024 // 16 KB buffer
+        private const val UI_EMIT_FRAME_INTERVAL = 30L // ~1 Hz UI StateFlow throttle to eliminate Semantics IPC choke
         const val CAMERA_DIR_NAME = "camera"
         const val CAMERA_CSV_NAME = "camera_frames.csv"
         const val CAMERA_VIDEO_NAME = "camera_video.mp4"
@@ -55,6 +57,8 @@ class CameraSessionRecorder(
 
     private val _framesRecorded = MutableStateFlow(0L)
     val framesRecorded: StateFlow<Long> = _framesRecorded.asStateFlow()
+
+    private val totalFramesCounter = AtomicLong(0L)
 
     @Volatile
     private var isRecordingActive = false
@@ -93,6 +97,7 @@ class CameraSessionRecorder(
             csvWriter = writer
             videoFile = vFile
             currentResolution = resolution.label
+            totalFramesCounter.set(0L)
             _framesRecorded.value = 0L
             isFirstVideoFrame = true
             isRecordingActive = true
@@ -138,9 +143,11 @@ class CameraSessionRecorder(
 
                 csvWriter?.let { writer ->
                     writer.write(frame.toCsvRow())
-                    val count = _framesRecorded.value + 1
-                    _framesRecorded.value = count
+                    val count = totalFramesCounter.incrementAndGet()
                     activeSession?.totalCameraFrames = count
+                    if (count % UI_EMIT_FRAME_INTERVAL == 0L) {
+                        _framesRecorded.value = count
+                    }
 
                     val imuDeltaStr = if (keyframe != null && keyframe.imuSequenceId >= 0L) {
                         "imu_dt=${String.format(Locale.US, "%.2f", keyframe.deltaCamImuMs)}ms;imu_seq=${keyframe.imuSequenceId};"
@@ -174,7 +181,8 @@ class CameraSessionRecorder(
 
         isRecordingActive = false
         _isRecording.value = false
-        val total = _framesRecorded.value
+        val total = totalFramesCounter.get()
+        _framesRecorded.value = total
         keyframeWriter.stop()
 
         executor.execute {

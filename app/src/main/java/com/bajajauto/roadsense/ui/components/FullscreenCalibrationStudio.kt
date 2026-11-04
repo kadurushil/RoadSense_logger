@@ -81,10 +81,10 @@ fun FullscreenCalibrationStudio(
     val calibrationParams by viewModel.calibrationParams.collectAsState()
     val savedBaseline by viewModel.savedBaselineParams.collectAsState()
     val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
-    val radarFrame by viewModel.latestFrame.collectAsState()
     val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
     val imuTelemetry by viewModel.imuTelemetry.collectAsState()
     val isLiveImuHorizonEnabled by viewModel.isLiveImuHorizonEnabled.collectAsState()
+    val radarFrameState = viewModel.latestFrame.collectAsState()
 
     // Dynamically synthesize active display parameters when Live IMU Horizon Follow is active
     val activeDisplayParams = remember(calibrationParams, imuTelemetry, isLiveImuHorizonEnabled) {
@@ -454,19 +454,19 @@ fun FullscreenCalibrationStudio(
                 }
             }
 
-            // 3. Live or Simulated Radar Detections Overlay
-            val activeRadarFrame = if (showSimulatedPoints) {
-                SimulatedRadarDataProvider.getFrame(
-                    frameIndex = simFrameIndex,
-                    targetDist = activeDisplayParams.targetDistanceM,
-                    targetWidth = activeDisplayParams.targetWidthM
-                )
-            } else {
-                radarFrame
-            }
-
+            // 3. Live or Simulated Radar Detections Overlay (Decoupled Draw-Phase)
             ViewfinderRadarOverlay(
-                radarFrame = activeRadarFrame,
+                radarFrameProducer = {
+                    if (showSimulatedPoints) {
+                        SimulatedRadarDataProvider.getFrame(
+                            frameIndex = simFrameIndex,
+                            targetDist = activeDisplayParams.targetDistanceM,
+                            targetWidth = activeDisplayParams.targetWidthM
+                        )
+                    } else {
+                        radarFrameState.value
+                    }
+                },
                 calibrationParams = activeDisplayParams,
                 intrinsics = activeIntrinsics,
                 viewWidth = studioWidth,

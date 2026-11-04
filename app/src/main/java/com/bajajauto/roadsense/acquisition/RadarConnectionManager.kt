@@ -194,12 +194,17 @@ class RadarConnectionManager(private val context: Context) {
             override fun onNewData(data: ByteArray) {
                 if (!threadPrioritySet) {
                     try {
+                        Thread.currentThread().name = "RS-SerialIO"
                         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
                         Thread.currentThread().priority = Thread.MAX_PRIORITY
                         threadPrioritySet = true
-                        Log.i(TAG, "Boosted SerialInputOutputManager thread to THREAD_PRIORITY_URGENT_AUDIO")
+                        Log.i(TAG, "Boosted RS-SerialIO thread to THREAD_PRIORITY_URGENT_AUDIO (-19 / Linux Pri 101)")
+                        com.bajajauto.roadsense.logging.AppLogger.i(
+                            TAG,
+                            "RS-SerialIO thread online: ThreadPriority=THREAD_PRIORITY_URGENT_AUDIO (-19 / Linux Pri 101), ThreadName=RS-SerialIO"
+                        )
                     } catch (e: Exception) {
-                        Log.w(TAG, "Could not set SerialInputOutputManager thread priority: ${e.message}")
+                        Log.w(TAG, "Could not set RS-SerialIO thread priority: ${e.message}")
                     }
                 }
                 if (data.isEmpty()) return
@@ -244,14 +249,20 @@ class RadarConnectionManager(private val context: Context) {
                 }
             }
         }).apply {
-            readBufferSize = 4096
+            readBufferSize = 16384
+            try {
+                setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+                Log.i(TAG, "Configured pre-launch threadPriority = THREAD_PRIORITY_URGENT_AUDIO")
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not set pre-launch threadPriority on IO manager: ${e.message}")
+            }
             if (!retryWithBulkTransfer) {
                 try {
-                    setReadQueue(4)
-                    Log.i(TAG, "Configured safe asynchronous multi-buffered readQueue=4 (16 KB kernel buffer)")
+                    setReadQueue(8)
+                    Log.i(TAG, "Configured safe asynchronous multi-buffered readQueue=8 (128 KB kernel DMA buffer pool)")
                     com.bajajauto.roadsense.logging.AppLogger.i(
                         TAG,
-                        "Configured safe asynchronous multi-buffered readQueue=4 (16 KB kernel buffer) to eliminate CP2105 FIFO overflow"
+                        "Configured safe asynchronous multi-buffered readQueue=8 (128 KB kernel DMA buffer pool) to eliminate CP2105 FIFO overflow"
                     )
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not set readQueue on USB serial port: ${e.message}")

@@ -47,11 +47,14 @@ import com.bajajauto.roadsense.ui.components.ViewfinderRadarOverlay
 fun SbsDashboardCard(
     viewModel: RadarViewModel,
     isCurrentTab: Boolean,
-    latestFrame: RadarFrame?,
+    latestFrame: RadarFrame? = null,
+    frameProducer: (() -> RadarFrame?)? = null,
     modifier: Modifier = Modifier
 ) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val radarFrameState = viewModel.latestFrame.collectAsState()
+    val effectiveFrameProducer: () -> RadarFrame? = frameProducer ?: { radarFrameState.value }
 
     if (isLandscape) {
         // --- LANDSCAPE: Side-by-Side Dual Pane (50% Camera / 50% Radar) ---
@@ -65,6 +68,7 @@ fun SbsDashboardCard(
             SbsCameraFeedPane(
                 viewModel = viewModel,
                 isCurrentTab = isCurrentTab,
+                frameProducer = effectiveFrameProducer,
                 modifier = Modifier
                     .weight(0.5f)
                     .fillMaxHeight()
@@ -73,7 +77,7 @@ fun SbsDashboardCard(
             // Right Pane: Live Radar BEV Scope
             RadarBevPlot(
                 viewModel = viewModel,
-                frame = latestFrame,
+                frameProducer = effectiveFrameProducer,
                 modifier = Modifier
                     .weight(0.5f)
                     .fillMaxHeight(),
@@ -91,6 +95,7 @@ fun SbsDashboardCard(
             SbsCameraFeedPane(
                 viewModel = viewModel,
                 isCurrentTab = isCurrentTab,
+                frameProducer = effectiveFrameProducer,
                 modifier = Modifier
                     .weight(0.5f)
                     .fillMaxWidth()
@@ -98,7 +103,7 @@ fun SbsDashboardCard(
 
             RadarBevPlot(
                 viewModel = viewModel,
-                frame = latestFrame,
+                frameProducer = effectiveFrameProducer,
                 modifier = Modifier
                     .weight(0.5f)
                     .fillMaxWidth(),
@@ -115,9 +120,12 @@ fun SbsDashboardCard(
 private fun SbsCameraFeedPane(
     viewModel: RadarViewModel,
     isCurrentTab: Boolean,
+    frameProducer: (() -> RadarFrame?)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val radarFrameState = viewModel.latestFrame.collectAsState()
+    val effectiveFrameProducer: () -> RadarFrame? = frameProducer ?: { radarFrameState.value }
     val engineState by viewModel.cameraEngineState.collectAsState()
     val selectedCamera by viewModel.selectedCamera.collectAsState()
     val selectedRes by viewModel.selectedResolution.collectAsState()
@@ -129,7 +137,6 @@ private fun SbsCameraFeedPane(
     val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
     val isRadarOverlayEnabled by viewModel.isRadarOverlayEnabled.collectAsState()
     val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
-    val latestFrame by viewModel.latestFrame.collectAsState()
 
     var previewWidth by remember { mutableIntStateOf(1920) }
     var previewHeight by remember { mutableIntStateOf(1080) }
@@ -325,14 +332,19 @@ private fun SbsCameraFeedPane(
                                 val res = viewModel.cameraEngine.selectedResolution.value
                                 textureView.setAspectRatio(res.width, res.height, displayRotation)
                                 if (textureView.isAvailable) {
-                                    previewWidth = textureView.width
-                                    previewHeight = textureView.height
+                                    val sizeChanged = previewWidth != textureView.width || previewHeight != textureView.height
+                                    if (sizeChanged) {
+                                        previewWidth = textureView.width
+                                        previewHeight = textureView.height
+                                    }
                                     val st = textureView.surfaceTexture
                                     if (shouldRenderPreview && st != null && (engineState is CameraEngineState.Closed || !viewModel.cameraEngine.isSurfaceAttached(st))) {
                                         viewModel.cameraEngine.attachPreviewSurface(st, textureView.width, textureView.height)
                                     }
-                                    viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
-                                    viewModel.updateCameraIntrinsics(textureView.width, textureView.height)
+                                    if (sizeChanged) {
+                                        viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
+                                        viewModel.updateCameraIntrinsics(textureView.width, textureView.height)
+                                    }
                                 }
                             },
                             modifier = Modifier.fillMaxSize()
@@ -340,7 +352,7 @@ private fun SbsCameraFeedPane(
 
                         if (isRadarOverlayEnabled) {
                             ViewfinderRadarOverlay(
-                                radarFrame = latestFrame,
+                                radarFrameProducer = effectiveFrameProducer,
                                 calibrationParams = calibrationParams,
                                 intrinsics = activeIntrinsics,
                                 viewWidth = previewWidth,

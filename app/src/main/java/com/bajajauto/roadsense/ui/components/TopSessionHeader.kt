@@ -3,6 +3,7 @@ package com.bajajauto.roadsense.ui.components
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -11,6 +12,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.recording.SessionRecordingState
+import com.bajajauto.roadsense.ui.RadarViewModel
 
 /**
  * Pinned cockpit session bar providing global recording control, duration timer,
@@ -19,13 +21,16 @@ import com.bajajauto.roadsense.recording.SessionRecordingState
 @Composable
 fun TopSessionHeader(
     sessionState: SessionRecordingState,
-    liveGnssFixes: Long,
+    viewModel: RadarViewModel? = null,
+    liveGnssFixes: Long = 0L,
     liveCameraFrames: Long = 0L,
     onStartSession: () -> Unit,
     onStopSession: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val actualGnssFixes = if (viewModel != null) viewModel.gnssSessionFixes.collectAsState().value else liveGnssFixes
+    val actualCameraFrames = if (viewModel != null) viewModel.cameraSessionFrames.collectAsState().value else liveCameraFrames
 
     Card(
         colors = CardDefaults.cardColors(
@@ -80,7 +85,7 @@ fun TopSessionHeader(
 
                     Text(
                         text = when (sessionState) {
-                            is SessionRecordingState.Recording -> "Radar: ${sessionState.framesRecorded} | GPS: $liveGnssFixes | Cam: $liveCameraFrames"
+                            is SessionRecordingState.Recording -> "Radar: ${sessionState.framesRecorded} | GPS: $actualGnssFixes | Cam: $actualCameraFrames"
                             is SessionRecordingState.Finished -> "Saved: ${sessionState.totalFrames} radar | ${sessionState.totalGnssFixes} GPS | ${sessionState.totalCameraFrames} Cam"
                             is SessionRecordingState.Error -> "Error: ${sessionState.message}"
                             else -> "Multi-sensor synchronized capture"

@@ -55,10 +55,10 @@ fun FullscreenCameraPreview(
 
     val calibrationParams by viewModel.calibrationParams.collectAsState()
     val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
-    val radarFrame by viewModel.latestFrame.collectAsState()
     val isRadarOverlayEnabled by viewModel.isRadarOverlayEnabled.collectAsState()
     val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
     val sessionRecordingState by viewModel.sessionRecordingState.collectAsState()
+    val radarFrameState = viewModel.latestFrame.collectAsState()
     val cameraEngineState by viewModel.cameraEngineState.collectAsState()
     val selectedRes by viewModel.selectedResolution.collectAsState()
     val selectedFps by viewModel.selectedFps.collectAsState()
@@ -160,7 +160,7 @@ fun FullscreenCameraPreview(
         // 4. Radar HUD Overlay (Point Cloud, Tracks, Range Arcs)
         if (isRadarOverlayEnabled) {
             ViewfinderRadarOverlay(
-                radarFrame = radarFrame,
+                radarFrameProducer = { radarFrameState.value },
                 calibrationParams = calibrationParams,
                 intrinsics = activeIntrinsics,
                 viewWidth = previewWidth,

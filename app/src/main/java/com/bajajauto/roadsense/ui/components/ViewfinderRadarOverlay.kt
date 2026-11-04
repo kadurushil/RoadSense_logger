@@ -27,7 +27,8 @@ import com.bajajauto.roadsense.models.RadarFrame
  */
 @Composable
 fun ViewfinderRadarOverlay(
-    radarFrame: RadarFrame?,
+    radarFrame: RadarFrame? = null,
+    radarFrameProducer: (() -> RadarFrame?)? = null,
     calibrationParams: CalibrationParameters,
     intrinsics: CameraIntrinsics?,
     viewWidth: Int,
@@ -36,9 +37,11 @@ fun ViewfinderRadarOverlay(
     modifier: Modifier = Modifier
 ) {
     if (intrinsics == null || viewWidth <= 0 || viewHeight <= 0) return
-    if (radarFrame == null && !showRangeArcs) return
 
     Canvas(modifier = modifier.fillMaxSize()) {
+        val activeFrame = radarFrameProducer?.invoke() ?: radarFrame
+        if (activeFrame == null && !showRangeArcs) return@Canvas
+
         val w = size.width.toInt()
         val h = size.height.toInt()
 
@@ -125,10 +128,10 @@ fun ViewfinderRadarOverlay(
         }
 
         // 2. Draw Hybrid Radar Lollipops & Ground Plane Footprints (TLV Type 1 & Type 3)
-        if (radarFrame != null) {
+        if (activeFrame != null) {
             android.os.Trace.beginSection("RS_UI_CalculateLollipops")
             val lollipops = SpatialProjectionEngine.calculateRadarLollipops(
-                radarFrame = radarFrame,
+                radarFrame = activeFrame,
                 params = calibrationParams,
                 intrinsics = intrinsics,
                 viewWidth = w,

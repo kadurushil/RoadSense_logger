@@ -93,8 +93,8 @@ fun CameraDashboardCard(
     val isRadarOverlayEnabled by viewModel.isRadarOverlayEnabled.collectAsState()
     val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
     val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
-    val radarFrame by viewModel.latestFrame.collectAsState()
     val imuTelemetry by viewModel.imuTelemetry.collectAsState()
+    val radarFrameState = viewModel.latestFrame.collectAsState()
 
     var previewWidth by remember { mutableStateOf(1920) }
     var previewHeight by remember { mutableStateOf(1080) }
@@ -211,7 +211,7 @@ fun CameraDashboardCard(
                         }
                         if (isRadarOverlayEnabled) {
                             ViewfinderRadarOverlay(
-                                radarFrame = radarFrame,
+                                radarFrameProducer = { radarFrameState.value },
                                 calibrationParams = calibrationParams,
                                 intrinsics = activeIntrinsics,
                                 viewWidth = previewWidth,
@@ -459,7 +459,7 @@ fun CameraDashboardCard(
                         }
                         if (isRadarOverlayEnabled) {
                             ViewfinderRadarOverlay(
-                                radarFrame = radarFrame,
+                                radarFrameProducer = { radarFrameState.value },
                                 calibrationParams = calibrationParams,
                                 intrinsics = activeIntrinsics,
                                 viewWidth = previewWidth,

@@ -56,6 +56,16 @@ import com.bajajauto.roadsense.fusion.engine.SpatialProjectionEngine
 import com.bajajauto.roadsense.fusion.model.CalibrationParameters
 import com.bajajauto.roadsense.fusion.storage.CalibrationStorageManager
 
+data class RadarUiTelemetry(
+    val totalBytes: Long = 0L,
+    val totalPackets: Long = 0L,
+    val pointsCount: Int = 0,
+    val clustersCount: Int = 0,
+    val tracksCount: Int = 0,
+    val dataRateKbps: Float = 0f,
+    val lastFrameSeq: Long = 0L
+)
+
 class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     private val appPreferences = com.bajajauto.roadsense.storage.AppPreferences(application)
@@ -160,6 +170,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val _totalPackets = MutableStateFlow(0L)
     val totalPackets: StateFlow<Long> = _totalPackets.asStateFlow()
 
+    private val _radarUiTelemetry = MutableStateFlow(RadarUiTelemetry())
+    val radarUiTelemetry: StateFlow<RadarUiTelemetry> = _radarUiTelemetry.asStateFlow()
+
     private val _latestPacket = MutableStateFlow<RawRadarPacket?>(null)
     val latestPacket: StateFlow<RawRadarPacket?> = _latestPacket.asStateFlow()
 
@@ -179,6 +192,12 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     @Volatile private var lastObservedRadarSeq = -1L
     @Volatile private var totalRadarSequenceGaps = 0L
     @Volatile private var totalRadarDroppedFrames = 0L
+    @Volatile private var rawBytesReceivedCounter = 0L
+    @Volatile private var rawPacketsReceivedCounter = 0L
+    @Volatile private var latestFrameSeqNum = 0L
+    @Volatile private var latestPointsNum = 0
+    @Volatile private var latestClustersNum = 0
+    @Volatile private var latestTracksNum = 0
 
     // Persistent UI settings
     private val _radarMaxRange = MutableStateFlow(appPreferences.radarMaxRange)
@@ -291,14 +310,43 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
+        // Dedicated 5 Hz (200 ms) ticker for throttled textual UI telemetry metrics (relieves Main Thread from 20 Hz recomposition)
+        viewModelScope.launch(Dispatchers.Default) {
+            var lastBytes = 0L
+            var lastTimeMs = SystemClock.elapsedRealtime()
+            while (isActive) {
+                delay(200)
+                val now = SystemClock.elapsedRealtime()
+                val dt = ((now - lastTimeMs).coerceAtLeast(1L)) / 1000f
+                val curBytes = rawBytesReceivedCounter
+                val curPackets = rawPacketsReceivedCounter
+                val rateKbps = ((curBytes - lastBytes) / 1024f) / dt
+                lastBytes = curBytes
+                lastTimeMs = now
+
+                _totalBytes.value = curBytes
+                _totalPackets.value = curPackets
+                _radarUiTelemetry.value = RadarUiTelemetry(
+                    totalBytes = curBytes,
+                    totalPackets = curPackets,
+                    pointsCount = latestPointsNum,
+                    clustersCount = latestClustersNum,
+                    tracksCount = latestTracksNum,
+                    dataRateKbps = rateKbps.coerceAtLeast(0f),
+                    lastFrameSeq = latestFrameSeqNum
+                )
+            }
+        }
+
         // Dedicated worker thread for processing raw UART chunks, disk recording, and TLV decoding
         radarProcessingThread = Thread({
-            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_AUDIO)
+            Thread.currentThread().priority = Thread.MAX_PRIORITY
             val tid = android.os.Process.myTid()
             val osPriority = android.os.Process.getThreadPriority(tid)
             com.bajajauto.roadsense.logging.AppLogger.i(
                 "RadarWorker",
-                "RadarProcessingWorker online (TID=$tid, OS Priority=$osPriority, TargetPriority=${android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY}, QueueCapacity=2048)"
+                "RadarProcessingWorker online (TID=$tid, OS Priority=$osPriority, TargetPriority=${android.os.Process.THREAD_PRIORITY_AUDIO} [-16 / Linux Pri 104], QueueCapacity=2048)"
             )
             var lastPreviewMs = 0L
 
@@ -308,7 +356,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                     val hostMonoNs = SystemClock.elapsedRealtimeNanos()
                     val hostWallMs = System.currentTimeMillis()
 
-                    _totalBytes.value += bytes.size
+                    rawBytesReceivedCounter += bytes.size
 
                     // Throttled UI hex preview: sampled at ~4 Hz only when enabled
                     if (_isHexPreviewEnabled.value) {
@@ -334,7 +382,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
                     if (assembledPackets.isNotEmpty()) {
                         radarFramesThisSec += assembledPackets.size
-                        _totalPackets.value += assembledPackets.size
+                        rawPacketsReceivedCounter += assembledPackets.size
                         val lastPacket = assembledPackets.last()
                         _latestPacket.value = lastPacket
 
@@ -361,6 +409,10 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                         android.os.Trace.beginSection("RS_Worker_DecodeTLV")
                         val decoded = tlvDecoder.decode(lastPacket)
                         android.os.Trace.endSection()
+                        latestFrameSeqNum = decoded.header.frameNumber
+                        latestPointsNum = decoded.points.size
+                        latestClustersNum = decoded.clusters.size
+                        latestTracksNum = decoded.tracks.size
                         _latestFrame.value = decoded
                     }
                 } catch (_: InterruptedException) {
@@ -711,7 +763,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         val selectedCamId = cameraEngine.selectedCamera.value?.id
         val res = cameraEngine.selectedResolution.value
         val rot = cameraEngine.currentDisplayRotation
-        _activeIntrinsics.value = CameraIntrinsicsProvider.getIntrinsics(
+        val newIntrinsics = CameraIntrinsicsProvider.getIntrinsics(
             context = getApplication(),
             cameraId = selectedCamId,
             viewWidth = viewWidth,
@@ -720,6 +772,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             streamHeight = res.height,
             displayRotation = rot
         )
+        if (_activeIntrinsics.value != newIntrinsics) {
+            _activeIntrinsics.value = newIntrinsics
+        }
     }
 
     fun updateExtrinsics(

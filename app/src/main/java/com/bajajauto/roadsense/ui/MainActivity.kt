@@ -91,19 +91,11 @@ fun RoadSenseCockpitScreen(
 ) {
     // Sensor State Collection from ViewModel
     val connectionState by viewModel.connectionState.collectAsState()
-    val totalBytes by viewModel.totalBytes.collectAsState()
-    val totalPackets by viewModel.totalPackets.collectAsState()
-    val latestPacket by viewModel.latestPacket.collectAsState()
-    val latestFrame by viewModel.latestFrame.collectAsState()
-    val rawHexData by viewModel.rawHexData.collectAsState()
-    val isHexPreviewEnabled by viewModel.isHexPreviewEnabled.collectAsState()
 
     val sessionRecordingState by viewModel.sessionRecordingState.collectAsState()
     val gnssState by viewModel.gnssState.collectAsState()
     val latestGnssFix by viewModel.latestGnssFix.collectAsState()
     val totalGnssFixes by viewModel.totalGnssFixes.collectAsState()
-    val liveGnssSessionFixes by viewModel.gnssSessionFixes.collectAsState()
-    val liveCameraSessionFrames by viewModel.cameraSessionFrames.collectAsState()
 
     val radarHz by viewModel.radarHz.collectAsState()
     val cameraFps by viewModel.cameraFps.collectAsState()
@@ -260,8 +252,7 @@ fun RoadSenseCockpitScreen(
             Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                 TopSessionHeader(
                     sessionState = sessionRecordingState,
-                    liveGnssFixes = liveGnssSessionFixes,
-                    liveCameraFrames = liveCameraSessionFrames,
+                    viewModel = viewModel,
                     onStartSession = { viewModel.startSessionRecording() },
                     onStopSession = { viewModel.stopSessionRecording() }
                 )
@@ -307,13 +298,7 @@ fun RoadSenseCockpitScreen(
                 CockpitTab.RADAR -> {
                     RadarDashboardCard(
                         viewModel = viewModel,
-                        connectionState = connectionState,
-                        totalBytes = totalBytes,
-                        totalPackets = totalPackets,
-                        latestPacket = latestPacket,
-                        latestFrame = latestFrame,
-                        rawHexData = rawHexData,
-                        isHexPreviewEnabled = isHexPreviewEnabled
+                        connectionState = connectionState
                     )
                 }
                 CockpitTab.GNSS -> {
@@ -343,16 +328,13 @@ fun RoadSenseCockpitScreen(
                 CockpitTab.SBS -> {
                     SbsDashboardCard(
                         viewModel = viewModel,
-                        isCurrentTab = pagerState.currentPage == page,
-                        latestFrame = latestFrame
+                        isCurrentTab = pagerState.currentPage == page
                     )
                 }
                 CockpitTab.SESSION -> {
                     SessionDeckCard(
                         viewModel = viewModel,
-                        sessionState = sessionRecordingState,
-                        liveGnssFixes = liveGnssSessionFixes,
-                        liveCameraFrames = liveCameraSessionFrames
+                        sessionState = sessionRecordingState
                     )
                 }
             }

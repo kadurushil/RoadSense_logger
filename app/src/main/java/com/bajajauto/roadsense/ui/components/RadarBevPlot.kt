@@ -34,10 +34,12 @@ import kotlin.math.sin
 @Composable
 fun RadarBevPlot(
     viewModel: RadarViewModel,
-    frame: RadarFrame?,
+    frame: RadarFrame? = null,
+    frameProducer: (() -> RadarFrame?)? = null,
     modifier: Modifier = Modifier,
     isLandscape: Boolean = false
 ) {
+    val radarFrameState = viewModel.latestFrame.collectAsState()
     val maxRangeMeters by viewModel.radarMaxRange.collectAsState()
     val dynamicOnly by viewModel.radarDynamicOnly.collectAsState()
     val minSnrFilter by viewModel.radarMinSnr.collectAsState()
@@ -160,6 +162,7 @@ fun RadarBevPlot(
                     .background(Color(0xFF090B10))
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
+                    val activeFrame = frameProducer?.invoke() ?: radarFrameState.value ?: frame
                     val canvasWidth = size.width
                     val canvasHeight = size.height
 
@@ -275,7 +278,7 @@ fun RadarBevPlot(
                     drawPath(path = egoPath, color = Color(0xFF00E5FF))
 
                     // 6. Draw Clusters (TLV Type 2) as distinct compact yellow circles without text labels
-                    frame?.clusters?.forEach { cluster ->
+                    activeFrame?.clusters?.forEach { cluster ->
                         val cx = originX + cluster.x * scale
                         val cy = originY - cluster.y * scale
                         if (cy in 0f..originY && cx in 0f..canvasWidth) {
@@ -295,7 +298,7 @@ fun RadarBevPlot(
                     }
 
                     // 7. Draw Point Cloud Reflections (TLV Type 1) with Doppler velocity colors
-                    val pointsToRender = frame?.points?.filter { pt ->
+                    val pointsToRender = activeFrame?.points?.filter { pt ->
                         (!dynamicOnly || kotlin.math.abs(pt.doppler) > 0.35f) &&
                         (!minSnrFilter || pt.snrDb >= 15f)
                     } ?: emptyList()
@@ -337,13 +340,13 @@ fun RadarBevPlot(
                         isFakeBoldText = true
                     }
 
-                    val fcwAlert = frame?.canOutputs?.fcw
-                    val accTarget = frame?.canOutputs?.acc
+                    val fcwAlert = activeFrame?.canOutputs?.fcw
+                    val accTarget = activeFrame?.canOutputs?.acc
                     val fcwTrackId = if ((fcwAlert?.trackId ?: 0) > 0) fcwAlert?.trackId else null
                     val accPoiId = if ((accTarget?.poiId ?: 0) > 0) accTarget?.poiId else null
 
                     // Multi-tiered FCW Target Matching
-                    val tracksList = frame?.tracks ?: emptyList()
+                    val tracksList = activeFrame?.tracks ?: emptyList()
                     var matchedFcwIndex: Int? = null
                     if (fcwAlert != null && fcwAlert.stage > 0) {
                         matchedFcwIndex = tracksList.indexOfFirst { track ->
