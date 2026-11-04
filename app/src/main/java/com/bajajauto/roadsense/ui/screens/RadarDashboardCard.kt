@@ -37,7 +37,7 @@ import com.bajajauto.roadsense.ui.components.RadarBevPlot
 @Composable
 fun RadarDashboardCard(
     viewModel: RadarViewModel,
-    connectionState: RadarConnectionState,
+    connectionState: RadarConnectionState? = null,
     totalBytes: Long = 0L,
     totalPackets: Long = 0L,
     latestPacket: RawRadarPacket? = null,
@@ -47,6 +47,7 @@ fun RadarDashboardCard(
     modifier: Modifier = Modifier
 ) {
     val configuration = LocalConfiguration.current
+    val effectiveConnectionState = connectionState ?: viewModel.connectionState.collectAsState().value
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val scrollState = rememberScrollState()
     val hexScrollState = rememberScrollState()
@@ -95,8 +96,8 @@ fun RadarDashboardCard(
                     .verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                RadarHardwareStatusCard(connectionState, displayBytes, displayPackets, displayFrame)
-                RadarConnectionButtons(viewModel, connectionState)
+                RadarHardwareStatusCard(effectiveConnectionState, displayBytes, displayPackets, displayFrame)
+                RadarConnectionButtons(viewModel, effectiveConnectionState)
                 RadarTargetHudCard(displayFrame)
                 // RadarQuickCommands hidden from view per user request
                 RadarHexPreviewCard(displayHexData, displayHexEnabled, viewModel, hexScrollState)
@@ -111,7 +112,7 @@ fun RadarDashboardCard(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            RadarHardwareStatusCard(connectionState, displayBytes, displayPackets, displayFrame)
+            RadarHardwareStatusCard(effectiveConnectionState, displayBytes, displayPackets, displayFrame)
             RadarBevPlot(
                 viewModel = viewModel,
                 frameProducer = { radarFrameState.value },
@@ -119,7 +120,7 @@ fun RadarDashboardCard(
                 isLandscape = false
             )
             RadarTargetHudCard(displayFrame)
-            RadarConnectionButtons(viewModel, connectionState)
+            RadarConnectionButtons(viewModel, effectiveConnectionState)
             // RadarQuickCommands hidden from view per user request
             RadarHexPreviewCard(displayHexData, displayHexEnabled, viewModel, hexScrollState)
         }

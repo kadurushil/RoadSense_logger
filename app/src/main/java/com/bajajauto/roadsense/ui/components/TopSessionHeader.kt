@@ -20,21 +20,22 @@ import com.bajajauto.roadsense.ui.RadarViewModel
  */
 @Composable
 fun TopSessionHeader(
-    sessionState: SessionRecordingState,
     viewModel: RadarViewModel? = null,
+    sessionState: SessionRecordingState? = null,
     liveGnssFixes: Long = 0L,
     liveCameraFrames: Long = 0L,
-    onStartSession: () -> Unit,
-    onStopSession: () -> Unit,
+    onStartSession: () -> Unit = {},
+    onStopSession: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val effectiveSessionState = sessionState ?: viewModel?.sessionRecordingState?.collectAsState()?.value ?: SessionRecordingState.Idle
     val actualGnssFixes = if (viewModel != null) viewModel.gnssSessionFixes.collectAsState().value else liveGnssFixes
     val actualCameraFrames = if (viewModel != null) viewModel.cameraSessionFrames.collectAsState().value else liveCameraFrames
 
     Card(
         colors = CardDefaults.cardColors(
-            containerColor = when (sessionState) {
+            containerColor = when (effectiveSessionState) {
                 is SessionRecordingState.Recording -> MaterialTheme.colorScheme.errorContainer
                 is SessionRecordingState.Finished -> MaterialTheme.colorScheme.secondaryContainer
                 else -> MaterialTheme.colorScheme.surfaceVariant
@@ -57,21 +58,21 @@ fun TopSessionHeader(
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = when (sessionState) {
+                            text = when (effectiveSessionState) {
                                 is SessionRecordingState.Recording -> "● RECORDING"
                                 is SessionRecordingState.Finished -> "✓ SAVED"
                                 else -> "IDLE"
                             },
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold,
-                            color = when (sessionState) {
+                            color = when (effectiveSessionState) {
                                 is SessionRecordingState.Recording -> MaterialTheme.colorScheme.error
                                 is SessionRecordingState.Finished -> MaterialTheme.colorScheme.primary
                                 else -> MaterialTheme.colorScheme.onSurfaceVariant
                             }
                         )
-                        if (sessionState is SessionRecordingState.Recording) {
-                            val durationSec = sessionState.durationMs / 1000
+                        if (effectiveSessionState is SessionRecordingState.Recording) {
+                            val durationSec = effectiveSessionState.durationMs / 1000
                             val mins = durationSec / 60
                             val secs = durationSec % 60
                             Text(
@@ -84,10 +85,10 @@ fun TopSessionHeader(
                     }
 
                     Text(
-                        text = when (sessionState) {
-                            is SessionRecordingState.Recording -> "Radar: ${sessionState.framesRecorded} | GPS: $actualGnssFixes | Cam: $actualCameraFrames"
-                            is SessionRecordingState.Finished -> "Saved: ${sessionState.totalFrames} radar | ${sessionState.totalGnssFixes} GPS | ${sessionState.totalCameraFrames} Cam"
-                            is SessionRecordingState.Error -> "Error: ${sessionState.message}"
+                        text = when (effectiveSessionState) {
+                            is SessionRecordingState.Recording -> "Radar: ${effectiveSessionState.framesRecorded} | GPS: $actualGnssFixes | Cam: $actualCameraFrames"
+                            is SessionRecordingState.Finished -> "Saved: ${effectiveSessionState.totalFrames} radar | ${effectiveSessionState.totalGnssFixes} GPS | ${effectiveSessionState.totalCameraFrames} Cam"
+                            is SessionRecordingState.Error -> "Error: ${effectiveSessionState.message}"
                             else -> "Multi-sensor synchronized capture"
                         },
                         style = MaterialTheme.typography.bodySmall,

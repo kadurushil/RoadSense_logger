@@ -6,6 +6,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -16,6 +18,45 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.gnss.GnssFix
 import com.bajajauto.roadsense.sync.LiveSyncTelemetry
+import com.bajajauto.roadsense.ui.RadarViewModel
+
+/**
+ * Self-contained ViewModel-driven LiveMetricsBar:
+ * Collects high-frequency sensor rates (Radar Hz, Camera FPS, GNSS Hz, IMU Hz, thermals, battery, sync)
+ * internally so that top-level screen containers (e.g. RoadSenseCockpitScreen) do NOT recompose on every ticker update.
+ */
+@Composable
+fun LiveMetricsBar(
+    viewModel: RadarViewModel,
+    onSyncClick: () -> Unit = {},
+    modifier: Modifier = Modifier
+) {
+    val radarHz by viewModel.radarHz.collectAsState()
+    val cameraFps by viewModel.cameraFps.collectAsState()
+    val gnssHz by viewModel.gnssHz.collectAsState()
+    val imuHz by viewModel.imuHz.collectAsState()
+    val latestFix by viewModel.latestGnssFix.collectAsState()
+    val batteryPct by viewModel.batteryPct.collectAsState()
+    val batteryTempC by viewModel.batteryTempC.collectAsState()
+    val cpuUsagePct by viewModel.cpuUsagePct.collectAsState()
+    val cpuTempC by viewModel.cpuTempC.collectAsState()
+    val syncTelemetry by viewModel.liveSyncTelemetry.collectAsState()
+
+    LiveMetricsBar(
+        radarHz = radarHz,
+        cameraFps = cameraFps,
+        gnssHz = gnssHz,
+        imuHz = imuHz,
+        latestFix = latestFix,
+        batteryPct = batteryPct,
+        batteryTempC = batteryTempC,
+        cpuUsagePct = cpuUsagePct,
+        cpuTempC = cpuTempC,
+        syncTelemetry = syncTelemetry,
+        onSyncClick = onSyncClick,
+        modifier = modifier
+    )
+}
 
 /**
  * High-density live telemetry ticker for in-vehicle testing.

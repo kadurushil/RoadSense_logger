@@ -29,8 +29,8 @@ import com.bajajauto.roadsense.ui.RadarViewModel
 @Composable
 fun SessionDeckCard(
     viewModel: RadarViewModel,
-    sessionState: SessionRecordingState,
     modifier: Modifier = Modifier,
+    sessionState: SessionRecordingState? = null,
     liveGnssFixes: Long = 0L,
     liveCameraFrames: Long = 0L
 ) {
@@ -38,6 +38,8 @@ fun SessionDeckCard(
     val clipboardManager = LocalClipboardManager.current
     var copyNotice by remember { mutableStateOf(false) }
 
+    val currentSessionState = sessionState ?: viewModel.sessionRecordingState.collectAsState().value
+    val sessionState = currentSessionState
     val actualGnssFixes = if (liveGnssFixes > 0L) liveGnssFixes else viewModel.gnssSessionFixes.collectAsState().value
     val actualCameraFrames = if (liveCameraFrames > 0L) liveCameraFrames else viewModel.cameraSessionFrames.collectAsState().value
 

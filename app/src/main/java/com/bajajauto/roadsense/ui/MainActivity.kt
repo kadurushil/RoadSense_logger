@@ -89,26 +89,9 @@ fun RoadSenseCockpitScreen(
     viewModel: RadarViewModel,
     modifier: Modifier = Modifier
 ) {
-    // Sensor State Collection from ViewModel
-    val connectionState by viewModel.connectionState.collectAsState()
-
-    val sessionRecordingState by viewModel.sessionRecordingState.collectAsState()
-    val gnssState by viewModel.gnssState.collectAsState()
-    val latestGnssFix by viewModel.latestGnssFix.collectAsState()
-    val totalGnssFixes by viewModel.totalGnssFixes.collectAsState()
-
-    val radarHz by viewModel.radarHz.collectAsState()
-    val cameraFps by viewModel.cameraFps.collectAsState()
-    val gnssHz by viewModel.gnssHz.collectAsState()
-    val imuHz by viewModel.imuHz.collectAsState()
-    val batteryPct by viewModel.batteryPct.collectAsState()
-    val batteryTempC by viewModel.batteryTempC.collectAsState()
-    val cpuUsagePct by viewModel.cpuUsagePct.collectAsState()
-    val cpuTempC by viewModel.cpuTempC.collectAsState()
+    // High-level Cockpit Overlay State
     val isCalibrationFullScreen by viewModel.isCalibrationFullScreen.collectAsState()
     val isCameraFullScreen by viewModel.isCameraFullScreen.collectAsState()
-
-    val syncTelemetry by viewModel.liveSyncTelemetry.collectAsState()
     var showSyncDialog by remember { mutableStateOf(false) }
 
     val coroutineScope = rememberCoroutineScope()
@@ -128,19 +111,10 @@ fun RoadSenseCockpitScreen(
                 .fillMaxSize()
                 .padding(top = if (isLandscape) 1.dp else 4.dp)
         ) {
-        // High-Density Live Telemetry Ticker (Sensors Hz, GNSS Lock, Battery, CPU & Temp)
+        // High-Density Live Telemetry Ticker (Sensors Hz, GNSS Lock, Battery, CPU & Temp - self-contained collection)
         Box(modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp, vertical = 2.dp)) {
             LiveMetricsBar(
-                radarHz = radarHz,
-                cameraFps = cameraFps,
-                gnssHz = gnssHz,
-                imuHz = imuHz,
-                latestFix = latestGnssFix,
-                batteryPct = batteryPct,
-                batteryTempC = batteryTempC,
-                cpuUsagePct = cpuUsagePct,
-                cpuTempC = cpuTempC,
-                syncTelemetry = syncTelemetry,
+                viewModel = viewModel,
                 onSyncClick = { showSyncDialog = true }
             )
         }
@@ -189,69 +163,14 @@ fun RoadSenseCockpitScreen(
                         }
                     }
 
-                    // Right: Recording Status Pill & Action Button
-                    val currentSessionState = sessionRecordingState
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            color = when (currentSessionState) {
-                                is SessionRecordingState.Recording -> MaterialTheme.colorScheme.errorContainer
-                                is SessionRecordingState.Finished -> MaterialTheme.colorScheme.secondaryContainer
-                                else -> MaterialTheme.colorScheme.surfaceVariant
-                            },
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            val statusText = when (currentSessionState) {
-                                is SessionRecordingState.Recording -> {
-                                    val durationSec = currentSessionState.durationMs / 1000
-                                    "● REC %02d:%02d (%df)".format(durationSec / 60, durationSec % 60, currentSessionState.framesRecorded)
-                                }
-                                is SessionRecordingState.Finished -> "✓ SAVED (${currentSessionState.totalFrames}f)"
-                                else -> "IDLE"
-                            }
-                            Text(
-                                text = statusText,
-                                color = when (currentSessionState) {
-                                    is SessionRecordingState.Recording -> MaterialTheme.colorScheme.error
-                                    is SessionRecordingState.Finished -> MaterialTheme.colorScheme.primary
-                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-
-                        if (currentSessionState is SessionRecordingState.Recording) {
-                            Button(
-                                onClick = { viewModel.stopSessionRecording() },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                modifier = Modifier.height(26.dp)
-                            ) {
-                                Text("Stop", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        } else {
-                            Button(
-                                onClick = { viewModel.startSessionRecording() },
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                                modifier = Modifier.height(26.dp)
-                            ) {
-                                Text(if (currentSessionState is SessionRecordingState.Finished) "New" else "Record", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
+                    // Right: Recording Status Pill & Action Button (Isolated self-contained composable)
+                    LandscapeSessionControlBar(viewModel = viewModel)
                 }
             }
         } else {
             // --- PORTRAIT: Standard TopSessionHeader & TabRow with vector icons ---
             Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
                 TopSessionHeader(
-                    sessionState = sessionRecordingState,
                     viewModel = viewModel,
                     onStartSession = { viewModel.startSessionRecording() },
                     onStopSession = { viewModel.stopSessionRecording() }
@@ -297,16 +216,12 @@ fun RoadSenseCockpitScreen(
             when (tabs[page]) {
                 CockpitTab.RADAR -> {
                     RadarDashboardCard(
-                        viewModel = viewModel,
-                        connectionState = connectionState
+                        viewModel = viewModel
                     )
                 }
                 CockpitTab.GNSS -> {
                     GnssDashboardCard(
-                        viewModel = viewModel,
-                        gnssState = gnssState,
-                        latestFix = latestGnssFix,
-                        totalFixes = totalGnssFixes
+                        viewModel = viewModel
                     )
                 }
                 CockpitTab.IMU -> {
@@ -333,8 +248,7 @@ fun RoadSenseCockpitScreen(
                 }
                 CockpitTab.SESSION -> {
                     SessionDeckCard(
-                        viewModel = viewModel,
-                        sessionState = sessionRecordingState
+                        viewModel = viewModel
                     )
                 }
             }
@@ -358,10 +272,78 @@ fun RoadSenseCockpitScreen(
     }
 
     if (showSyncDialog) {
+        val syncTelemetry by viewModel.liveSyncTelemetry.collectAsState()
         com.bajajauto.roadsense.ui.components.SyncInspectionDialog(
             telemetry = syncTelemetry,
             onDismissRequest = { showSyncDialog = false }
         )
     }
+    }
+}
+
+/**
+ * Isolated recording control and status pill for landscape cockpit mode.
+ * Collects sessionRecordingState internally to keep the outer cockpit screen completely static.
+ */
+@Composable
+private fun LandscapeSessionControlBar(
+    viewModel: RadarViewModel,
+    modifier: Modifier = Modifier
+) {
+    val state = viewModel.sessionRecordingState.collectAsState().value
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Surface(
+            color = when (state) {
+                is SessionRecordingState.Recording -> MaterialTheme.colorScheme.errorContainer
+                is SessionRecordingState.Finished -> MaterialTheme.colorScheme.secondaryContainer
+                else -> MaterialTheme.colorScheme.surfaceVariant
+            },
+            shape = RoundedCornerShape(4.dp)
+        ) {
+            val statusText = when (state) {
+                is SessionRecordingState.Recording -> {
+                    val durationSec = state.durationMs / 1000
+                    "● REC %02d:%02d (%df)".format(durationSec / 60, durationSec % 60, state.framesRecorded)
+                }
+                is SessionRecordingState.Finished -> "✓ SAVED (${state.totalFrames}f)"
+                else -> "IDLE"
+            }
+            Text(
+                text = statusText,
+                color = when (state) {
+                    is SessionRecordingState.Recording -> MaterialTheme.colorScheme.error
+                    is SessionRecordingState.Finished -> MaterialTheme.colorScheme.primary
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+        }
+
+        if (state is SessionRecordingState.Recording) {
+            Button(
+                onClick = { viewModel.stopSessionRecording() },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                modifier = Modifier.height(26.dp)
+            ) {
+                Text("Stop", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        } else {
+            Button(
+                onClick = { viewModel.startSessionRecording() },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                modifier = Modifier.height(26.dp)
+            ) {
+                Text(if (state is SessionRecordingState.Finished) "New" else "Record", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
     }
 }

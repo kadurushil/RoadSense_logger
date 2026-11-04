@@ -28,11 +28,15 @@ import java.util.Locale
 @Composable
 fun GnssDashboardCard(
     viewModel: RadarViewModel,
-    gnssState: GnssState,
-    latestFix: GnssFix?,
-    totalFixes: Long,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    gnssState: GnssState? = null,
+    latestFix: GnssFix? = null,
+    totalFixes: Long? = null
 ) {
+    val activeGnssState = gnssState ?: viewModel.gnssState.collectAsState().value
+    val activeLatestFix = latestFix ?: viewModel.latestGnssFix.collectAsState().value
+    val activeTotalFixes = totalFixes ?: viewModel.totalGnssFixes.collectAsState().value
+
     val scrollState = rememberScrollState()
     var hasLocationPermission by remember { mutableStateOf(viewModel.hasLocationPermission()) }
 
@@ -56,7 +60,7 @@ fun GnssDashboardCard(
         // Master GNSS Switch Card
         Card(
             colors = CardDefaults.cardColors(
-                containerColor = when (gnssState) {
+                containerColor = when (activeGnssState) {
                     is GnssState.Active -> MaterialTheme.colorScheme.primaryContainer
                     is GnssState.Searching -> MaterialTheme.colorScheme.tertiaryContainer
                     is GnssState.Error -> MaterialTheme.colorScheme.errorContainer
@@ -79,18 +83,18 @@ fun GnssDashboardCard(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        text = when (gnssState) {
+                        text = when (activeGnssState) {
                             is GnssState.Disabled -> "Provider Offline"
                             is GnssState.Searching -> "Acquiring Satellites..."
-                            is GnssState.Active -> "Locked: $totalFixes total fixes logged"
-                            is GnssState.Error -> gnssState.message
+                            is GnssState.Active -> "Locked: $activeTotalFixes total fixes logged"
+                            is GnssState.Error -> activeGnssState.message
                         },
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
 
                 Switch(
-                    checked = gnssState !is GnssState.Disabled,
+                    checked = activeGnssState !is GnssState.Disabled,
                     onCheckedChange = { enable ->
                         if (enable) {
                             if (!hasLocationPermission) {
@@ -132,7 +136,7 @@ fun GnssDashboardCard(
                     horizontalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = latestFix?.let { "%.1f".format(Locale.US, it.speedKmh) } ?: "--.-",
+                        text = activeLatestFix?.let { "%.1f".format(Locale.US, it.speedKmh) } ?: "--.-",
                         fontSize = 48.sp,
                         fontWeight = FontWeight.Black,
                         fontFamily = FontFamily.Monospace,
@@ -157,7 +161,7 @@ fun GnssDashboardCard(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(text = "ACCURACY", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                         Text(
-                            text = latestFix?.let { "±%.1f m".format(Locale.US, it.accuracyMeters) } ?: "--",
+                            text = activeLatestFix?.let { "±%.1f m".format(Locale.US, it.accuracyMeters) } ?: "--",
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
@@ -165,7 +169,7 @@ fun GnssDashboardCard(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(text = "ALTITUDE", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                         Text(
-                            text = latestFix?.let { "%.1f m".format(Locale.US, it.altitudeMeters) } ?: "--",
+                            text = activeLatestFix?.let { "%.1f m".format(Locale.US, it.altitudeMeters) } ?: "--",
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
@@ -173,7 +177,7 @@ fun GnssDashboardCard(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(text = "BEARING", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                         Text(
-                            text = latestFix?.let { "%.0f°".format(Locale.US, it.bearingDegrees) } ?: "--",
+                            text = activeLatestFix?.let { "%.0f°".format(Locale.US, it.bearingDegrees) } ?: "--",
                             fontWeight = FontWeight.Bold,
                             fontFamily = FontFamily.Monospace
                         )
@@ -199,19 +203,19 @@ fun GnssDashboardCard(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Satellites Used: ${latestFix?.satellitesUsed ?: 0}",
+                        text = "Satellites Used: ${activeLatestFix?.satellitesUsed ?: 0}",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        text = "Satellites in View: ${latestFix?.satellitesInView ?: 0}",
+                        text = "Satellites in View: ${activeLatestFix?.satellitesInView ?: 0}",
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
 
                 // Progress ratio bar for satellites used vs visible
-                val ratio = if ((latestFix?.satellitesInView ?: 0) > 0) {
-                    (latestFix?.satellitesUsed ?: 0).toFloat() / (latestFix?.satellitesInView ?: 1)
+                val ratio = if ((activeLatestFix?.satellitesInView ?: 0) > 0) {
+                    (activeLatestFix?.satellitesUsed ?: 0).toFloat() / (activeLatestFix?.satellitesInView ?: 1)
                 } else 0f
                 LinearProgressIndicator(
                     progress = { ratio },
@@ -241,7 +245,7 @@ fun GnssDashboardCard(
                 ) {
                     Text(text = "Latitude:", style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        text = latestFix?.let { "%.7f°".format(Locale.US, it.latitude) } ?: "--.-------°",
+                        text = activeLatestFix?.let { "%.7f°".format(Locale.US, it.latitude) } ?: "--.-------°",
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
@@ -252,7 +256,7 @@ fun GnssDashboardCard(
                 ) {
                     Text(text = "Longitude:", style = MaterialTheme.typography.bodyMedium)
                     Text(
-                        text = latestFix?.let { "%.7f°".format(Locale.US, it.longitude) } ?: "--.-------°",
+                        text = activeLatestFix?.let { "%.7f°".format(Locale.US, it.longitude) } ?: "--.-------°",
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
@@ -263,7 +267,7 @@ fun GnssDashboardCard(
                 ) {
                     Text(text = "Hardware Monotonic Time:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                     Text(
-                        text = latestFix?.let { "${it.elapsedRealtimeNs} ns" } ?: "--",
+                        text = activeLatestFix?.let { "${it.elapsedRealtimeNs} ns" } ?: "--",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp
                     )
