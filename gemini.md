@@ -11,7 +11,7 @@
 
 > ⚠️ **MANDATORY FOR AGENTS:** Always review relevant context files before making architectural decisions or modifying core subsystems.
 
-* **`context/`**: Authoritative, modularized context folder containing 8 specialized intelligence files:
+* **`context/`**: Authoritative, modularized context folder containing 9 specialized intelligence files:
   * [`00_MASTER_EXECUTIVE_HANDOVER.md`](context/00_MASTER_EXECUTIVE_HANDOVER.md) — Master executive overview, active milestones & navigation map.
   * [`01_ARCHITECTURE_AND_STORAGE.md`](context/01_ARCHITECTURE_AND_STORAGE.md) — MVVM unidirectional data flow, component package mapping & storage layout.
   * [`02_RADAR_AND_HIGH_SPEED_SERIAL.md`](context/02_RADAR_AND_HIGH_SPEED_SERIAL.md) — 3.125 Mbps UART driver, 64KB direct ring buffer & TLV framing.
@@ -21,9 +21,10 @@
   * [`06_PC_TOOLING_AND_VISUALIZER_PIPELINE.md`](context/06_PC_TOOLING_AND_VISUALIZER_PIPELINE.md) — Python ADB extraction, replay pipeline & web visualizer schema.
   * [`07_ENVIRONMENT_PITFALLS_AND_RUNBOOK.md`](context/07_ENVIRONMENT_PITFALLS_AND_RUNBOOK.md) — Machine quirks, HAL limitations & command cheat sheet.
   * [`08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md`](context/08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md) — 6-DOF extrinsics, reverse touch solver, hybrid lollipops & range rings.
+  * [`09_HANDOVER_RADAR_SCHEDULER_STARVATION_BUG29.md`](context/09_HANDOVER_RADAR_SCHEDULER_STARVATION_BUG29.md) — Authoritative handover on Bug #29 Exynos scheduler starvation & priority hardening plan.
 * **`intel/`**: In-depth hardware integration guides, post-mortems, and theoretical formulations:
   * `intel/Sensor fusion basics.md` — Complete spatial calibration and perspective projection theory.
-  * `intel/debugging_and_troubleshooting_knowledge_base.md` — Post-mortem analysis of Bugs #1 through #15.
+  * `intel/debugging_and_troubleshooting_knowledge_base.md` — Post-mortem analysis of Bugs #1 through #29.
   * `intel/CANedge2_Android_Integration_Guide.md` — Full hardware spec for CSS Electronics CANedge2.
   * `intel/presentations/` — Presentation deck generator and executive slides.
   * `intel/Implementations/` — Step-by-step implementation plans and walkthroughs.

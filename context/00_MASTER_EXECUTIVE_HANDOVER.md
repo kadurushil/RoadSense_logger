@@ -58,7 +58,7 @@ As of September 29, 2026, the following major architectural milestones have been
 
 ## 3. Specialized Context Navigation Map
 
-To enable another AI agent or engineer to immediately locate deep architectural insights, the `context/` directory has been modularized into 8 specialized intelligence files:
+To enable another AI agent or engineer to immediately locate deep architectural insights, the `context/` directory has been modularized into 9 specialized intelligence files:
 
 ```text
 context/
@@ -70,7 +70,8 @@ context/
  ├── 05_FLIGHT_RECORDER_AND_DIAGNOSTICS.md      <-- AppLogger, continuous app_logs/ & flight recorder
  ├── 06_PC_TOOLING_AND_VISUALIZER_PIPELINE.md   <-- Python ADB extraction & web visualizer schema
  ├── 07_ENVIRONMENT_PITFALLS_AND_RUNBOOK.md     <-- Java Home quirks, workspace guardrails & commands
- └── 08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md <-- 6-DOF calibration, reverse solver & lollipop overlays
+ ├── 08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md <-- 6-DOF calibration, reverse solver & lollipop overlays
+ └── 09_HANDOVER_RADAR_SCHEDULER_STARVATION_BUG29.md  <-- Authoritative handover on Bug #29 Exynos scheduler starvation & priority hardening
 ```
 
 ### Quick Lookup Guide:
@@ -78,6 +79,7 @@ context/
 * **Working on CANedge2 sync, Wi-Fi downloads, or pruning?** Read [`04_CANEDGE2_AUTONOMOUS_INGESTION_ENGINE.md`](context/04_CANEDGE2_AUTONOMOUS_INGESTION_ENGINE.md).
 * **Working on Camera AF, tap-to-focus, Road AE, or video frames?** Read [`03_CAMERA_GNSS_AND_CROSS_SENSOR_SYNC.md`](context/03_CAMERA_GNSS_AND_CROSS_SENSOR_SYNC.md).
 * **Working on Radar-Camera Calibration, Reverse Touch Solver, or Viewfinder Overlays?** Read [`08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md`](context/08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md).
+* **Working on Radar High-Density Stutters, Scheduler Starvation & Priority Hardening?** Read [`09_HANDOVER_RADAR_SCHEDULER_STARVATION_BUG29.md`](context/09_HANDOVER_RADAR_SCHEDULER_STARVATION_BUG29.md).
 * **Debugging boot issues, silent crashes, or sync issues?** Read [`05_FLIGHT_RECORDER_AND_DIAGNOSTICS.md`](context/05_FLIGHT_RECORDER_AND_DIAGNOSTICS.md).
 * **Setting up the build environment, executing gradle, or using ADB?** Read [`07_ENVIRONMENT_PITFALLS_AND_RUNBOOK.md`](context/07_ENVIRONMENT_PITFALLS_AND_RUNBOOK.md).
 

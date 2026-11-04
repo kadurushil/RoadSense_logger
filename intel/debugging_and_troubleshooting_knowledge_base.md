@@ -35,7 +35,8 @@
 26. [Bug #26: Perspective-Compensated Lateral Centering Failure in Turning Scenarios & The Zero-Yaw Assumption Breakdown](#bug-26-perspective-compensated-lateral-centering-failure-in-turning-scenarios--the-zero-yaw-assumption-breakdown)
 27. [Bug #27: Straight-Line Yaw Rate Fluctuation via IMU Mounting Misalignment & Cross-Axis Roll/Pitch Coupling](#bug-27-straight-line-yaw-rate-fluctuation-via-imu-mounting-misalignment--cross-axis-rollpitch-coupling)
 28. [Bug #28: Radar Track Dropouts at High Speed via CP2105 Hardware FIFO Overflow & Cascading Desync Swallowing](#bug-28-radar-track-dropouts-at-high-speed-via-cp2105-hardware-fifo-overflow--cascading-desync-swallowing)
-29. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
+29. [Bug #29: High-Density Radar Track Collapse under Camera2/Compose UI Concurrency via Exynos 7904 Scheduler Starvation (5.18 ms Preemption) & CP2105 Baud Clock Inaccuracy (-4.0% Error)](#bug-29-high-density-radar-track-collapse-under-camera2compose-ui-concurrency-via-exynos-7904-scheduler-starvation-518-ms-preemption--cp2105-baud-clock-inaccuracy--40-error)
+30. [Summary of Core Engineering Rules](#summary-of-core-engineering-rules)
 
 ---
 
@@ -1379,6 +1380,98 @@ In `RadarPacketAssembler.kt`, whenever the assembler is accumulating bytes in st
 
 ---
 
+## Bug #29: High-Density Radar Track Collapse under Camera2/Compose UI Concurrency via Exynos 7904 Scheduler Starvation (5.18 ms Preemption) & CP2105 Baud Clock Inaccuracy (-4.0% Error)
+
+### Symptoms
+* In field drives and high point cloud density environments (>110–120 points per frame), vehicle radar tracks (bounding boxes, track IDs, and kinematics) suffered severe dropouts and visual stuttering in the cockpit.
+* Relaxing the DSP noise CFAR threshold to capture more point cloud reflections exacerbated the stuttering rather than improving perception.
+* Crucially, the issue intensified when the Camera2 viewfinder was active in Side-by-Side (SBS) mode.
+* The identical packet corruption and track loss was also independently reproduced on a Linux/Windows laptop running a Python logger, proving the vulnerability is rooted in hardware serial timing rather than being solely an Android defect.
+
+### Forensic Investigation via Perfetto System Tracing
+To pinpoint the exact mechanism without speculation, two continuous system traces were captured on target hardware (Samsung Galaxy M20, Exynos 7904 Octa-Core: 2x Cortex-A73 @ 1.8 GHz, 6x Cortex-A53 @ 1.6 GHz):
+1. **Trace A (Idle Baseline, 23.5s):** Radar streaming only, Camera preview OFF, UI idle (`trace-exynos7904-QP1A.190711.020-2026-11-03-17-49-03.perfetto-trace`).
+2. **Trace B (Heavy SBS Concurrency, 20.4s, 62.2 MB):** Radar streaming with 110–120 points, Camera2 1080p viewfinder active, SBS dual-view rendering (`trace-exynos7904-QP1A.190711.020-2026-11-03-18-05-25.perfetto-trace`).
+
+#### 1. Scheduler Contrast: The Smoking Gun
+* In **Trace A (Idle)**: The USB serial read thread (`SerialInputOutp`) transitioned between `Sleeping` and `Running` with a worst-case `Runnable` latency of only **1.53 ms** (well within the CP2105 hardware FIFO overflow limit).
+* In **Trace B (SBS Camera Load)**: The serial thread suffered **4 catastrophic preemption spikes exceeding 1.84 ms**:
+  - **Spike #1:** Waited **5.180 ms** in `RUNNABLE` at `ts = 3912225690.01 ms`
+  - **Spike #2:** Waited **2.279 ms** in `RUNNABLE` at `ts = 3912221461.73 ms`
+  - **Spike #3:** Waited **1.912 ms** in `RUNNABLE` at `ts = 3912231038.57 ms`
+  - **Spike #4:** Waited **1.848 ms** in `RUNNABLE` at `ts = 3912230788.58 ms`
+
+#### 2. Hardware FIFO Overflow Math & Single-Byte Parity
+* Operating at 3,125,000 baud (3.125 Mbps, 8-N-1):
+  $$\text{Throughput} = \frac{3,125,000\text{ bits/s}}{10\text{ bits/byte}} = 312,500\text{ bytes/s} = 312.5\text{ bytes/ms}$$
+* The Silicon Labs CP2105 Dual USB-to-UART bridge SCI (Standard Communication Interface) hardware RX FIFO is **576 bytes**.
+* The maximum latency the host OS can pause before hardware buffer overflow is:
+  $$\tau_{\text{overflow}} = \frac{576\text{ bytes}}{312.5\text{ bytes/ms}} \approx 1.843\text{ ms}$$
+* During Spike #1 ($5.18\text{ ms}$ preemption):
+  $$\text{Bytes Arrived} = 5.18\text{ ms} \times 312.5\text{ B/ms} = 1,618.7\text{ bytes}$$
+  $$\text{Bytes Dropped by CP2105} = 1,619 - 576 = \mathbf{1,043\text{ bytes!}}$$
+* **Empirical Parity with Corrupted Drive Frames:** In `logs/session_20261103_162349`, corrupted Frame #528 declared `totalPacketLen = 2752 bytes`, but only 1,712 bytes were delivered before the next frame magic word:
+  $$\text{Missing Bytes} = 2,752 - 1,712 = \mathbf{1,040\text{ bytes!}}$$
+  The Perfetto scheduler stall ($1,043\text{ B}$) matches the missing bytes in corrupted frames ($1,040\text{ B}$) down to the byte.
+
+#### 3. Root Cause: Culprit Processes & CPU Topology Contention
+Examining CPU core scheduling across the SoC during the 5.18 ms stall revealed the culprits:
+* **Exynos 7904 Core Asymmetry:** The SoC possesses only **2 big Cortex-A73 cores** (Cores 6 and 7) and 6 LITTLE Cortex-A53 cores (Cores 0–5).
+* **Big Core Saturation by UI:** Cores 6 & 7 were pinned by the RoadSense UI Main Thread (`jauto.roadsense` consumed **15.36 seconds of CPU time across 20.44s = 75.1% CPU load**) running Compose layout/recomposition and `RenderThread` (**9.67s = 47.3% CPU load**).
+* **LITTLE Core Seizure by Camera HAL:** `SerialInputOutp` was executing on Core 3 at standard priority (Pri 112). Samsung Camera HAL real-time kernel thread `lib_4_worker` (Priority 5) seized Core 3 for **5.18 ms continuously**. Concurrently, `/system/bin/cameraserver` and camera HAL threads (`C3Dev-0-ReqQueu`, `HwBinder:6713_3`, `Preview3AAThrea`) ran 34 ms batch capture slices (`CameraHal::processBatchCaptureRequests`) at Priority 98.
+* **The Eviction:** CFS preempted `SerialInputOutp`. Because big cores 6 & 7 were saturated by Compose UI and other LITTLE cores were executing camera ISP workers (`fimc_is_gw9` Pri 0, `fimc_is_gw2` Pri 0), the serial thread was marooned in `RUNNABLE` for 5.18 ms, overflowing the hardware FIFO.
+
+#### 4. The Laptop Logger Mystery: Silicon Labs CP2105 Clock Prescaler Mismatch
+Why did the laptop Python logger also drop packets?
+The CP2105 baud rate generator divides its 48 MHz USB clock:
+$$\text{Baud Rate} = \frac{48\text{ MHz}}{2 \times \text{Prescaler}}$$
+To achieve 3,125,000 baud:
+$$\text{Prescaler} = \frac{48\text{ MHz}}{2 \times 3,125,000} = \frac{24\text{ MHz}}{3.125\text{ MHz}} = \mathbf{7.68}$$
+Because the hardware prescaler register accepts only integer values, the hardware chooses **Prescaler = 8**:
+$$\text{Actual Baud} = \frac{24\text{ MHz}}{8} = \mathbf{3,000,000\text{ baud}}\quad (\mathbf{-4.00\%\text{ timing error!}})$$
+Standard UART asynchronous 8N1 communication requires timing error within $\pm 2.0\%$ to $\pm 2.5\%$. At **$-4.0\%$ error**, the sampling clock drifts by **40% of a bit period** by the stop bit. On both PC and Android, large frame payloads (>1.5–2.5 KB) accumulate severe bit phase error, triggering **UART Framing Errors (`FE`) and Overruns (`OE`)**.
+
+#### 5. Why Tracks Were Lost First (The Firmware Packing Order)
+In TI MSS firmware (`mrr_18xx_mss/com.c`), TLVs are transmitted sequentially:
+```text
+[Header 40B] -> [TLV 1: Points (~1.8 KB)] -> [TLV 2: Clusters] -> [TLV 3: Tracks (~150B)] -> [TLV 6: Safety CAN (~150B)]
+```
+Because TLV 1 (Point Cloud) is huge and transmitted first (taking 5.76 ms), preemption during point transmission corrupts the stream. When the receiver skips to the next 8-byte `TI_MAGIC` word, **TLV 3 (Tracks) and TLV 6 (Safety CAN) have already passed and are discarded.**
+
+### Systematic Architectural Mitigation Strategy
+
+```mermaid
+flowchart TD
+    A["Scheduler Starvation & FIFO Overflow"] --> B["1. Real-Time Thread Priority (Tier 3)"]
+    A --> C["2. Main Thread Compose UI Decoupling"]
+    A --> D["3. High-Speed Lock-Free Ring Buffer"]
+    A --> E["4. Future Radar Baud Clock Optimization"]
+
+    B --> B1["SerialInputOutp -> THREAD_PRIORITY_URGENT_AUDIO (-19 / Pri 101)"]
+    B --> B2["RadarProcessingWorker -> THREAD_PRIORITY_AUDIO (-16)"]
+
+    C --> C1["Decouple 20 Hz Radar Telemetry from Compose Recomposition"]
+    C1 --> C2["Frees Big Cores 6 & 7 from 75% CPU load"]
+
+    D --> D1["Zero-Allocation Lock-Free Direct Byte Ring Buffer"]
+    D1 --> D2["Guarantees < 2 µs Enqueue Latency"]
+
+    E --> E1["Switch to 921,600 Baud (+0.16% error) or 1.0 Mbps (0.00% error)"]
+    E1 --> E2["Increases FIFO Overflow Threshold from 1.84 ms to 6.25 ms"]
+```
+
+1. **Android Real-Time Priority Elevation:**
+   - Elevate the `SerialInputOutputManager` thread to `Process.THREAD_PRIORITY_URGENT_AUDIO` (`-19`, Linux Priority 101).
+   - This prevents Camera HAL threads (Priority 98/112) from preempting the USB serial reader.
+2. **Main Thread Compose UI Decoupling:**
+   - Isolate high-frequency radar state emissions (20 Hz) from the Compose UI tree using sampling decimation and state holders (`derivedStateOf`), relieving the 75.1% CPU load on big cores 6 & 7.
+3. **Dedicated Lock-Free In-Memory Ring Buffer:**
+   - Ensure the raw byte queue between the USB reader and processing worker remains strictly lock-free with $< 2\text{ µs}$ enqueue latency.
+4. **Future Baud Rate Clock Alignment:**
+   - When updating radar firmware, migrate from 3.125 Mbps to **921,600 baud** (CP2105 error $+0.16\%$) or **1,000,000 baud** (CP2105 error $0.00\%$), increasing hardware FIFO fill time to **$6.25\text{ ms}$** and eliminating UART framing errors on both PC and Android.
+
+---
+
 ## Summary of Core Engineering Rules
 
 1. **Never pass high-frequency raw byte streams through `StateFlow`:** Always use direct callbacks or channels to background workers.
@@ -1414,6 +1507,8 @@ In `RadarPacketAssembler.kt`, whenever the assembler is accumulating bytes in st
 26. **Never Apply Zero-Yaw Perspective Boundary Solvers to 3D Bounding Boxes Without Heading Estimation:** Projecting 2D YOLO box edges $[x_1, x_2]$ to asymmetric 3D corner depths ($Z_{\text{near}}$ vs $Z_{\text{far}}$) strictly assumes the target vehicle's longitudinal axis is parallel to the camera boresight ($0^\circ$ yaw). In turning scenarios or non-parallel geometries, this assumption breaks down catastrophically, collapsing box widths to clamp limits and violently shifting the lateral center. Without a 3D heading estimator (or vehicle velocity vector tracker), lateral position must remain anchored to the ground contact patch ray ($Y_{\text{center}} = Y_{\text{contact}}$).
 27. **Account for uncalibrated chassis IMU mounting angles and cross-axis roll/pitch coupling in ego-motion compensation:** When extracting chassis gyro yaw rate ($\omega_{\text{yaw}}$), mounting misalignment relative to vehicle structural axes causes vehicle roll and pitch (from road camber, bumps, and squat/dive) to project directly onto the measured yaw axis. Always apply a zero-phase low-pass smoothing filter and a continuous soft deadband ($0.010\text{--}0.025\text{ rad/s}$) to suppress cross-axis coupling during straight travel until full 3D calibration is executed.
 28. **Decouple high-speed UART hardware reading from disk I/O and frame parsing via bounded queues, and guard packet assemblers against cascading desync:** When receiving high-bandwidth sensor streams (e.g. 3.125 Mbps UART) over USB-to-UART bridges with shallow hardware FIFOs (e.g. CP2105 576-byte FIFO overflowing in 1.84 ms), the hardware read thread must only enqueue raw byte buffers into a high-capacity memory queue (`< 2 µs` per chunk) at `THREAD_PRIORITY_URGENT_AUDIO`. All disk recording and frame assembly must execute on a decoupled worker thread. Crucially, the packet assembler must inspect incoming chunks for header magic words while awaiting payload bytes: if a new magic word appears before declared frame bytes finish arriving, the assembler must immediately truncate the incomplete frame and realign to the new frame, preventing dropped packet tails from swallowing subsequent frames into cascading desync outages.
+29. **Enforce real-time OS priority (`THREAD_PRIORITY_URGENT_AUDIO`) on shallow-FIFO USB serial drivers under camera and GPU load, and decouple high-frequency state from Compose recomposition:** On resource-constrained heterogeneous SoCs (e.g. Exynos 7904 with 2 big Cortex-A73 and 6 LITTLE Cortex-A53 cores), Camera2 HAL real-time kernel workers (`lib_4_worker` Pri 5, `cameraserver` Pri 98) and UI Main Thread Compose recomposition will monopolize the CPU runqueues for > 5 ms. Operating a shallow-FIFO USB bridge (e.g. CP2105 576-byte buffer overflowing in 1.84 ms at 3.125 Mbps) requires elevating the serial read thread to `THREAD_PRIORITY_URGENT_AUDIO` (-19 / Linux Priority 101) so it takes scheduling precedence over Camera HAL threads. Concurrently, high-frequency (20 Hz) sensor state updates must be isolated from the Compose UI tree to avoid starving the big-core cluster.
+
 
 
 

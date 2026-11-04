@@ -44,6 +44,7 @@ fun ViewfinderRadarOverlay(
 
         // 1. Draw Translucent Radar Range Arcs, Boresight, and FOV Boundary Lines
         if (showRangeArcs) {
+            android.os.Trace.beginSection("RS_UI_DrawArcs")
             val rangeOverlay = SpatialProjectionEngine.calculateRadarRangeOverlay(
                 params = calibrationParams,
                 intrinsics = intrinsics,
@@ -120,10 +121,12 @@ fun ViewfinderRadarOverlay(
                     )
                 }
             }
+            android.os.Trace.endSection()
         }
 
         // 2. Draw Hybrid Radar Lollipops & Ground Plane Footprints (TLV Type 1 & Type 3)
         if (radarFrame != null) {
+            android.os.Trace.beginSection("RS_UI_CalculateLollipops")
             val lollipops = SpatialProjectionEngine.calculateRadarLollipops(
                 radarFrame = radarFrame,
                 params = calibrationParams,
@@ -132,7 +135,9 @@ fun ViewfinderRadarOverlay(
                 viewHeight = h,
                 filterUntrackedClutter = false
             )
+            android.os.Trace.endSection()
 
+            android.os.Trace.beginSection("RS_UI_DrawLollipops")
             val badgeTextPaint = Paint().apply {
                 color = android.graphics.Color.WHITE
                 textSize = 9f * density
@@ -141,7 +146,7 @@ fun ViewfinderRadarOverlay(
                 setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
             }
 
-            for (lollipop in lollipops) {
+                for (lollipop in lollipops) {
                 // Color coding based on ADAS role, tracking, and Doppler velocity:
                 // FCW Alert target: Vivid Alert Red (0xFFFF1744)
                 // ACC POI Lead Vehicle: Electric Cyan (0xFF00E5FF)
@@ -314,6 +319,7 @@ fun ViewfinderRadarOverlay(
                     )
                 }
             }
+            android.os.Trace.endSection()
         }
     }
 }

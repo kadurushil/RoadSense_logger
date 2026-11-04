@@ -328,7 +328,10 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                     rawRecorder.write(bytes)
                     sessionRecorder.writeRawBytes(bytes)
 
+                    android.os.Trace.beginSection("RS_Worker_Assemble")
                     val assembledPackets = packetAssembler.appendBytes(bytes)
+                    android.os.Trace.endSection()
+
                     if (assembledPackets.isNotEmpty()) {
                         radarFramesThisSec += assembledPackets.size
                         _totalPackets.value += assembledPackets.size
@@ -349,11 +352,15 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                                 }
                                 lastObservedRadarSeq = seq
                             }
+                            android.os.Trace.beginSection("RS_Worker_WriteFrame")
                             sessionRecorder.writeFrame(packet, hostMonoNs, hostWallMs)
+                            android.os.Trace.endSection()
                         }
 
                         // Decode real-time TLVs into structured RadarFrame
+                        android.os.Trace.beginSection("RS_Worker_DecodeTLV")
                         val decoded = tlvDecoder.decode(lastPacket)
+                        android.os.Trace.endSection()
                         _latestFrame.value = decoded
                     }
                 } catch (_: InterruptedException) {

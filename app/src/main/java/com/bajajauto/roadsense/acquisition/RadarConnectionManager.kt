@@ -176,56 +176,7 @@ class RadarConnectionManager(private val context: Context) {
 
             // Setup IO Manager for Data Port
             dataPort?.let { port ->
-                var threadPrioritySet = false
-                dataIoManager = SerialInputOutputManager(port, object : SerialInputOutputManager.Listener {
-                    override fun onNewData(data: ByteArray) {
-                        if (!threadPrioritySet) {
-                            try {
-                                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
-                                Thread.currentThread().priority = Thread.MAX_PRIORITY
-                                threadPrioritySet = true
-                                Log.i(TAG, "Boosted SerialInputOutputManager thread to THREAD_PRIORITY_URGENT_AUDIO")
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Could not set SerialInputOutputManager thread priority: ${e.message}")
-                            }
-                        }
-                        if (data.isEmpty()) return
-
-                        // Direct dispatch to listeners on IO thread (zero dropped bytes)
-                        for (listener in dataListeners) {
-                            try {
-                                listener.onRawData(data)
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error in data listener", e)
-                            }
-                        }
-
-                        // Conflated flow for UI indicator/preview only
-                        _dataBytes.value = data
-                    }
-
-                    override fun onRunError(e: Exception) {
-                        Log.e(TAG, "Runner error", e)
-                        _connectionState.value = RadarConnectionState.Error(e.message ?: "Unknown IO Error")
-                    }
-                }).apply {
-                    readBufferSize = 16384
-                    try {
-                        setReadQueue(16)
-                        Log.i(TAG, "Configured asynchronous multi-buffered readQueue=16 (256 KB kernel buffer)")
-                        com.bajajauto.roadsense.logging.AppLogger.i(
-                            TAG,
-                            "Configured asynchronous multi-buffered readQueue=16 (256 KB kernel buffer) to eliminate CP2105 FIFO overflow"
-                        )
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Could not set readQueue on USB serial port: ${e.message}")
-                        com.bajajauto.roadsense.logging.AppLogger.w(
-                            TAG,
-                            "Could not set readQueue on USB serial port: ${e.message}"
-                        )
-                    }
-                    start()
-                }
+                startDataIoManager(port)
             }
 
             _connectionState.value = RadarConnectionState.Connected(
@@ -234,6 +185,85 @@ class RadarConnectionManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error opening serial port", e)
             _connectionState.value = RadarConnectionState.Error(e.message ?: "Connection Failed")
+        }
+    }
+
+    private fun startDataIoManager(port: UsbSerialPort, retryWithBulkTransfer: Boolean = false) {
+        var threadPrioritySet = false
+        dataIoManager = SerialInputOutputManager(port, object : SerialInputOutputManager.Listener {
+            override fun onNewData(data: ByteArray) {
+                if (!threadPrioritySet) {
+                    try {
+                        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
+                        Thread.currentThread().priority = Thread.MAX_PRIORITY
+                        threadPrioritySet = true
+                        Log.i(TAG, "Boosted SerialInputOutputManager thread to THREAD_PRIORITY_URGENT_AUDIO")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not set SerialInputOutputManager thread priority: ${e.message}")
+                    }
+                }
+                if (data.isEmpty()) return
+
+                android.os.Trace.beginSection("RS_Serial_onNewData")
+                try {
+                    // Direct dispatch to listeners on IO thread (zero dropped bytes)
+                    for (listener in dataListeners) {
+                        try {
+                            listener.onRawData(data)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error in data listener", e)
+                        }
+                    }
+
+                    // Conflated flow for UI indicator/preview only
+                    _dataBytes.value = data
+                } finally {
+                    android.os.Trace.endSection()
+                }
+            }
+
+            override fun onRunError(e: Exception) {
+                Log.e(TAG, "SerialInputOutputManager error: ${e.message}", e)
+                com.bajajauto.roadsense.logging.AppLogger.w(TAG, "SerialInputOutputManager error: ${e.message}")
+                if (port.isOpen && _connectionState.value is RadarConnectionState.Connected) {
+                    // Attempt clean auto-recovery rather than permanently failing connection
+                    com.bajajauto.roadsense.logging.AppLogger.i(TAG, "Attempting auto-recovery for data serial IO manager...")
+                    executor.execute {
+                        try {
+                            Thread.sleep(100)
+                            if (port.isOpen) {
+                                startDataIoManager(port, retryWithBulkTransfer = true)
+                            }
+                        } catch (recEx: Exception) {
+                            Log.e(TAG, "Auto-recovery failed", recEx)
+                            _connectionState.value = RadarConnectionState.Error(e.message ?: "Unknown IO Error")
+                        }
+                    }
+                } else {
+                    _connectionState.value = RadarConnectionState.Error(e.message ?: "Unknown IO Error")
+                }
+            }
+        }).apply {
+            readBufferSize = 4096
+            if (!retryWithBulkTransfer) {
+                try {
+                    setReadQueue(4)
+                    Log.i(TAG, "Configured safe asynchronous multi-buffered readQueue=4 (16 KB kernel buffer)")
+                    com.bajajauto.roadsense.logging.AppLogger.i(
+                        TAG,
+                        "Configured safe asynchronous multi-buffered readQueue=4 (16 KB kernel buffer) to eliminate CP2105 FIFO overflow"
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not set readQueue on USB serial port: ${e.message}")
+                    com.bajajauto.roadsense.logging.AppLogger.w(
+                        TAG,
+                        "Could not set readQueue on USB serial port: ${e.message}"
+                    )
+                }
+            } else {
+                Log.i(TAG, "Starting SerialInputOutputManager in standard synchronous mode (auto-recovered)")
+            }
+            start()
         }
     }
 
