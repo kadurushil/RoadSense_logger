@@ -169,3 +169,4 @@ Tested against `logs/session_20261105_153856` (695 frames on Samsung Galaxy M32)
 | **Phase Centroid StdDev** | **$2.37\text{ ms}$** | **$0.39\text{ ms}$** | **$6\times$ phase stabilization** |
 | **Unit Tests Passed** | 24 / 24 | 24 / 24 | 100% test coverage |
 | **APK Build Time** | 2 seconds | 2 seconds | Fast clean assemble |
+
