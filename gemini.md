@@ -28,6 +28,7 @@
   * `intel/CANedge2_Android_Integration_Guide.md` — Full hardware spec for CSS Electronics CANedge2.
   * `intel/presentations/` — Presentation deck generator and executive slides.
   * `intel/Implementations/` — Step-by-step implementation plans and walkthroughs.
+  * `intel/RADAR_PROCESSING/` — Complete post-mortem, M20 vs M32 comparison, legacy parity runbook, and frame salvaging architecture for the 3.125 Mbps UART data loss bug.
 * **`scripts/`**: Standalone PC diagnostic & sensor validation tools (`session_health_check.py`, `audit_cross_sensor_sync.py`, etc.).
 * **`Future_stuff.md`**: Centralized backlog of future ADAS enhancements and roadmap.
 * **`README.md`**: Top-level project landing page and quick-start guide.
