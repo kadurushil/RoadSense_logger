@@ -190,6 +190,7 @@ class RadarConnectionManager(private val context: Context) {
 
     private fun startDataIoManager(port: UsbSerialPort, retryWithBulkTransfer: Boolean = false) {
         var threadPrioritySet = false
+
         dataIoManager = SerialInputOutputManager(port, object : SerialInputOutputManager.Listener {
             override fun onNewData(data: ByteArray) {
                 if (!threadPrioritySet) {
@@ -249,7 +250,7 @@ class RadarConnectionManager(private val context: Context) {
                 }
             }
         }).apply {
-            readBufferSize = 16384
+            readBufferSize = 8192
             try {
                 setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
                 Log.i(TAG, "Configured pre-launch threadPriority = THREAD_PRIORITY_URGENT_AUDIO")
@@ -258,11 +259,16 @@ class RadarConnectionManager(private val context: Context) {
             }
             if (!retryWithBulkTransfer) {
                 try {
-                    setReadQueue(8)
-                    Log.i(TAG, "Configured safe asynchronous multi-buffered readQueue=8 (128 KB kernel DMA buffer pool)")
+                    // Allocate 32 asynchronous UsbRequests in the Linux kernel DMA ring (256 KB pool)
+                    setReadQueue(32)
+                    val activeQueue = readQueueBufferCount
+                    val activeSize = readBufferSize
+                    val poolKb = (activeQueue * activeSize) / 1024
+                    val headroomMs = (activeQueue * activeSize) / 312.5f
+                    Log.i(TAG, "VERIFIED_KERNEL_DMA: readQueue=$activeQueue buffers ($activeSize B each). Total DMA pool = ${poolKb} KB (~${String.format(java.util.Locale.US, "%.1f", headroomMs)}ms absorption headroom)")
                     com.bajajauto.roadsense.logging.AppLogger.i(
                         TAG,
-                        "Configured safe asynchronous multi-buffered readQueue=8 (128 KB kernel DMA buffer pool) to eliminate CP2105 FIFO overflow"
+                        "VERIFIED_KERNEL_DMA: readQueue=$activeQueue buffers ($activeSize B each). Total DMA pool = ${poolKb} KB (~${String.format(java.util.Locale.US, "%.1f", headroomMs)}ms absorption headroom) to eliminate CP2105 FIFO overflow"
                     )
                 } catch (e: Exception) {
                     Log.w(TAG, "Could not set readQueue on USB serial port: ${e.message}")
