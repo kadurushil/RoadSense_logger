@@ -39,13 +39,6 @@ class RadarSessionRecorder(
         // Sync marker for framed radar binary: "ROAD" (0x52, 0x4F, 0x41, 0x44)
         val FRAME_MAGIC = byteArrayOf(0x52, 0x4F, 0x41, 0x44)
         const val HEADER_SIZE = 24 // 4 (magic) + 8 (monoNs) + 8 (wallMs) + 4 (len)
-
-        /**
-         * Safety fallback toggle: When true, enforces defensive .clone() duplication on raw byte
-         * arrays prior to async background executor dispatch. When false (default), uses direct
-         * zero-copy buffer passing since SerialInputOutputManager allocates unique arrays per read.
-         */
-        const val ENFORCE_DEFENSIVE_BYTE_CLONING = false
     }
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
@@ -137,7 +130,7 @@ class RadarSessionRecorder(
     fun writeRawBytes(bytes: ByteArray) {
         if (!isRecordingActive || bytes.isEmpty()) return
 
-        val chunk = if (ENFORCE_DEFENSIVE_BYTE_CLONING) bytes.clone() else bytes
+        val chunk = bytes
         executor.execute {
             if (!isRecordingActive) return@execute
             try {
@@ -165,8 +158,7 @@ class RadarSessionRecorder(
 
         syncAssociator?.pushRadar(hostMonoNs, packet.header)
 
-        val rawPayload = if (packet.fullPacketBytes.isNotEmpty()) packet.fullPacketBytes else packet.payload
-        val payload = if (ENFORCE_DEFENSIVE_BYTE_CLONING) rawPayload.clone() else rawPayload
+        val payload = if (packet.fullPacketBytes.isNotEmpty()) packet.fullPacketBytes else packet.payload
         executor.execute {
             if (!isRecordingActive) return@execute
             try {

@@ -42,13 +42,6 @@ class RawUartRecorder(private val context: Context) {
         private const val TAG = "RawUartRecorder"
         private const val BUFFER_SIZE = 64 * 1024 // 64 KB buffer for high-speed UART streaming
         private const val UI_UPDATE_INTERVAL_MS = 250L // Throttle UI state updates to 4 Hz
-
-        /**
-         * Safety fallback toggle: When true, enforces defensive .clone() duplication on raw byte
-         * arrays prior to async background executor dispatch. When false (default), uses direct
-         * zero-copy buffer passing since SerialInputOutputManager allocates unique arrays per read.
-         */
-        const val ENFORCE_DEFENSIVE_BYTE_CLONING = false
     }
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
@@ -123,7 +116,7 @@ class RawUartRecorder(private val context: Context) {
     fun write(data: ByteArray) {
         if (!isRecordingActive || data.isEmpty()) return
 
-        val chunk = if (ENFORCE_DEFENSIVE_BYTE_CLONING) data.clone() else data
+        val chunk = data
         executor.execute {
             if (!isRecordingActive) return@execute
             try {
