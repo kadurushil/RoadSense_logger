@@ -77,23 +77,19 @@ fun CameraDashboardCard(
     val selectedCamera by viewModel.selectedCamera.collectAsState()
     val selectedRes by viewModel.selectedResolution.collectAsState()
     val selectedFps by viewModel.selectedFps.collectAsState()
-    val sessionFrames by viewModel.cameraSessionFrames.collectAsState()
     val isPreviewMutedByUser by viewModel.isCameraPreviewMuted.collectAsState()
     val isInfinityLocked by viewModel.isInfinityFocusLocked.collectAsState()
     val isAfAeLocked by viewModel.isAfAeLocked.collectAsState()
     val tapPoint by viewModel.tapFocusPoint.collectAsState()
 
-    // Autonomous Road AE states
+    // Autonomous Road AE modes (structural mode only; 30 Hz telemetry encapsulated in leaf badge)
     val roadAeMode by viewModel.roadAeMode.collectAsState()
-    val roadAeState by viewModel.roadAeState.collectAsState()
-    val roadAeContrastRatio by viewModel.roadAeContrastRatio.collectAsState()
 
     // Sensor Fusion & Calibration states
     val calibrationParams by viewModel.calibrationParams.collectAsState()
     val isRadarOverlayEnabled by viewModel.isRadarOverlayEnabled.collectAsState()
     val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
     val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
-    val imuTelemetry by viewModel.imuTelemetry.collectAsState()
     val radarFrameState = viewModel.latestFrame.collectAsState()
 
     var previewWidth by remember { mutableStateOf(1920) }
@@ -238,41 +234,13 @@ fun CameraDashboardCard(
                     )
                 }
 
-                // Overlay Status Badge
-                Surface(
-                    color = if (engineState is CameraEngineState.Recording) MaterialTheme.colorScheme.error else Color.Black.copy(alpha = 0.65f),
-                    shape = RoundedCornerShape(8.dp),
+                // Overlay Status Badge (Isolated self-contained composable)
+                CameraOverlayStatusBadge(
+                    viewModel = viewModel,
                     modifier = Modifier
                         .align(Alignment.TopStart)
                         .padding(8.dp)
-                ) {
-                    val lockBadge = when {
-                        isInfinityLocked -> " • ∞ LOCK"
-                        isAfAeLocked -> " • AF/AE LOCK"
-                        else -> ""
-                    }
-                    val aeBadge = if (roadAeMode == RoadAeMode.AUTO_ROAD) {
-                        when (roadAeState) {
-                            RoadAeState.SKY_BLOOM -> " • ROAD AE ☀️"
-                            RoadAeState.NIGHT_TUNNEL -> " • ROAD AE 🌙"
-                            RoadAeState.BALANCED -> " • ROAD AE"
-                            RoadAeState.TAP_LOCKED -> ""
-                        }
-                    } else ""
-                    Text(
-                        text = when (val state = engineState) {
-                            is CameraEngineState.Recording -> "● REC ($sessionFrames f)$aeBadge"
-                            is CameraEngineState.Previewing -> "${selectedCamera?.displayName ?: "Camera"} • ${selectedRes.label}$lockBadge$aeBadge"
-                            is CameraEngineState.Opening -> "OPENING..."
-                            is CameraEngineState.Error -> "ERROR: ${state.message.take(16)}"
-                            CameraEngineState.Closed -> if (isPreviewMutedByUser) "PAUSED" else "STANDBY"
-                        },
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
+                )
 
                 // Fullscreen Expand Button (Landscape)
                 IconButton(
@@ -302,10 +270,10 @@ fun CameraDashboardCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 CameraPipelineStatusHeader(
+                    viewModel = viewModel,
                     engineState = engineState,
                     selectedRes = selectedRes,
                     selectedFps = selectedFps,
-                    sessionFrames = sessionFrames,
                     hasCameraPermission = hasCameraPermission,
                     isPreviewMutedByUser = isPreviewMutedByUser,
                     onGrant = { permissionLauncher.launch(Manifest.permission.CAMERA) },
@@ -315,7 +283,6 @@ fun CameraDashboardCard(
                 CameraCalibrationCard(
                     calibrationParams = calibrationParams,
                     isRadarOverlayEnabled = isRadarOverlayEnabled,
-                    imuTelemetry = imuTelemetry,
                     onSyncImuPitch = { viewModel.syncPitchFromImu() },
                     onLaunchCalibration = { viewModel.setCalibrationFullScreen(true) },
                     onToggleRadarOverlay = { viewModel.toggleRadarOverlay() },
@@ -323,11 +290,10 @@ fun CameraDashboardCard(
                 )
 
                 CameraFocusControlCard(
+                    viewModel = viewModel,
                     isInfinityLocked = isInfinityLocked,
                     isAfAeLocked = isAfAeLocked,
                     roadAeMode = roadAeMode,
-                    roadAeState = roadAeState,
-                    contrastRatio = roadAeContrastRatio,
                     onTriggerAf = { viewModel.triggerCameraAf() },
                     onToggleInfinity = { viewModel.toggleInfinityFocus() },
                     onToggleRoadAe = { viewModel.toggleRoadAeMode() }
@@ -366,10 +332,10 @@ fun CameraDashboardCard(
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             CameraPipelineStatusHeader(
+                viewModel = viewModel,
                 engineState = engineState,
                 selectedRes = selectedRes,
                 selectedFps = selectedFps,
-                sessionFrames = sessionFrames,
                 hasCameraPermission = hasCameraPermission,
                 isPreviewMutedByUser = isPreviewMutedByUser,
                 onGrant = { permissionLauncher.launch(Manifest.permission.CAMERA) },
@@ -485,41 +451,13 @@ fun CameraDashboardCard(
                         )
                     }
 
-                    // Overlay Status Badge
-                    Surface(
-                        color = if (engineState is CameraEngineState.Recording) MaterialTheme.colorScheme.error else Color.Black.copy(alpha = 0.65f),
-                        shape = RoundedCornerShape(8.dp),
+                    // Overlay Status Badge (Isolated self-contained composable)
+                    CameraOverlayStatusBadge(
+                        viewModel = viewModel,
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .padding(8.dp)
-                    ) {
-                        val lockBadge = when {
-                            isInfinityLocked -> " • ∞ LOCK"
-                            isAfAeLocked -> " • AF/AE LOCK"
-                            else -> ""
-                        }
-                        val aeBadge = if (roadAeMode == RoadAeMode.AUTO_ROAD) {
-                            when (roadAeState) {
-                                RoadAeState.SKY_BLOOM -> " • ROAD AE ☀️"
-                                RoadAeState.NIGHT_TUNNEL -> " • ROAD AE 🌙"
-                                RoadAeState.BALANCED -> " • ROAD AE"
-                                RoadAeState.TAP_LOCKED -> ""
-                            }
-                        } else ""
-                        Text(
-                            text = when (val state = engineState) {
-                                is CameraEngineState.Recording -> "● REC ($sessionFrames f)$aeBadge"
-                                is CameraEngineState.Previewing -> "${selectedCamera?.displayName ?: "Camera"} • ${selectedRes.label}$lockBadge$aeBadge"
-                                is CameraEngineState.Opening -> "OPENING..."
-                                is CameraEngineState.Error -> "ERROR: ${state.message.take(16)}"
-                                CameraEngineState.Closed -> if (isPreviewMutedByUser) "PAUSED" else "STANDBY"
-                            },
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
+                    )
 
                     // Fullscreen Expand Button (Portrait)
                     IconButton(
@@ -543,7 +481,6 @@ fun CameraDashboardCard(
             CameraCalibrationCard(
                 calibrationParams = calibrationParams,
                 isRadarOverlayEnabled = isRadarOverlayEnabled,
-                imuTelemetry = imuTelemetry,
                 onSyncImuPitch = { viewModel.syncPitchFromImu() },
                 onLaunchCalibration = { viewModel.setCalibrationFullScreen(true) },
                 onToggleRadarOverlay = { viewModel.toggleRadarOverlay() },
@@ -551,11 +488,10 @@ fun CameraDashboardCard(
             )
 
             CameraFocusControlCard(
+                viewModel = viewModel,
                 isInfinityLocked = isInfinityLocked,
                 isAfAeLocked = isAfAeLocked,
                 roadAeMode = roadAeMode,
-                roadAeState = roadAeState,
-                contrastRatio = roadAeContrastRatio,
                 onTriggerAf = { viewModel.triggerCameraAf() },
                 onToggleInfinity = { viewModel.toggleInfinityFocus() },
                 onToggleRoadAe = { viewModel.toggleRoadAeMode() }
@@ -587,15 +523,17 @@ fun CameraDashboardCard(
 
 @Composable
 private fun CameraPipelineStatusHeader(
+    viewModel: RadarViewModel,
     engineState: CameraEngineState,
     selectedRes: CameraResolution,
     selectedFps: CameraFrameRate,
-    sessionFrames: Long,
     hasCameraPermission: Boolean,
     isPreviewMutedByUser: Boolean,
     onGrant: () -> Unit,
     onToggleMute: () -> Unit
 ) {
+    val sessionFrames by viewModel.cameraSessionFrames.collectAsState()
+
     Card(
         colors = CardDefaults.cardColors(
             containerColor = when (engineState) {
@@ -647,11 +585,10 @@ private fun CameraPipelineStatusHeader(
 
 @Composable
 private fun CameraFocusControlCard(
+    viewModel: RadarViewModel,
     isInfinityLocked: Boolean,
     isAfAeLocked: Boolean,
     roadAeMode: RoadAeMode,
-    roadAeState: RoadAeState,
-    contrastRatio: Float,
     onTriggerAf: () -> Unit,
     onToggleInfinity: () -> Unit,
     onToggleRoadAe: () -> Unit
@@ -835,32 +772,105 @@ private fun CameraFocusControlCard(
                     }
                 }
 
-                // Road AE Dynamic Status / Telemetry Chip
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    shape = RoundedCornerShape(4.dp),
+                // Road AE Dynamic Status / Telemetry Chip (Isolated 30 Hz recomposition)
+                RoadAeTelemetryChip(
+                    viewModel = viewModel,
+                    isAutoRoad = isAutoRoad,
                     modifier = Modifier.weight(1f)
-                ) {
-                    val statusText = if (!isAutoRoad) {
-                        "Matrix AE"
-                    } else {
-                        when (roadAeState) {
-                            RoadAeState.SKY_BLOOM -> "Sky Bloom (${String.format("%.1f", contrastRatio)}x)"
-                            RoadAeState.BALANCED -> "Balanced (${String.format("%.1f", contrastRatio)}x)"
-                            RoadAeState.NIGHT_TUNNEL -> "Night/Tunnel (${String.format("%.1f", contrastRatio)}x)"
-                            RoadAeState.TAP_LOCKED -> "Tap-Locked"
-                        }
-                    }
-                    Text(
-                        text = statusText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (roadAeState == RoadAeState.SKY_BLOOM && isAutoRoad) MaterialTheme.colorScheme.primary else Color.Gray,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                    )
-                }
+                )
             }
         }
+    }
+}
+
+/**
+ * Isolated Road AE telemetry chip that consumes 30 Hz contrast ratio and RoadAeState updates
+ * without triggering recomposition of the parent CameraDashboardCard or CameraFocusControlCard.
+ */
+@Composable
+private fun RoadAeTelemetryChip(
+    viewModel: RadarViewModel,
+    isAutoRoad: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val roadAeState by viewModel.roadAeState.collectAsState()
+    val contrastRatio by viewModel.roadAeContrastRatio.collectAsState()
+
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(4.dp),
+        modifier = modifier
+    ) {
+        val statusText = if (!isAutoRoad) {
+            "Matrix AE"
+        } else {
+            when (roadAeState) {
+                RoadAeState.SKY_BLOOM -> "Sky Bloom (${String.format(java.util.Locale.US, "%.1f", contrastRatio)}x)"
+                RoadAeState.BALANCED -> "Balanced (${String.format(java.util.Locale.US, "%.1f", contrastRatio)}x)"
+                RoadAeState.NIGHT_TUNNEL -> "Night/Tunnel (${String.format(java.util.Locale.US, "%.1f", contrastRatio)}x)"
+                RoadAeState.TAP_LOCKED -> "Tap-Locked"
+            }
+        }
+        Text(
+            text = statusText,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (roadAeState == RoadAeState.SKY_BLOOM && isAutoRoad) MaterialTheme.colorScheme.primary else Color.Gray,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+        )
+    }
+}
+
+/**
+ * Isolated Overlay Status Badge that consumes camera recording session frames and dynamic Road AE state
+ * without causing recompositions of the parent CameraDashboardCard viewfinder card.
+ */
+@Composable
+private fun CameraOverlayStatusBadge(
+    viewModel: RadarViewModel,
+    modifier: Modifier = Modifier
+) {
+    val engineState by viewModel.cameraEngineState.collectAsState()
+    val sessionFrames by viewModel.cameraSessionFrames.collectAsState()
+    val isInfinityLocked by viewModel.isInfinityFocusLocked.collectAsState()
+    val isAfAeLocked by viewModel.isAfAeLocked.collectAsState()
+    val roadAeMode by viewModel.roadAeMode.collectAsState()
+    val roadAeState by viewModel.roadAeState.collectAsState()
+    val selectedCamera by viewModel.selectedCamera.collectAsState()
+    val selectedRes by viewModel.selectedResolution.collectAsState()
+    val isPreviewMutedByUser by viewModel.isCameraPreviewMuted.collectAsState()
+
+    Surface(
+        color = if (engineState is CameraEngineState.Recording) MaterialTheme.colorScheme.error else Color.Black.copy(alpha = 0.65f),
+        shape = RoundedCornerShape(8.dp),
+        modifier = modifier
+    ) {
+        val lockBadge = when {
+            isInfinityLocked -> " • ∞ LOCK"
+            isAfAeLocked -> " • AF/AE LOCK"
+            else -> ""
+        }
+        val aeBadge = if (roadAeMode == RoadAeMode.AUTO_ROAD) {
+            when (roadAeState) {
+                RoadAeState.SKY_BLOOM -> " • ROAD AE ☀️"
+                RoadAeState.NIGHT_TUNNEL -> " • ROAD AE 🌙"
+                RoadAeState.BALANCED -> " • ROAD AE"
+                RoadAeState.TAP_LOCKED -> ""
+            }
+        } else ""
+        Text(
+            text = when (val state = engineState) {
+                is CameraEngineState.Recording -> "● REC ($sessionFrames f)$aeBadge"
+                is CameraEngineState.Previewing -> "${selectedCamera?.displayName ?: "Camera"} • ${selectedRes.label}$lockBadge$aeBadge"
+                is CameraEngineState.Opening -> "OPENING..."
+                is CameraEngineState.Error -> "ERROR: ${state.message.take(16)}"
+                CameraEngineState.Closed -> if (isPreviewMutedByUser) "PAUSED" else "STANDBY"
+            },
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
     }
 }
 

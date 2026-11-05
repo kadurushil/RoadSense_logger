@@ -32,6 +32,8 @@ import com.bajajauto.roadsense.camera.AutoFitTextureView
 import com.bajajauto.roadsense.camera.CameraEngineState
 import com.bajajauto.roadsense.camera.RoadAeMode
 import com.bajajauto.roadsense.camera.RoadAeState
+import com.bajajauto.roadsense.fusion.engine.CameraIntrinsics
+import com.bajajauto.roadsense.fusion.model.CalibrationParameters
 import com.bajajauto.roadsense.recording.SessionRecordingState
 import com.bajajauto.roadsense.ui.RadarViewModel
 import com.bajajauto.roadsense.ui.screens.TapFocusReticleOverlay
@@ -57,20 +59,19 @@ fun FullscreenCameraPreview(
     val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
     val isRadarOverlayEnabled by viewModel.isRadarOverlayEnabled.collectAsState()
     val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
-    val sessionRecordingState by viewModel.sessionRecordingState.collectAsState()
-    val radarFrameState = viewModel.latestFrame.collectAsState()
-    val cameraEngineState by viewModel.cameraEngineState.collectAsState()
     val selectedRes by viewModel.selectedResolution.collectAsState()
     val selectedFps by viewModel.selectedFps.collectAsState()
     val isInfinityLocked by viewModel.isInfinityFocusLocked.collectAsState()
     val isAfAeLocked by viewModel.cameraEngine.isAfAeLocked.collectAsState()
     val tapPoint by viewModel.tapFocusPoint.collectAsState()
-    val roadAeState by viewModel.roadAeState.collectAsState()
     val roadAeMode by viewModel.cameraEngine.roadAeMode.collectAsState()
 
     val context = LocalContext.current
-    val windowManager = remember { context.getSystemService(Context.WINDOW_SERVICE) as WindowManager }
-    val displayRotation = windowManager.defaultDisplay.rotation
+    val displayRotation = remember {
+        val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+        @Suppress("DEPRECATION")
+        wm.defaultDisplay.rotation
+    }
 
     var previewWidth by remember { mutableIntStateOf(1920) }
     var previewHeight by remember { mutableIntStateOf(1080) }
@@ -126,14 +127,19 @@ fun FullscreenCameraPreview(
                 val res = viewModel.cameraEngine.selectedResolution.value
                 textureView.setAspectRatio(res.width, res.height, displayRotation)
                 if (textureView.isAvailable) {
-                    previewWidth = textureView.width
-                    previewHeight = textureView.height
+                    val w = textureView.width
+                    val h = textureView.height
                     val st = textureView.surfaceTexture
                     if (st != null && !viewModel.cameraEngine.isSurfaceAttached(st)) {
-                        viewModel.cameraEngine.attachPreviewSurface(st, textureView.width, textureView.height)
+                        viewModel.cameraEngine.attachPreviewSurface(st, w, h)
+                        viewModel.updateCameraDisplayRotation(displayRotation, textureView, w, h)
+                        viewModel.updateCameraIntrinsics(w, h)
+                    } else if (previewWidth != w || previewHeight != h) {
+                        previewWidth = w
+                        previewHeight = h
+                        viewModel.updateCameraDisplayRotation(displayRotation, textureView, w, h)
+                        viewModel.updateCameraIntrinsics(w, h)
                     }
-                    viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
-                    viewModel.updateCameraIntrinsics(textureView.width, textureView.height)
                 }
             },
             modifier = Modifier.fillMaxSize()
@@ -157,15 +163,15 @@ fun FullscreenCameraPreview(
             TapFocusReticleOverlay(tapPoint = tapPoint)
         }
 
-        // 4. Radar HUD Overlay (Point Cloud, Tracks, Range Arcs)
+        // 4. Radar HUD Overlay (Point Cloud, Tracks, Range Arcs - Isolated 20 Hz draw scope)
         if (isRadarOverlayEnabled) {
-            ViewfinderRadarOverlay(
-                radarFrameProducer = { radarFrameState.value },
+            FullscreenRadarOverlay(
+                viewModel = viewModel,
                 calibrationParams = calibrationParams,
-                intrinsics = activeIntrinsics,
-                viewWidth = previewWidth,
-                viewHeight = previewHeight,
-                showRangeArcs = isRadarArcsEnabled,
+                activeIntrinsics = activeIntrinsics,
+                previewWidth = previewWidth,
+                previewHeight = previewHeight,
+                isRadarArcsEnabled = isRadarArcsEnabled,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -237,21 +243,10 @@ fun FullscreenCameraPreview(
                         }
                     }
 
-                    if (roadAeMode == RoadAeMode.AUTO_ROAD && roadAeState != RoadAeState.BALANCED && roadAeState != RoadAeState.TAP_LOCKED) {
-                        Surface(
-                            color = Color(0xFFF57C00).copy(alpha = 0.35f),
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            val txt = if (roadAeState == RoadAeState.SKY_BLOOM) "ROAD AE ☀️" else "ROAD AE 🌙"
-                            Text(
-                                text = txt,
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFFFFB74D),
-                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
+                    FullscreenRoadAeBadge(
+                        viewModel = viewModel,
+                        roadAeMode = roadAeMode
+                    )
                 }
 
                 // Right: Focus, HUD, Range Arcs, Nudge, and Record Buttons
@@ -334,54 +329,8 @@ fun FullscreenCameraPreview(
                         )
                     )
 
-                    // Live Session Recording Button
-                    val isRecording = sessionRecordingState is SessionRecordingState.Recording || cameraEngineState is CameraEngineState.Recording
-                    if (isRecording) {
-                        Button(
-                            onClick = { viewModel.stopSessionRecording() },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(Color.White, CircleShape)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            val durationSec = (sessionRecordingState as? SessionRecordingState.Recording)?.durationMs?.div(1000) ?: 0L
-                            val mins = durationSec / 60
-                            val secs = durationSec % 60
-                            Text(
-                                text = "STOP ${String.format(Locale.US, "%02d:%02d", mins, secs)}",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
-                    } else {
-                        Button(
-                            onClick = { viewModel.startSessionRecording() },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .background(Color.White, CircleShape)
-                            )
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text(
-                                text = "REC",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color.White
-                            )
-                        }
-                    }
+                    // Live Session Recording Button (Isolated 1 Hz timer recomposition)
+                    FullscreenRecordButton(viewModel = viewModel)
                 }
             }
         }
@@ -465,6 +414,121 @@ fun FullscreenCameraPreview(
                     color = if (isAfAeLocked) Color(0xFFFFB74D) else Color(0xFFB0BEC5)
                 )
             }
+        }
+    }
+}
+
+/**
+ * Isolated Radar HUD overlay composable to encapsulate high-frequency (20 Hz) radar frame updates
+ * without triggering recomposition of the parent FullscreenCameraPreview layout.
+ */
+@Composable
+private fun FullscreenRadarOverlay(
+    viewModel: RadarViewModel,
+    calibrationParams: CalibrationParameters,
+    activeIntrinsics: CameraIntrinsics?,
+    previewWidth: Int,
+    previewHeight: Int,
+    isRadarArcsEnabled: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val radarFrameState = viewModel.latestFrame.collectAsState()
+    ViewfinderRadarOverlay(
+        radarFrameProducer = { radarFrameState.value },
+        calibrationParams = calibrationParams,
+        intrinsics = activeIntrinsics,
+        viewWidth = previewWidth,
+        viewHeight = previewHeight,
+        showRangeArcs = isRadarArcsEnabled,
+        modifier = modifier
+    )
+}
+
+/**
+ * Isolated Road AE badge that consumes dynamic RoadAeState (up to 30 Hz)
+ * without recomposing the Fullscreen top action pill.
+ */
+@Composable
+private fun FullscreenRoadAeBadge(
+    viewModel: RadarViewModel,
+    roadAeMode: RoadAeMode
+) {
+    if (roadAeMode != RoadAeMode.AUTO_ROAD) return
+    val roadAeState by viewModel.roadAeState.collectAsState()
+
+    if (roadAeState != RoadAeState.BALANCED && roadAeState != RoadAeState.TAP_LOCKED) {
+        Surface(
+            color = Color(0xFFF57C00).copy(alpha = 0.35f),
+            shape = RoundedCornerShape(4.dp)
+        ) {
+            val txt = if (roadAeState == RoadAeState.SKY_BLOOM) "ROAD AE ☀️" else "ROAD AE 🌙"
+            Text(
+                text = txt,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFFFB74D),
+                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Isolated record button that consumes 1 Hz session recording duration updates
+ * without recomposing the Fullscreen top action pill.
+ */
+@Composable
+private fun FullscreenRecordButton(
+    viewModel: RadarViewModel
+) {
+    val sessionRecordingState by viewModel.sessionRecordingState.collectAsState()
+    val cameraEngineState by viewModel.cameraEngineState.collectAsState()
+
+    val isRecording = sessionRecordingState is SessionRecordingState.Recording || cameraEngineState is CameraEngineState.Recording
+    if (isRecording) {
+        Button(
+            onClick = { viewModel.stopSessionRecording() },
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+            modifier = Modifier.height(28.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(Color.White, CircleShape)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            val durationSec = (sessionRecordingState as? SessionRecordingState.Recording)?.durationMs?.div(1000) ?: 0L
+            val mins = durationSec / 60
+            val secs = durationSec % 60
+            Text(
+                text = "STOP ${String.format(Locale.US, "%02d:%02d", mins, secs)}",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+        }
+    } else {
+        Button(
+            onClick = { viewModel.startSessionRecording() },
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+            modifier = Modifier.height(28.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(Color.White, CircleShape)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = "REC",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
         }
     }
 }

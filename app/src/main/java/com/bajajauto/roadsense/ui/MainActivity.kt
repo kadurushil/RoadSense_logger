@@ -106,178 +106,176 @@ fun RoadSenseCockpitScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = if (isLandscape) 1.dp else 4.dp)
-        ) {
-        // High-Density Live Telemetry Ticker (Sensors Hz, GNSS Lock, Battery, CPU & Temp - self-contained collection)
-        Box(modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp, vertical = 2.dp)) {
-            LiveMetricsBar(
+        if (isCameraFullScreen) {
+            FullscreenCameraPreview(
                 viewModel = viewModel,
-                onSyncClick = { showSyncDialog = true }
+                onExit = { viewModel.setCameraFullScreen(false) },
+                modifier = Modifier.fillMaxSize()
             )
-        }
-
-        if (isLandscape) {
-            // --- LANDSCAPE: Unified Slim Header Bar (Tabs on Left, Recording Status & Button on Right) ---
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
+        } else if (isCalibrationFullScreen) {
+            FullscreenCalibrationStudio(
+                viewModel = viewModel,
+                onExit = { viewModel.setCalibrationFullScreen(false) },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else {
+            Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(36.dp)
+                    .fillMaxSize()
+                    .padding(top = if (isLandscape) 1.dp else 4.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Left: Slim Tab Switcher
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                // High-Density Live Telemetry Ticker (Sensors Hz, GNSS Lock, Battery, CPU & Temp - self-contained collection)
+                Box(modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp, vertical = 2.dp)) {
+                    LiveMetricsBar(
+                        viewModel = viewModel,
+                        onSyncClick = { showSyncDialog = true }
+                    )
+                }
+
+                if (isLandscape) {
+                    // --- LANDSCAPE: Unified Slim Header Bar (Tabs on Left, Recording Status & Button on Right) ---
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(36.dp)
                     ) {
-                        tabs.forEachIndexed { index, tab ->
-                            val isSelected = pagerState.currentPage == index
-                            Surface(
-                                selected = isSelected,
-                                onClick = {
-                                    coroutineScope.launch { pagerState.scrollToPage(index) }
-                                },
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                                contentColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.height(28.dp)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Left: Slim Tab Switcher
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.padding(horizontal = 8.dp)
-                                ) {
-                                    Icon(imageVector = tab.icon, contentDescription = tab.title, modifier = Modifier.size(15.dp))
-                                    Text(text = tab.title, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                                tabs.forEachIndexed { index, tab ->
+                                    val isSelected = pagerState.currentPage == index
+                                    Surface(
+                                        selected = isSelected,
+                                        onClick = {
+                                            coroutineScope.launch { pagerState.scrollToPage(index) }
+                                        },
+                                        shape = RoundedCornerShape(6.dp),
+                                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                                        contentColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.height(28.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            modifier = Modifier.padding(horizontal = 8.dp)
+                                        ) {
+                                            Icon(imageVector = tab.icon, contentDescription = tab.title, modifier = Modifier.size(15.dp))
+                                            Text(text = tab.title, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                                        }
+                                    }
                                 }
                             }
+
+                            // Right: Recording Status Pill & Action Button (Isolated self-contained composable)
+                            LandscapeSessionControlBar(viewModel = viewModel)
                         }
                     }
+                } else {
+                    // --- PORTRAIT: Standard TopSessionHeader & TabRow with vector icons ---
+                    Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                        TopSessionHeader(
+                            viewModel = viewModel,
+                            onStartSession = { viewModel.startSessionRecording() },
+                            onStopSession = { viewModel.stopSessionRecording() }
+                        )
+                    }
 
-                    // Right: Recording Status Pill & Action Button (Isolated self-contained composable)
-                    LandscapeSessionControlBar(viewModel = viewModel)
-                }
-            }
-        } else {
-            // --- PORTRAIT: Standard TopSessionHeader & TabRow with vector icons ---
-            Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
-                TopSessionHeader(
-                    viewModel = viewModel,
-                    onStartSession = { viewModel.startSessionRecording() },
-                    onStopSession = { viewModel.stopSessionRecording() }
-                )
-            }
-
-            TabRow(
-                selectedTabIndex = pagerState.currentPage,
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                tabs.forEachIndexed { index, tab ->
-                    Tab(
-                        selected = pagerState.currentPage == index,
-                        onClick = {
-                            coroutineScope.launch {
-                                pagerState.scrollToPage(index)
-                            }
-                        },
-                        icon = { Icon(imageVector = tab.icon, contentDescription = tab.title, modifier = Modifier.size(18.dp)) },
-                        text = {
-                            Text(
-                                text = tab.title,
-                                fontSize = 10.sp,
-                                maxLines = 1,
-                                fontWeight = if (pagerState.currentPage == index) FontWeight.Bold else FontWeight.Normal
+                    TabRow(
+                        selectedTabIndex = pagerState.currentPage,
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        tabs.forEachIndexed { index, tab ->
+                            Tab(
+                                selected = pagerState.currentPage == index,
+                                onClick = {
+                                    coroutineScope.launch {
+                                        pagerState.scrollToPage(index)
+                                    }
+                                },
+                                icon = { Icon(imageVector = tab.icon, contentDescription = tab.title, modifier = Modifier.size(18.dp)) },
+                                text = {
+                                    Text(
+                                        text = tab.title,
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        fontWeight = if (pagerState.currentPage == index) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                }
                             )
                         }
-                    )
+                    }
+                }
+
+                // Deck of Dedicated Sensor Dashboards (Swipe disabled: navigation strictly via top tab icons)
+                HorizontalPager(
+                    state = pagerState,
+                    userScrollEnabled = false,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                ) { page ->
+                    when (tabs[page]) {
+                        CockpitTab.RADAR -> {
+                            RadarDashboardCard(
+                                viewModel = viewModel
+                            )
+                        }
+                        CockpitTab.GNSS -> {
+                            GnssDashboardCard(
+                                viewModel = viewModel
+                            )
+                        }
+                        CockpitTab.IMU -> {
+                            ImuDashboardCard(
+                                viewModel = viewModel
+                            )
+                        }
+                        CockpitTab.CAMERA -> {
+                            CameraDashboardCard(
+                                viewModel = viewModel,
+                                isCurrentTab = pagerState.currentPage == page
+                            )
+                        }
+                        CockpitTab.CANEDGE -> {
+                            CanedgeDashboardCard(
+                                viewModel = viewModel
+                            )
+                        }
+                        CockpitTab.SBS -> {
+                            SbsDashboardCard(
+                                viewModel = viewModel,
+                                isCurrentTab = pagerState.currentPage == page
+                            )
+                        }
+                        CockpitTab.SESSION -> {
+                            SessionDeckCard(
+                                viewModel = viewModel
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        // Deck of Dedicated Sensor Dashboards (Swipe disabled: navigation strictly via top tab icons)
-        HorizontalPager(
-            state = pagerState,
-            userScrollEnabled = false,
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-        ) { page ->
-            when (tabs[page]) {
-                CockpitTab.RADAR -> {
-                    RadarDashboardCard(
-                        viewModel = viewModel
-                    )
-                }
-                CockpitTab.GNSS -> {
-                    GnssDashboardCard(
-                        viewModel = viewModel
-                    )
-                }
-                CockpitTab.IMU -> {
-                    ImuDashboardCard(
-                        viewModel = viewModel
-                    )
-                }
-                CockpitTab.CAMERA -> {
-                    CameraDashboardCard(
-                        viewModel = viewModel,
-                        isCurrentTab = pagerState.currentPage == page
-                    )
-                }
-                CockpitTab.CANEDGE -> {
-                    CanedgeDashboardCard(
-                        viewModel = viewModel
-                    )
-                }
-                CockpitTab.SBS -> {
-                    SbsDashboardCard(
-                        viewModel = viewModel,
-                        isCurrentTab = pagerState.currentPage == page
-                    )
-                }
-                CockpitTab.SESSION -> {
-                    SessionDeckCard(
-                        viewModel = viewModel
-                    )
-                }
-            }
+        if (showSyncDialog) {
+            val syncTelemetry by viewModel.liveSyncTelemetry.collectAsState()
+            com.bajajauto.roadsense.ui.components.SyncInspectionDialog(
+                telemetry = syncTelemetry,
+                onDismissRequest = { showSyncDialog = false }
+            )
         }
-    }
-
-    if (isCameraFullScreen) {
-        FullscreenCameraPreview(
-            viewModel = viewModel,
-            onExit = { viewModel.setCameraFullScreen(false) },
-            modifier = Modifier.fillMaxSize()
-        )
-    }
-
-    if (isCalibrationFullScreen) {
-        FullscreenCalibrationStudio(
-            viewModel = viewModel,
-            onExit = { viewModel.setCalibrationFullScreen(false) },
-            modifier = Modifier.fillMaxSize()
-        )
-    }
-
-    if (showSyncDialog) {
-        val syncTelemetry by viewModel.liveSyncTelemetry.collectAsState()
-        com.bajajauto.roadsense.ui.components.SyncInspectionDialog(
-            telemetry = syncTelemetry,
-            onDismissRequest = { showSyncDialog = false }
-        )
-    }
     }
 }
 
