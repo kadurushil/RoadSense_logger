@@ -234,7 +234,10 @@ object SessionSyncAuditor {
                     status = "WARN ($radarSequenceDrops dropped sequence frames)"
                 )
             } else {
-                baseStats
+                baseStats.copy(
+                    anomalyCount = 0,
+                    status = "PASS (Healthy continuous stream, 0 sequence drops)"
+                )
             }
         } else if (isRadarRecorded && sessionInfo.totalRadarFrames > 0L) {
             val dur = if (cameraStats.durationSec > 0f) cameraStats.durationSec else 1.0f

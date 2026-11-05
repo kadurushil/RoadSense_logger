@@ -1472,6 +1472,94 @@ flowchart TD
 
 ---
 
+## Bug #30: Bimodal 71 ms / 28 ms Alternating Radar Interframe Jitter via USB Full-Speed 64-Byte Bulk Packet Boundary Coalescing & Dual-Timestamp Hardware Clock Disciplining Resolution
+
+### Symptoms
+* In radar recordings on the Samsung Galaxy M32 (Android 13 / Exynos 9611) and M20 (e.g., `logs/session_20261105_153856`), radar interframe time deltas ($\Delta t$) exhibited a persistent bimodal jitter pattern alternating between **~71 ms** and **~28 ms** ($\Delta t_1 + \Delta t_2 \approx 100\text{ ms}$), despite **zero dropped frames** and 100% intact sequence continuity (#0 through #694).
+* The radar DSP was programmed to fire chirps at exactly 20.0 Hz (50.0 ms period), yet arrival timestamps at the Android application layer oscillated wildly:
+  ```text
+  Frame N:     Delta T = 71.8 ms  (Delayed delivery)
+  Frame N+1:   Delta T = 28.2 ms  (Immediate flush)
+  Sum:         100.0 ms           (Exactly 2 x 50.0 ms radar DSP periods!)
+  ```
+* Cross-sensor synchronization plots showed the radar-to-camera offset alternating between high and low offsets, and the in-app `SessionSyncAuditor` falsely demoted healthy continuous recordings to `FAIL (6 drops detected)` by mistaking the $>75\text{ ms}$ transport delay for packet loss.
+
+### Forensic Investigation & Root Cause Analysis
+
+#### 1. Exact 64-Byte Packet Multiple Alignment
+Forensic inspection of the raw byte stream (`radar_raw_stream.bin`) and radar packet headers revealed that in the TI mmWave AWR1843 radar output, exactly **52.0% of all frames** had a total byte length (header + TLVs + padding) that was an **exact multiple of 64 bytes** (e.g., 1152 B, 1280 B, 1408 B, 1472 B).
+
+#### 2. USB 2.0 Full-Speed Bulk Endpoint Semantics
+The Silicon Labs CP2105 is a USB Full-Speed device with a maximum packet size of 64 bytes. Under the USB 2.0 specification, a host-side bulk read transfer (`UsbRequest`) terminates when:
+1. The host buffer is completely filled, OR
+2. A **short packet** ($< 64\text{ bytes}$) is received.
+
+#### 3. The Kernel-Level Coalescing Mechanism
+When a radar frame has a payload length that is an exact multiple of 64 bytes, there is **no short packet** at the end of the frame:
+* The CP2105 transceiver and Linux USB host controller cannot know that the radar DSP has finished transmitting the frame.
+* The host controller waits for the CP2105's internal latency timer (~1 to 4 ms) or for more data to arrive.
+* On Android 13 / Linux kernel USB drivers, the bulk endpoint request frequently remains pending until the *start of Frame $N+1$* (50 ms later).
+* When Frame $N+1$ begins streaming, the controller flushes Frame $N$ and the beginning of Frame $N+1$ together in the same millisecond tick.
+* Frame $N$ arrives late at $T + 71.8\text{ ms}$, and Frame $N+1$ arrives immediately after at $T + 100.0\text{ ms}$ ($\Delta t = 28.2\text{ ms}$).
+
+#### 4. Why Software Arrival Timestamping (Start-of-Frame Interpolation) Was Insufficient
+Measuring the byte arrival time at the Android USB layer faithfully captured the 71 ms / 28 ms split because the CP2105 and kernel physically held the bytes upstream. Software arrival interpolation accurately reported when the bytes entered Android userspace, but could not eliminate hardware transport delay introduced before the USB cable transfer completed.
+
+---
+
+### Systematic Architectural Resolution
+
+```mermaid
+flowchart TD
+    DSP["Radar 600 MHz C674x DSP<br/>Stamps timeCpuCycles (TSCL)"] -->|Unaltered 50.000 ms Cadence| USB["Silicon Labs CP2105 + USB Bulk<br/>64B Boundary Coalescing (71ms / 28ms Jitter)"]
+    USB --> Android["Android USB Ingestion Layer<br/>Records Physical rawHostTimestampNs"]
+    Android --> Disc["RadarClockDiscipliner<br/>Unwraps 32-bit Rollover (7.158s)<br/>Phase-Locks to elapsedRealtimeNanos"]
+    Disc --> Timeline["Dual-Timestamp Storage<br/>1. elapsed_realtime_ns = Disciplined (Sub-ms Sync)<br/>2. rawMonoNs + usbDelayMs in Summary (Pipeline Health)"]
+```
+
+#### 1. Hardware Clock Disciplining (`RadarClockDiscipliner.kt`)
+* The TI mmWave AWR1843 radar DSP stamps every transmitted frame header with `timeCpuCycles` (`TSCL` hardware cycle counter), incrementing at **$600,000,000\text{ Hz}$ ($1.666667\text{ ns/cycle}$)**.
+* **32-Bit Rollover Unwrapping:** Expands the 4.29-billion cycle uint32 rollover ($\approx 7.1582788\text{ s}$) into a continuous 64-bit domain without wrap artifacts.
+* **Monotonic Phase Lock:** Anchors Frame 0 to Android's `SystemClock.elapsedRealtimeNanos()` and projects subsequent frames with sub-millisecond precision:
+  $$t_{\text{mono}}[k] = t_{\text{anchor}} + \left( \Delta C[k] \times \alpha_{\text{filtered}} \right)$$
+* **Adaptive Crystal Drift Compensation:** Employs an exponential moving average low-pass filter ($\gamma = 0.005$) to track slow thermal crystal drift (~10–50 ppm) without letting high-frequency USB transport jitter contaminate the timeline.
+* **Reboot / Disconnect Protection:** Automatically detects radar reboots (`frameNumber < lastFrameNumber`) or sequence gaps $> 50$ frames and re-anchors cleanly.
+
+#### 2. Dual-Timestamp Observability (Zero Concealment of Android Pipeline Flaws)
+To prevent hardware disciplining from hiding genuine Android CPU scheduling stalls or USB driver buffer bloat:
+* `RawRadarPacket` preserves both `hostTimestampNs` (disciplined) and `rawHostTimestampNs` (physical arrival).
+* In `session_timeline.csv`, every frame logs both metrics:
+  ```csv
+  elapsed_realtime_ns,sensor,event,sequence_id,relative_path,summary
+  128459235000000,RADAR,FRAME,502,radar/radar_frames.bin,subframe=0;tlvs=6;objs=14;len=488;rawMonoNs=128459256800000;usbDelayMs=21.80
+  ```
+* Diagnostic tools immediately flag any Android USB pipeline stall exceeding 50 ms.
+
+#### 3. Dynamic UART Baud-Rate Scaling
+* `RadarPacketAssembler.kt` and `RadarConnectionManager.kt` automatically scale byte flight time:
+  $$\text{nanosPerByte} = \frac{10 \times 10^9}{\text{baudRate}}$$
+* Seamlessly supports downgrading from 3,125,000 bps ($3,200\text{ ns/B}$) to 2,000,000 bps ($5,000\text{ ns/B}$) or any future baud rate via `setDataBaudRate(baudRate)`.
+
+#### 4. Cross-Sensor Sync Auditor & Stroboscopic Beat Analysis
+* Explains the mathematical origin of the "wavy" radar-camera offset: 20 Hz radar (50 ms) vs. 30 FPS camera (33.33 ms) has an LCM of 100 ms ($\frac{20}{30} = \frac{2}{3}$). Distance to the nearest camera frame must alternate between $d$ and $16.67 - d$, creating a 10 Hz stroboscopic wave ($d + (16.67 - d) \equiv 16.67\text{ ms}$).
+* The audit script (`cross_sensor_sync_engine.py`) decodes disciplined timestamps from `radar_frames.bin`, rendering a crisp, prominent cyan/blue trace (`#38bdf8`) strictly bounded within the 16.67 ms half-frame Nyquist limit, and audits Android USB transport latency ($\Delta_{\text{usb}}$).
+
+---
+
+### Empirical Verification on Target Hardware (`session_20261105_153856`)
+
+| Metric | Raw Host Monotonic (Before) | Disciplined Monotonic (After) | Improvement |
+| :--- | :--- | :--- | :--- |
+| **Mean Delta T** | $50.000\text{ ms}$ | $50.000\text{ ms}$ | Exact 20 Hz cadence preserved |
+| **Min Delta T** | **$28.163\text{ ms}$** | **$48.339\text{ ms}$** | 72% reduction in early arrival |
+| **Max Delta T** | **$71.859\text{ ms}$** | **$51.250\text{ ms}$** | Eliminates 71 ms spike |
+| **Standard Deviation** | **$10.490\text{ ms}$** | **$0.420\text{ ms}$** | **$25\times$ jitter reduction** |
+| **Frames with $\Delta t < 45\text{ ms}$** | **251 frames** | **0 frames** | $100\%$ eliminated |
+| **Frames with $\Delta t > 55\text{ ms}$** | **251 frames** | **0 frames** | $100\%$ eliminated |
+| **Phase Centroid StdDev** | **$2.37\text{ ms}$** | **$0.39\text{ ms}$** | **$6\times$ phase stabilization** |
+
+---
+
 ## Summary of Core Engineering Rules
 
 1. **Never pass high-frequency raw byte streams through `StateFlow`:** Always use direct callbacks or channels to background workers.
@@ -1508,6 +1596,7 @@ flowchart TD
 27. **Account for uncalibrated chassis IMU mounting angles and cross-axis roll/pitch coupling in ego-motion compensation:** When extracting chassis gyro yaw rate ($\omega_{\text{yaw}}$), mounting misalignment relative to vehicle structural axes causes vehicle roll and pitch (from road camber, bumps, and squat/dive) to project directly onto the measured yaw axis. Always apply a zero-phase low-pass smoothing filter and a continuous soft deadband ($0.010\text{--}0.025\text{ rad/s}$) to suppress cross-axis coupling during straight travel until full 3D calibration is executed.
 28. **Decouple high-speed UART hardware reading from disk I/O and frame parsing via bounded queues, and guard packet assemblers against cascading desync:** When receiving high-bandwidth sensor streams (e.g. 3.125 Mbps UART) over USB-to-UART bridges with shallow hardware FIFOs (e.g. CP2105 576-byte FIFO overflowing in 1.84 ms), the hardware read thread must only enqueue raw byte buffers into a high-capacity memory queue (`< 2 µs` per chunk) at `THREAD_PRIORITY_URGENT_AUDIO`. All disk recording and frame assembly must execute on a decoupled worker thread. Crucially, the packet assembler must inspect incoming chunks for header magic words while awaiting payload bytes: if a new magic word appears before declared frame bytes finish arriving, the assembler must immediately truncate the incomplete frame and realign to the new frame, preventing dropped packet tails from swallowing subsequent frames into cascading desync outages.
 29. **Enforce real-time OS priority (`THREAD_PRIORITY_URGENT_AUDIO`) on shallow-FIFO USB serial drivers under camera and GPU load, and decouple high-frequency state from Compose recomposition:** On resource-constrained heterogeneous SoCs (e.g. Exynos 7904 with 2 big Cortex-A73 and 6 LITTLE Cortex-A53 cores), Camera2 HAL real-time kernel workers (`lib_4_worker` Pri 5, `cameraserver` Pri 98) and UI Main Thread Compose recomposition will monopolize the CPU runqueues for > 5 ms. Operating a shallow-FIFO USB bridge (e.g. CP2105 576-byte buffer overflowing in 1.84 ms at 3.125 Mbps) requires elevating the serial read thread to `THREAD_PRIORITY_URGENT_AUDIO` (-19 / Linux Priority 101) so it takes scheduling precedence over Camera HAL threads. Concurrently, high-frequency (20 Hz) sensor state updates must be isolated from the Compose UI tree to avoid starving the big-core cluster.
+30. **Discipline hardware DSP cycle counters (`timeCpuCycles`) to host monotonic nanoseconds to eliminate USB bulk 64-byte short-packet boundary coalescing jitter, while preserving dual-timestamp physical USB arrival metrics for transport pipeline observability:** When receiving periodic packet streams over USB Full-Speed transceivers (e.g. CP2105 bulk endpoints), frames whose byte lengths are exact multiples of 64 bytes have no terminating short packet, causing the kernel and USB controller to hold the frame and batch it with the subsequent frame into bimodal ~71 ms / ~28 ms splits. Eliminate transport jitter by unwrapping the sensor's internal DSP hardware cycle counter to `elapsedRealtimeNanos()`, while explicitly recording the raw USB read arrival timestamp and transport delay (`usbDelayMs`) in timeline metadata to ensure downstream diagnostic auditors can detect any Android scheduler or USB pipeline bottlenecks.
 
 
 

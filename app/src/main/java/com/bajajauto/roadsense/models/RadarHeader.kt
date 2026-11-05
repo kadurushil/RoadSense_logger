@@ -23,12 +23,14 @@ data class RadarHeader(
 }
 
 /**
- * Holds an assembled raw radar packet containing the header, raw payload bytes, and host timestamp.
+ * Holds an assembled raw radar packet containing the header, raw payload bytes, and host timestamps.
  */
 data class RawRadarPacket(
     val header: RadarHeader,
     val payload: ByteArray,
     val hostTimestampNs: Long = System.nanoTime(),
+    val wallClockTimestampMs: Long = System.currentTimeMillis(),
+    val rawHostTimestampNs: Long = hostTimestampNs,
     val fullPacketBytes: ByteArray = byteArrayOf(),
     val isSalvaged: Boolean = false
 ) {
@@ -41,6 +43,8 @@ data class RawRadarPacket(
         if (header != other.header) return false
         if (!payload.contentEquals(other.payload)) return false
         if (hostTimestampNs != other.hostTimestampNs) return false
+        if (wallClockTimestampMs != other.wallClockTimestampMs) return false
+        if (rawHostTimestampNs != other.rawHostTimestampNs) return false
         if (!fullPacketBytes.contentEquals(other.fullPacketBytes)) return false
         if (isSalvaged != other.isSalvaged) return false
 
@@ -51,6 +55,8 @@ data class RawRadarPacket(
         var result = header.hashCode()
         result = 31 * result + payload.contentHashCode()
         result = 31 * result + hostTimestampNs.hashCode()
+        result = 31 * result + wallClockTimestampMs.hashCode()
+        result = 31 * result + rawHostTimestampNs.hashCode()
         result = 31 * result + fullPacketBytes.contentHashCode()
         result = 31 * result + isSalvaged.hashCode()
         return result

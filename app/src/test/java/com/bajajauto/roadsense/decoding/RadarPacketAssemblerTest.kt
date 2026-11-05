@@ -290,4 +290,62 @@ class RadarPacketAssemblerTest {
         assertEquals(9001L, packets[0].header.frameNumber)
         assertEquals(9002L, packets[1].header.frameNumber)
     }
+
+    @Test
+    fun appendBytes_startOfFrameTimestampInterpolation_calculatesExactNanoseconds() {
+        val junk = ByteArray(10) { 0xFF.toByte() }
+        val frame = createFrameBytes(10001L, 48)
+        val chunk = junk + frame
+        val t0Ns = 1_000_000_000L
+        val t0Ms = 1700000000000L
+
+        assembler.baudRate = 3_125_000
+        assertEquals(3200L, assembler.nanosPerByte)
+
+        val packets = assembler.appendBytes(chunk, chunkMonoNs = t0Ns, chunkWallMs = t0Ms)
+        assertEquals(1, packets.size)
+        // Magic word is at byte index 10: expected timestamp = t0Ns + (10 * 3200) = 1_000_032_000L
+        assertEquals(1_000_032_000L, packets[0].hostTimestampNs)
+        assertEquals(t0Ms, packets[0].wallClockTimestampMs)
+    }
+
+    @Test
+    fun appendBytes_dynamicBaudRateScaling_updatesNanosecondsPerByte() {
+        val junk = ByteArray(20) { 0xAA.toByte() }
+        val frame = createFrameBytes(10002L, 48)
+        val chunk = junk + frame
+        val t0Ns = 2_000_000_000L
+        val t0Ms = 1700000002000L
+
+        // Dynamically update to 2,000,000 bps (5000 ns/byte)
+        assembler.baudRate = 2_000_000
+        assertEquals(5000L, assembler.nanosPerByte)
+
+        val packets = assembler.appendBytes(chunk, chunkMonoNs = t0Ns, chunkWallMs = t0Ms)
+        assertEquals(1, packets.size)
+        // Magic word is at byte index 20: expected timestamp = t0Ns + (20 * 5000) = 2_000_100_000L
+        assertEquals(2_000_100_000L, packets[0].hostTimestampNs)
+    }
+
+    @Test
+    fun appendBytes_frameSpanningMultipleChunks_anchorsToStartOfFrameChunkNotTail() {
+        val frame = createFrameBytes(10003L, 80)
+        val chunk1 = frame.copyOfRange(0, 40)
+        val chunk2 = frame.copyOfRange(40, 80)
+
+        val t1Ns = 100_000_000L
+        val t2Ns = 150_000_000L // 50 ms later when tail arrives
+
+        assembler.baudRate = 3_125_000
+
+        val p1 = assembler.appendBytes(chunk1, chunkMonoNs = t1Ns, chunkWallMs = 1000L)
+        assertEquals(0, p1.size) // Not complete yet
+
+        val p2 = assembler.appendBytes(chunk2, chunkMonoNs = t2Ns, chunkWallMs = 1050L)
+        assertEquals(1, p2.size) // Completed!
+
+        // Frame must be anchored to chunk 1 (t1Ns = 100_000_000), NOT chunk 2 (t2Ns = 150_000_000)!
+        assertEquals(100_000_000L, p2[0].hostTimestampNs)
+        assertEquals(1000L, p2[0].wallClockTimestampMs)
+    }
 }

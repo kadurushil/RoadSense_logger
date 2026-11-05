@@ -11,6 +11,7 @@ import csv
 import bisect
 import json
 import re
+import struct
 import argparse
 from datetime import datetime
 
@@ -141,6 +142,108 @@ def extract_ui_events_from_log(sess_dir, total_dur_s):
 
     return ui_events
 
+def load_disciplined_radar_stream(sess_dir, fallback_timeline_mono=None):
+    """
+    Loads radar frame timestamps with hardware DSP clock disciplining.
+    Checks session_timeline.csv for embedded rawMonoNs summary fields first (written by updated app).
+    If absent, falls back to parsing radar/radar_frames.bin to decode 600 MHz C674x DSP cycle counters (timeCpuCycles),
+    unwrapping 32-bit rollovers and phase-locking to the initial host monotonic anchor.
+
+    Returns:
+        tuple: (disciplined_mono_list, raw_mono_list, usb_delays_ms, frame_numbers)
+    """
+    frames_path = os.path.join(sess_dir, "radar", "radar_frames.bin")
+    tl_path = os.path.join(sess_dir, "session_timeline.csv")
+
+    # 1. Check if timeline has embedded rawMonoNs summary fields (written by updated Android app)
+    tl_records = []
+    has_raw_in_summary = False
+    if os.path.exists(tl_path):
+        try:
+            with open(tl_path, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                next(reader, None)
+                for row in reader:
+                    if len(row) >= 3 and row[1] == "RADAR" and row[2] == "FRAME":
+                        mono = int(row[0])
+                        seq = int(row[3]) if len(row) > 3 and row[3].isdigit() else 0
+                        summ = row[5] if len(row) > 5 else ""
+                        tl_records.append((mono, seq, summ))
+                        if "rawMonoNs=" in summ:
+                            has_raw_in_summary = True
+        except Exception:
+            pass
+
+    if has_raw_in_summary and tl_records:
+        disc_mono = []
+        raw_mono = []
+        usb_delays = []
+        fnums = []
+        for mono, seq, summ in tl_records:
+            disc_mono.append(mono)
+            fnums.append(seq)
+            raw_ns = mono
+            for part in summ.split(";"):
+                if part.startswith("rawMonoNs="):
+                    try:
+                        raw_ns = int(part.split("=")[1])
+                    except ValueError:
+                        pass
+            raw_mono.append(raw_ns)
+            usb_delays.append((raw_ns - mono) / 1e6)
+        return disc_mono, raw_mono, usb_delays, fnums
+
+    # 2. Check radar/radar_frames.bin hardware DSP disciplining (legacy or offline)
+    if os.path.exists(frames_path):
+        try:
+            with open(frames_path, "rb") as f:
+                data = f.read()
+            offset = 0
+            raw_frames = []
+            while offset + 24 <= len(data):
+                magic, mono_ns, wall_ms, plen = struct.unpack_from(">4sQQI", data, offset)
+                if magic != b"ROAD":
+                    offset += 1
+                    continue
+                body = data[offset + 24 : offset + 24 + plen]
+                offset += 24 + plen
+                if len(body) >= 40 and body[:8] == b"\x02\x01\x04\x03\x06\x05\x08\x07":
+                    _, ver, tlen, plat, fnum, cycles, ndet, ntlv, subf = struct.unpack_from("<8sIIIIIIII", body, 0)
+                    raw_frames.append((fnum, cycles, mono_ns))
+
+            if raw_frames:
+                disc_mono = []
+                raw_mono = []
+                usb_delays = []
+                fnums = []
+
+                anchor_mono = raw_frames[0][2]
+                anchor_cycles = raw_frames[0][1]
+                wrap_offset = 0
+                last_raw = raw_frames[0][1]
+                alpha = 1.0e9 / 600_000_000.0
+
+                for fnum, cycles, r_mono in raw_frames:
+                    if cycles < last_raw and (last_raw - cycles) > (1 << 31):
+                        wrap_offset += (1 << 32)
+                    last_raw = cycles
+                    unwrapped = cycles + wrap_offset
+                    elapsed = unwrapped - anchor_cycles
+                    d_mono = anchor_mono + int(elapsed * alpha)
+                    disc_mono.append(d_mono)
+                    raw_mono.append(r_mono)
+                    usb_delays.append((r_mono - d_mono) / 1e6)
+                    fnums.append(fnum)
+                return disc_mono, raw_mono, usb_delays, fnums
+        except Exception:
+            pass
+
+    # 3. Fallback to timeline records
+    if fallback_timeline_mono:
+        return fallback_timeline_mono, fallback_timeline_mono, [0.0] * len(fallback_timeline_mono), list(range(len(fallback_timeline_mono)))
+
+    return [], [], [], []
+
 def generate_sync_plots(sess_dir, t0, records, radar_times, cam_times, imu_mono, imu_anchors, q_times, q_jitter_ms, ui_events, show_gui=False):
     """
     Generates a synchronized, 5-panel diagnostic plot displaying:
@@ -231,7 +334,7 @@ def generate_sync_plots(sess_dir, t0, records, radar_times, cam_times, imu_mono,
     # Panel 1: Radar -> Camera Alignment Latency (Approach A dynamic scaling)
     ax0 = axes[0]
     if rad_t_s:
-        ax0.plot(rad_t_s, rad_offsets_ms, color='#38bdf8', linewidth=0.85, alpha=0.8, label=f'Radar -> Nearest Camera Offset ({len(rad_t_s):,} scans)')
+        ax0.plot(rad_t_s, rad_offsets_ms, color='#38bdf8', linewidth=1.0, alpha=0.9, label=f'Radar -> Nearest Camera Offset ({len(rad_t_s):,} scans)')
         ax0.axhline(16.67, color='#4ade80', linestyle='--', linewidth=1.2, label='Nyquist Optimum (16.67 ms @ 30 FPS)')
         ax0.axhline(33.33, color='#fbbf24', linestyle=':', linewidth=1.2, label='1-Frame Horizon (33.33 ms)')
         
@@ -545,7 +648,7 @@ def generate_sync_html_report(sess_dir, t0, records, radar_times, camera_times, 
         traces.append({
             "type": "scatter", "mode": "lines", "name": "Radar -> Nearest Cam Offset",
             "x": rad_t_s, "y": rad_offsets_ms,
-            "line": {"color": "#38bdf8", "width": 1.2}, "yaxis": "y1", "xaxis": "x",
+            "line": {"color": "#38bdf8", "width": 1.4}, "yaxis": "y1", "xaxis": "x",
             "hoverinfo": "none"
         })
         traces.append({
@@ -1654,6 +1757,20 @@ def audit_timeline(sess_dir, make_plot=False, make_html=True, show_gui=False):
     if not records:
         raise ValueError(f"session_timeline.csv in {sess_dir} has no valid records!")
 
+    # Load disciplined radar timestamps (with hardware DSP unwrapping & USB latency tracking)
+    rad_disc_mono, rad_raw_mono, rad_usb_delays, rad_fnums = load_disciplined_radar_stream(
+        sess_dir,
+        fallback_timeline_mono=sensor_map.get("RADAR", [])
+    )
+    if rad_disc_mono:
+        sensor_map["RADAR"] = rad_disc_mono
+        event_map["RADAR:FRAME"] = rad_disc_mono
+        new_records = [r for r in records if r[1] != "RADAR"]
+        for r_mono in rad_disc_mono:
+            new_records.append((r_mono, "RADAR", "FRAME"))
+        new_records.sort(key=lambda r: r[0])
+        records = new_records
+
     # Check interleaving jitter
     reorder_deltas_ms = []
     q_times = []
@@ -2019,6 +2136,14 @@ def audit_timeline(sess_dir, make_plot=False, make_html=True, show_gui=False):
             print(f"    ! Spike @ t={t_spk:5.2f}s:   offset = {off:6.2f} ms ({cause})")
     else:
         print(f"  Radar Latency Spikes: 0 occurrences (100% within 1-frame horizon <33.3ms)")
+
+    if rad_usb_delays:
+        avg_usb = sum(rad_usb_delays) / len(rad_usb_delays)
+        max_usb = max(rad_usb_delays)
+        p95_usb = sorted(rad_usb_delays)[int(len(rad_usb_delays) * 0.95)]
+        stalls = sum(1 for d in rad_usb_delays if d > 50.0)
+        status_usb = "PASS (Healthy CP2105 transport buffer)" if stalls == 0 else f"WARN ({stalls} USB stalls > 50ms)"
+        print(f"  Android USB Pipeline: Mean delay = {avg_usb:.2f} ms, p95 = {p95_usb:.2f} ms, Peak = {max_usb:.2f} ms -> {colorize_status(status_usb)}")
 
     if ui_events:
         print(f"  UI Flight Recorder:   {len(ui_events)} interaction events logged")

@@ -13,6 +13,7 @@ import java.io.DataOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -169,13 +170,15 @@ class RadarSessionRecorder(
                     dos.writeInt(payload.size)
                     dos.write(payload)
                     framesRecorded++
+                    val rawNs = packet.rawHostTimestampNs
+                    val usbDelayMs = (rawNs - hostMonoNs) / 1_000_000.0
                     sessionManager.recordTimelineEvent(
                         elapsedRealtimeNs = hostMonoNs,
                         sensor = "RADAR",
                         event = "FRAME",
                         sequenceId = packet.header.frameNumber,
                         relativePath = "radar/radar_frames.bin",
-                        summary = "subframe=${packet.header.subFrameNumber};tlvs=${packet.header.numTLVs};objs=${packet.header.numDetectedObj};len=${payload.size}"
+                        summary = "subframe=${packet.header.subFrameNumber};tlvs=${packet.header.numTLVs};objs=${packet.header.numDetectedObj};len=${payload.size};rawMonoNs=$rawNs;usbDelayMs=${"%.2f".format(Locale.US, usbDelayMs)}"
                     )
                     updateProgressIfNeeded()
                 }

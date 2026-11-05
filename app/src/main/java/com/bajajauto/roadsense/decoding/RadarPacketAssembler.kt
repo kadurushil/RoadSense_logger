@@ -7,25 +7,59 @@ import java.nio.ByteOrder
 
 /**
  * High-performance stateful assembler that consumes raw UART byte chunks, searches for the TI magic word,
- * parses the 40-byte header, and emits complete RawRadarPackets.
+ * parses the 40-byte header, and emits complete RawRadarPackets with Start-of-Frame (SOF) timestamps.
  *
  * Uses an in-memory linear sliding buffer to achieve zero-allocation byte ingestion and prevent ART GC sweeps.
+ *
+ * Dynamic Baud Rate Scaling:
+ * Supports runtime baud rate updates (e.g., 3,125,000 bps -> 2,000,000 bps).
+ * Automatically computes physical UART byte flight time (10 bits per byte in 8-N-1):
+ * nanosPerByte = (10 * 1,000,000,000L) / baudRate
+ * Microsecond-accurate Start-of-Frame interpolation is calculated from chunk arrival:
+ * sofMonoNs = chunkMonoNs + (byteOffsetInChunk * nanosPerByte)
  */
-class RadarPacketAssembler {
+class RadarPacketAssembler(
+    initialBaudRate: Int = DEFAULT_BAUD_RATE
+) {
 
     companion object {
+        const val DEFAULT_BAUD_RATE = 3125000
         private const val MAX_PACKET_SIZE = 65536
         private const val INITIAL_BUFFER_CAPACITY = 131072 // 128 KB pre-allocated pool
     }
 
+    var baudRate: Int = initialBaudRate
+        set(value) {
+            val valid = if (value > 0) value else DEFAULT_BAUD_RATE
+            field = valid
+            nanosPerByte = 10_000_000_000L / valid
+        }
+
+    var nanosPerByte: Long = 10_000_000_000L / initialBaudRate
+        private set
+
     private var internalBuffer = ByteArray(INITIAL_BUFFER_CAPACITY)
     private var bufferSize = 0
 
+    private class ChunkMeta(
+        var startIndex: Int,
+        var length: Int,
+        var hostMonoNs: Long,
+        var hostWallMs: Long
+    )
+
+    private val chunkWindows = java.util.ArrayDeque<ChunkMeta>()
+
     /**
      * Appends new bytes and returns any fully assembled packets found in the stream.
+     * Each returned RawRadarPacket carries its physical Start-of-Frame (SOF) host timestamps.
      */
     @Synchronized
-    fun appendBytes(incoming: ByteArray): List<RawRadarPacket> {
+    fun appendBytes(
+        incoming: ByteArray,
+        chunkMonoNs: Long = android.os.SystemClock.elapsedRealtimeNanos(),
+        chunkWallMs: Long = System.currentTimeMillis()
+    ): List<RawRadarPacket> {
         if (incoming.isEmpty()) return emptyList()
 
         if (bufferSize + incoming.size > internalBuffer.size) {
@@ -34,6 +68,8 @@ class RadarPacketAssembler {
             internalBuffer = internalBuffer.copyOf(newCapacity)
         }
         System.arraycopy(incoming, 0, internalBuffer, bufferSize, incoming.size)
+
+        chunkWindows.addLast(ChunkMeta(bufferSize, incoming.size, chunkMonoNs, chunkWallMs))
         bufferSize += incoming.size
 
         val packets = mutableListOf<RawRadarPacket>()
@@ -44,8 +80,10 @@ class RadarPacketAssembler {
             if (magicIndex == -1) {
                 // Keep the last 7 bytes in case magic word was split across chunks
                 if (bufferSize > 7) {
+                    val discard = bufferSize - 7
                     System.arraycopy(internalBuffer, bufferSize - 7, internalBuffer, 0, 7)
                     bufferSize = 7
+                    shiftChunkWindows(discard)
                 }
                 break
             }
@@ -57,6 +95,7 @@ class RadarPacketAssembler {
                 if (magicIndex > 0) {
                     System.arraycopy(internalBuffer, magicIndex, internalBuffer, 0, availableAfterMagic)
                     bufferSize = availableAfterMagic
+                    shiftChunkWindows(magicIndex)
                 }
                 break
             }
@@ -88,14 +127,11 @@ class RadarPacketAssembler {
                 val remainingLen = bufferSize - (magicIndex + 1)
                 System.arraycopy(internalBuffer, magicIndex + 1, internalBuffer, 0, remainingLen)
                 bufferSize = remainingLen
+                shiftChunkWindows(magicIndex + 1)
                 continue
             }
 
             // Preemptive Magic Word Guard & Intelligent Frame Salvaging:
-            // Check if another magic word arrives prematurely before totalPacketLen bytes.
-            // If bytes were dropped on the UART bus, the tail or middle of this frame was lost,
-            // and the next frame has already started. Instead of discarding the entire frame and
-            // causing sequence drops/UI stutter, salvage whatever complete TLVs were received!
             val searchEnd = kotlin.math.min(bufferSize, magicIndex + totalPacketLen)
             val embeddedMagicIndex = findMagicWord(
                 internalBuffer,
@@ -123,11 +159,13 @@ class RadarPacketAssembler {
                         numTLVs = numTLVs,
                         subFrameNumber = subFrameNumber
                     )
+                    val (sofMonoNs, sofWallMs) = getTimestampForIndex(magicIndex)
                     packets.add(
                         RawRadarPacket(
                             header = salvagedHeader,
                             payload = salvagedPayload,
-                            hostTimestampNs = System.nanoTime(),
+                            hostTimestampNs = sofMonoNs,
+                            wallClockTimestampMs = sofWallMs,
                             fullPacketBytes = salvagedFullPacket,
                             isSalvaged = true
                         )
@@ -137,6 +175,7 @@ class RadarPacketAssembler {
                 val remainingLen = bufferSize - embeddedMagicIndex
                 System.arraycopy(internalBuffer, embeddedMagicIndex, internalBuffer, 0, remainingLen)
                 bufferSize = remainingLen
+                shiftChunkWindows(embeddedMagicIndex)
                 continue
             }
 
@@ -146,6 +185,7 @@ class RadarPacketAssembler {
                 if (magicIndex > 0) {
                     System.arraycopy(internalBuffer, magicIndex, internalBuffer, 0, availableAfterMagic)
                     bufferSize = availableAfterMagic
+                    shiftChunkWindows(magicIndex)
                 }
                 break
             }
@@ -170,7 +210,16 @@ class RadarPacketAssembler {
             }
             val fullPacket = internalBuffer.copyOfRange(magicIndex, magicIndex + totalPacketLen)
 
-            packets.add(RawRadarPacket(header, payload, hostTimestampNs = System.nanoTime(), fullPacketBytes = fullPacket))
+            val (sofMonoNs, sofWallMs) = getTimestampForIndex(magicIndex)
+            packets.add(
+                RawRadarPacket(
+                    header = header,
+                    payload = payload,
+                    hostTimestampNs = sofMonoNs,
+                    wallClockTimestampMs = sofWallMs,
+                    fullPacketBytes = fullPacket
+                )
+            )
 
             // Advance buffer past this completed packet
             val remainingOffset = magicIndex + totalPacketLen
@@ -181,6 +230,7 @@ class RadarPacketAssembler {
             } else {
                 bufferSize = 0
             }
+            shiftChunkWindows(remainingOffset)
         }
 
         return packets
@@ -203,8 +253,48 @@ class RadarPacketAssembler {
         return -1
     }
 
+    private fun getTimestampForIndex(targetIndex: Int): Pair<Long, Long> {
+        for (chunk in chunkWindows) {
+            if (targetIndex in chunk.startIndex until (chunk.startIndex + chunk.length)) {
+                val offsetInChunk = (targetIndex - chunk.startIndex).toLong()
+                val interpolatedNs = chunk.hostMonoNs + (offsetInChunk * nanosPerByte)
+                val interpolatedMs = chunk.hostWallMs + (offsetInChunk * nanosPerByte / 1_000_000L)
+                return Pair(interpolatedNs, interpolatedMs)
+            }
+        }
+        val first = chunkWindows.firstOrNull()
+        return if (first != null) {
+            Pair(first.hostMonoNs, first.hostWallMs)
+        } else {
+            Pair(android.os.SystemClock.elapsedRealtimeNanos(), System.currentTimeMillis())
+        }
+    }
+
+    private fun shiftChunkWindows(discardBytes: Int) {
+        if (discardBytes <= 0) return
+        var remainingDiscard = discardBytes
+        while (chunkWindows.isNotEmpty() && remainingDiscard > 0) {
+            val first = chunkWindows.first()
+            if (first.length <= remainingDiscard) {
+                remainingDiscard -= first.length
+                chunkWindows.removeFirst()
+            } else {
+                first.length -= remainingDiscard
+                first.hostMonoNs += remainingDiscard.toLong() * nanosPerByte
+                first.hostWallMs += (remainingDiscard.toLong() * nanosPerByte) / 1_000_000L
+                remainingDiscard = 0
+            }
+        }
+        var currentIdx = 0
+        for (chunk in chunkWindows) {
+            chunk.startIndex = currentIdx
+            currentIdx += chunk.length
+        }
+    }
+
     @Synchronized
     fun reset() {
         bufferSize = 0
+        chunkWindows.clear()
     }
 }

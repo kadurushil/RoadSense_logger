@@ -40,6 +40,26 @@ class RadarConnectionManager(private val context: Context) {
         private const val ACTION_USB_PERMISSION = "com.bajajauto.roadsense.USB_PERMISSION"
         const val CONFIG_BAUD_RATE = 115200
         const val DATA_BAUD_RATE = 3125000
+        const val DATA_BAUD_RATE_2M = 2000000
+    }
+
+    @Volatile
+    var currentDataBaudRate: Int = DATA_BAUD_RATE
+        private set
+
+    fun setDataBaudRate(baudRate: Int) {
+        if (baudRate <= 0 || baudRate == currentDataBaudRate) return
+        currentDataBaudRate = baudRate
+        dataPort?.let { port ->
+            if (port.isOpen) {
+                try {
+                    port.setParameters(baudRate, 8, com.hoho.android.usbserial.driver.UsbSerialPort.STOPBITS_1, com.hoho.android.usbserial.driver.UsbSerialPort.PARITY_NONE)
+                    com.bajajauto.roadsense.logging.AppLogger.i(TAG, "Dynamically updated data port baud rate to $baudRate bps")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to update baud rate to $baudRate: ${e.message}", e)
+                }
+            }
+        }
     }
 
     private val usbManager = context.getSystemService(Context.USB_SERVICE) as UsbManager
@@ -164,7 +184,7 @@ class RadarConnectionManager(private val context: Context) {
                         return
                     }
                     port.open(connection)
-                    port.setParameters(DATA_BAUD_RATE, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
+                    port.setParameters(currentDataBaudRate, 8, UsbSerialPort.STOPBITS_1, UsbSerialPort.PARITY_NONE)
                     try {
                         port.dtr = true
                         port.rts = true
@@ -180,7 +200,7 @@ class RadarConnectionManager(private val context: Context) {
             }
 
             _connectionState.value = RadarConnectionState.Connected(
-                "Connected: ${ports.size} port(s) [Config: $CONFIG_BAUD_RATE, Data: $DATA_BAUD_RATE]"
+                "Connected: ${ports.size} port(s) [Config: $CONFIG_BAUD_RATE, Data: $currentDataBaudRate]"
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error opening serial port", e)

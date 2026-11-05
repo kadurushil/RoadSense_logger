@@ -17,6 +17,7 @@ This directory serves as the authoritative, centralized knowledge repository for
 | [`03_GALAXY_M20_PARITY_AND_MITIGATION_RUNBOOK.md`](03_GALAXY_M20_PARITY_AND_MITIGATION_RUNBOOK.md) | **Legacy Device Parity & Mitigation Strategies** | Actionable engineering strategies to achieve stable ingestion on older/budget hardware (Baud rate reduction, CLI packet capping, and native JNI USB drivers). |
 | [`04_RADAR_PACKET_ASSEMBLER_AND_SALVAGING_ARCHITECTURE.md`](04_RADAR_PACKET_ASSEMBLER_AND_SALVAGING_ARCHITECTURE.md) | **Packet Assembler & Intelligent Frame Salvaging Architecture** | Technical specification of `RadarPacketAssembler.kt`, Preemptive Magic Word Guards, and partial frame recovery under burst packet truncation. |
 | [`05_CODEBASE_CHANGE_AUDIT_KEEP_VS_REVERT_ANALYSIS.md`](05_CODEBASE_CHANGE_AUDIT_KEEP_VS_REVERT_ANALYSIS.md) | **Codebase Change Audit: Keep vs. Revert Analysis** | File-by-file audit of all past mitigation changes, architectural justifications, and what happens if reverted on Galaxy M32. |
+| [`06_HARDWARE_CLOCK_DISCIPLINING_AND_USB_BULK_JITTER_ELIMINATION.md`](06_HARDWARE_CLOCK_DISCIPLINING_AND_USB_BULK_JITTER_ELIMINATION.md) | **Hardware Clock Disciplining & USB Bulk Jitter Elimination** | Technical specification of 64-byte bulk coalescing, 600 MHz C674x DSP cycle disciplining, dual-timestamp observability, dynamic baud rate scaling, and cross-sensor sync. |
 
 ---
 

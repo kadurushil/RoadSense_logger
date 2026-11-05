@@ -74,8 +74,15 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val packetAssembler = RadarPacketAssembler()
     private val tlvDecoder = RadarTlvDecoder()
     private val rawRecorder = RawUartRecorder(application)
+    private val clockDiscipliner = com.bajajauto.roadsense.sync.RadarClockDiscipliner()
+    private data class RawUartChunk(
+        val bytes: ByteArray,
+        val hostMonoNs: Long,
+        val hostWallMs: Long
+    )
+
     // Bounded queue decoupling USB serial reception from frame processing/decoding (< 2 µs enqueue)
-    private val rawByteQueue = java.util.concurrent.ArrayBlockingQueue<ByteArray>(2048)
+    private val rawByteQueue = java.util.concurrent.ArrayBlockingQueue<RawUartChunk>(2048)
     @Volatile private var isRadarWorkerRunning = true
     private var radarProcessingThread: Thread? = null
     val syncAssociator = CrossSensorSyncAssociator()
@@ -242,6 +249,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     @Volatile private var gnssFixesThisSec = 0
 
     init {
+        // Sync baud rate from connection manager to packet assembler for accurate SOF physical byte timing
+        packetAssembler.baudRate = connectionManager.currentDataBaudRate
+
         // Restore persistent camera settings
         cameraEngine.setResolution(appPreferences.cameraResolution)
         cameraEngine.setFrameRate(appPreferences.cameraFrameRate)
@@ -353,9 +363,10 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
             while (isRadarWorkerRunning && !Thread.currentThread().isInterrupted) {
                 try {
-                    val bytes = rawByteQueue.take()
-                    val hostMonoNs = SystemClock.elapsedRealtimeNanos()
-                    val hostWallMs = System.currentTimeMillis()
+                    val chunk = rawByteQueue.take()
+                    val bytes = chunk.bytes
+                    val hostMonoNs = chunk.hostMonoNs
+                    val hostWallMs = chunk.hostWallMs
 
                     rawBytesReceivedCounter += bytes.size
 
@@ -378,15 +389,14 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                     sessionRecorder.writeRawBytes(bytes)
 
                     android.os.Trace.beginSection("RS_Worker_Assemble")
-                    val assembledPackets = packetAssembler.appendBytes(bytes)
+                    val assembledPackets = packetAssembler.appendBytes(bytes, hostMonoNs, hostWallMs)
                     android.os.Trace.endSection()
 
                     if (assembledPackets.isNotEmpty()) {
                         radarFramesThisSec += assembledPackets.size
                         rawPacketsReceivedCounter += assembledPackets.size
-                        val lastPacket = assembledPackets.last()
-                        _latestPacket.value = lastPacket
 
+                        val disciplinedPackets = ArrayList<RawRadarPacket>(assembledPackets.size)
                         for (packet in assembledPackets) {
                             val seq = packet.header.frameNumber
                             if (packet.isSalvaged) {
@@ -408,10 +418,27 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                                 }
                                 lastObservedRadarSeq = seq
                             }
+
+                            // Discipline hardware DSP cycle counter to elapsedRealtimeNanos, eliminating CP2105/USB bulk batching jitter
+                            val disciplined = clockDiscipliner.discipline(
+                                header = packet.header,
+                                rawHostMonoNs = packet.hostTimestampNs,
+                                rawHostWallMs = packet.wallClockTimestampMs
+                            )
+                            val disciplinedPacket = packet.copy(
+                                hostTimestampNs = disciplined.monotonicNs,
+                                wallClockTimestampMs = disciplined.wallClockMs,
+                                rawHostTimestampNs = packet.hostTimestampNs
+                            )
+                            disciplinedPackets.add(disciplinedPacket)
+
                             android.os.Trace.beginSection("RS_Worker_WriteFrame")
-                            sessionRecorder.writeFrame(packet, hostMonoNs, hostWallMs)
+                            sessionRecorder.writeFrame(disciplinedPacket, disciplined.monotonicNs, disciplined.wallClockMs)
                             android.os.Trace.endSection()
                         }
+
+                        val lastPacket = disciplinedPackets.last()
+                        _latestPacket.value = lastPacket
 
                         // Decode real-time TLVs into structured RadarFrame
                         android.os.Trace.beginSection("RS_Worker_DecodeTLV")
@@ -436,11 +463,13 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
         // Non-blocking zero-loss callback on USB IO thread: enqueues directly into rawByteQueue (< 2 µs)
         connectionManager.addDataListener { bytes ->
+            val hostMonoNs = SystemClock.elapsedRealtimeNanos()
+            val hostWallMs = System.currentTimeMillis()
             val currentSize = rawByteQueue.size
             if (currentSize > peakRawByteQueueDepth) {
                 peakRawByteQueueDepth = currentSize
             }
-            if (!rawByteQueue.offer(bytes)) {
+            if (!rawByteQueue.offer(RawUartChunk(bytes, hostMonoNs, hostWallMs))) {
                 totalRawByteChunksDropped++
                 com.bajajauto.roadsense.logging.AppLogger.e(
                     "RadarQueue",
@@ -601,6 +630,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     fun startSessionRecording(): SessionInfo? {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped START session recording")
         syncAssociator.reset()
+        clockDiscipliner.reset()
         if (hasLocationPermission()) {
             startGnssUpdates()
         }
@@ -703,6 +733,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped Scan & Connect USB radar")
         rawByteQueue.clear()
         packetAssembler.reset()
+        clockDiscipliner.reset()
         connectionManager.scanAndConnect()
     }
 
@@ -711,6 +742,18 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         connectionManager.disconnect()
         rawByteQueue.clear()
         packetAssembler.reset()
+        clockDiscipliner.reset()
+    }
+
+    /**
+     * Dynamically updates the data port UART baud rate on the hardware port
+     * and recalculates physical Start-of-Frame byte timing in the assembler.
+     */
+    fun setDataBaudRate(baudRate: Int) {
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Setting radar data baud rate to $baudRate bps")
+        connectionManager.setDataBaudRate(baudRate)
+        packetAssembler.baudRate = baudRate
+        clockDiscipliner.reset()
     }
 
     fun sendConfig(command: String) {
