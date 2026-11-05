@@ -108,6 +108,12 @@ class ImuManager(private val context: Context) {
 
     @Volatile
     private var cachedDisplayRotation: Int = Surface.ROTATION_90
+    private var lastRotationCheckMonoNs: Long = 0L
+
+    fun updateDisplayRotation(rotation: Int) {
+        cachedDisplayRotation = rotation
+        lastRotationCheckMonoNs = SystemClock.elapsedRealtimeNanos()
+    }
 
     // Frequency counter for LiveMetricsBar
     private var hzCounterStartMonoNs: Long = 0L
@@ -410,7 +416,12 @@ class ImuManager(private val context: Context) {
                 // Throttle UI emit to ~25 Hz (every 40 ms)
                 if (deliveryNs - lastUiEmitMonoNs >= UI_UPDATE_INTERVAL_NS) {
                     lastUiEmitMonoNs = deliveryNs
-                    cachedDisplayRotation = getDisplayRotation()
+
+                    // Rate-limit display rotation query to once every 2 seconds to eliminate 25 Hz Binder IPC lock contention
+                    if (deliveryNs - lastRotationCheckMonoNs >= 2_000_000_000L) {
+                        lastRotationCheckMonoNs = deliveryNs
+                        cachedDisplayRotation = getDisplayRotation()
+                    }
 
                     // Compute Euler angles for UI dashboard gauges and horizon follow from current quaternion
                     try {
@@ -485,6 +496,7 @@ class ImuManager(private val context: Context) {
         hzCounterStartMonoNs = SystemClock.elapsedRealtimeNanos()
         hzCounterEvents = 0L
         lastUiEmitMonoNs = 0L
+        lastRotationCheckMonoNs = hzCounterStartMonoNs
         cachedDisplayRotation = getDisplayRotation()
         isMonitoring = true
 

@@ -192,6 +192,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     @Volatile private var lastObservedRadarSeq = -1L
     @Volatile private var totalRadarSequenceGaps = 0L
     @Volatile private var totalRadarDroppedFrames = 0L
+    @Volatile private var totalRadarSalvagedFrames = 0L
     @Volatile private var rawBytesReceivedCounter = 0L
     @Volatile private var rawPacketsReceivedCounter = 0L
     @Volatile private var latestFrameSeqNum = 0L
@@ -388,6 +389,13 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
                         for (packet in assembledPackets) {
                             val seq = packet.header.frameNumber
+                            if (packet.isSalvaged) {
+                                totalRadarSalvagedFrames++
+                                com.bajajauto.roadsense.logging.AppLogger.i(
+                                    "RadarSession",
+                                    "RADAR_FRAME_SALVAGED: Frame #$seq salvaged (recovered ${packet.payload.size} B payload, 0 sequence gap, total salvaged: $totalRadarSalvagedFrames)"
+                                )
+                            }
                             if (sessionRecorder.currentSession != null) {
                                 if (lastObservedRadarSeq != -1L && seq != lastObservedRadarSeq + 1L) {
                                     val gap = seq - lastObservedRadarSeq - 1L
@@ -431,12 +439,6 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             val currentSize = rawByteQueue.size
             if (currentSize > peakRawByteQueueDepth) {
                 peakRawByteQueueDepth = currentSize
-            }
-            if (currentSize >= 512 && currentSize % 256 == 0) {
-                com.bajajauto.roadsense.logging.AppLogger.w(
-                    "RadarQueue",
-                    "Radar rawByteQueue congestion: $currentSize / 2048 slots occupied (${currentSize * 100 / 2048}%)"
-                )
             }
             if (!rawByteQueue.offer(bytes)) {
                 totalRawByteChunksDropped++
@@ -607,6 +609,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             lastObservedRadarSeq = -1L
             totalRadarSequenceGaps = 0L
             totalRadarDroppedFrames = 0L
+            totalRadarSalvagedFrames = 0L
             peakRawByteQueueDepth = 0
             totalRawByteChunksEnqueued = 0L
             totalRawByteChunksDropped = 0L
@@ -658,7 +661,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         val totalRecorded = stopped?.totalRadarFrames ?: 0L
         com.bajajauto.roadsense.logging.AppLogger.i(
             "RadarSession",
-            "Radar Session Telemetry: framesRecorded=$totalRecorded, " +
+            "Radar Session Telemetry: framesRecorded=$totalRecorded, salvagedFrames=$totalRadarSalvagedFrames, " +
             "droppedFrames=$totalRadarDroppedFrames, sequenceGaps=$totalRadarSequenceGaps, " +
             "queuePeakDepth=$peakRawByteQueueDepth/2048 (${peakRawByteQueueDepth * 100 / 2048}%), " +
             "chunksDropped=$totalRawByteChunksDropped"
