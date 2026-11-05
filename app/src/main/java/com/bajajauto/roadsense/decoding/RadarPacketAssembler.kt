@@ -91,11 +91,11 @@ class RadarPacketAssembler {
                 continue
             }
 
-            // Preemptive Magic Word Guard:
+            // Preemptive Magic Word Guard & Intelligent Frame Salvaging:
             // Check if another magic word arrives prematurely before totalPacketLen bytes.
-            // If bytes were dropped on the UART bus, the tail of this frame is lost, and the next frame
-            // has already started. We must discard the truncated frame immediately rather than swallowing
-            // the next frame's header and magic word.
+            // If bytes were dropped on the UART bus, the tail or middle of this frame was lost,
+            // and the next frame has already started. Instead of discarding the entire frame and
+            // causing sequence drops/UI stutter, salvage whatever complete TLVs were received!
             val searchEnd = kotlin.math.min(bufferSize, magicIndex + totalPacketLen)
             val embeddedMagicIndex = findMagicWord(
                 internalBuffer,
@@ -103,6 +103,37 @@ class RadarPacketAssembler {
                 length = searchEnd
             )
             if (embeddedMagicIndex in (magicIndex + RadarHeader.MAGIC_WORD.size) until searchEnd) {
+                val salvagedLen = embeddedMagicIndex - magicIndex
+                if (salvagedLen >= RadarHeader.HEADER_SIZE_BYTES) {
+                    val salvagedPayload = internalBuffer.copyOfRange(
+                        magicIndex + RadarHeader.HEADER_SIZE_BYTES,
+                        embeddedMagicIndex
+                    )
+                    val salvagedFullPacket = internalBuffer.copyOfRange(
+                        magicIndex,
+                        embeddedMagicIndex
+                    )
+                    val salvagedHeader = RadarHeader(
+                        version = version,
+                        totalPacketLen = salvagedLen,
+                        platform = platform,
+                        frameNumber = frameNumber,
+                        timeCpuCycles = timeCpuCycles,
+                        numDetectedObj = numDetectedObj,
+                        numTLVs = numTLVs,
+                        subFrameNumber = subFrameNumber
+                    )
+                    packets.add(
+                        RawRadarPacket(
+                            header = salvagedHeader,
+                            payload = salvagedPayload,
+                            hostTimestampNs = System.nanoTime(),
+                            fullPacketBytes = salvagedFullPacket,
+                            isSalvaged = true
+                        )
+                    )
+                }
+
                 val remainingLen = bufferSize - embeddedMagicIndex
                 System.arraycopy(internalBuffer, embeddedMagicIndex, internalBuffer, 0, remainingLen)
                 bufferSize = remainingLen

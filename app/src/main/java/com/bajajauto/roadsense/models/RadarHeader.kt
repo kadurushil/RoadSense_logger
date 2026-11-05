@@ -29,7 +29,8 @@ data class RawRadarPacket(
     val header: RadarHeader,
     val payload: ByteArray,
     val hostTimestampNs: Long = System.nanoTime(),
-    val fullPacketBytes: ByteArray = byteArrayOf()
+    val fullPacketBytes: ByteArray = byteArrayOf(),
+    val isSalvaged: Boolean = false
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -41,6 +42,7 @@ data class RawRadarPacket(
         if (!payload.contentEquals(other.payload)) return false
         if (hostTimestampNs != other.hostTimestampNs) return false
         if (!fullPacketBytes.contentEquals(other.fullPacketBytes)) return false
+        if (isSalvaged != other.isSalvaged) return false
 
         return true
     }
@@ -50,6 +52,7 @@ data class RawRadarPacket(
         result = 31 * result + payload.contentHashCode()
         result = 31 * result + hostTimestampNs.hashCode()
         result = 31 * result + fullPacketBytes.contentHashCode()
+        result = 31 * result + isSalvaged.hashCode()
         return result
     }
 }

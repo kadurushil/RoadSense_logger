@@ -144,7 +144,7 @@ class RadarPacketAssemblerTest {
     }
 
     @Test
-    fun appendBytes_truncatedFrameWithPrematureNextMagic_recoversNextFrameWithoutSwallowing() {
+    fun appendBytes_truncatedFrameWithPrematureNextMagic_salvagesTruncatedFrameAndRecoversNextFrame() {
         // Frame 1 has a valid header claiming totalPacketLen = 120 bytes,
         // but only 64 bytes were received over UART before the tail was lost to buffer overflow.
         val truncatedFrame1 = createFrameBytes(2001L, 120).copyOfRange(0, 64)
@@ -156,9 +156,33 @@ class RadarPacketAssemblerTest {
         val stream = truncatedFrame1 + completeFrame2
         val packets = assembler.appendBytes(stream)
 
+        assertEquals(2, packets.size)
+        // Frame 1 is salvaged with 0 sequence gap
+        assertEquals(2001L, packets[0].header.frameNumber)
+        assertEquals(64, packets[0].header.totalPacketLen)
+        assertTrue(packets[0].isSalvaged)
+        assertEquals(24, packets[0].payload.size)
+
+        // Frame 2 is assembled normally
+        assertEquals(2002L, packets[1].header.frameNumber)
+        assertEquals(48, packets[1].header.totalPacketLen)
+        assertTrue(!packets[1].isSalvaged)
+    }
+
+    @Test
+    fun appendBytes_truncatedFrameWithLessThan40Bytes_discardsIncompleteHeaderAndRecoversNextFrame() {
+        // Frame 1 is truncated before the 40-byte header completes (only 32 bytes)
+        val incompleteHeaderFrame1 = createFrameBytes(2003L, 120).copyOfRange(0, 32)
+        val completeFrame2 = createFrameBytes(2004L, 48)
+
+        val stream = incompleteHeaderFrame1 + completeFrame2
+        val packets = assembler.appendBytes(stream)
+
+        // Frame 1 cannot be salvaged (header < 40B), but Frame 2 is cleanly recovered
         assertEquals(1, packets.size)
-        assertEquals(2002L, packets[0].header.frameNumber)
+        assertEquals(2004L, packets[0].header.frameNumber)
         assertEquals(48, packets[0].header.totalPacketLen)
+        assertTrue(!packets[0].isSalvaged)
     }
 
     @Test
@@ -203,9 +227,14 @@ class RadarPacketAssemblerTest {
         assertEquals(0, p1.size)
 
         val p2 = assembler.appendBytes(chunk2)
-        assertEquals(1, p2.size)
-        assertEquals(5002L, p2[0].header.frameNumber)
-        assertEquals(48, p2[0].header.totalPacketLen)
+        assertEquals(2, p2.size)
+        // Frame 5001 salvaged
+        assertEquals(5001L, p2[0].header.frameNumber)
+        assertTrue(p2[0].isSalvaged)
+        // Frame 5002 assembled
+        assertEquals(5002L, p2[1].header.frameNumber)
+        assertEquals(48, p2[1].header.totalPacketLen)
+        assertTrue(!p2[1].isSalvaged)
     }
 
     @Test
@@ -228,8 +257,11 @@ class RadarPacketAssemblerTest {
         val f2 = createFrameBytes(7002L, 48)
 
         val packets = assembler.appendBytes(f1 + garbage + f2)
-        assertEquals(1, packets.size)
-        assertEquals(7002L, packets[0].header.frameNumber)
+        assertEquals(2, packets.size)
+        assertEquals(7001L, packets[0].header.frameNumber)
+        assertTrue(packets[0].isSalvaged)
+        assertEquals(7002L, packets[1].header.frameNumber)
+        assertTrue(!packets[1].isSalvaged)
     }
 
     @Test
@@ -239,8 +271,13 @@ class RadarPacketAssemblerTest {
         val f3 = createFrameBytes(8003L, 48)
 
         val packets = assembler.appendBytes(f1 + f2 + f3)
-        assertEquals(1, packets.size)
-        assertEquals(8003L, packets[0].header.frameNumber)
+        assertEquals(3, packets.size)
+        assertEquals(8001L, packets[0].header.frameNumber)
+        assertTrue(packets[0].isSalvaged)
+        assertEquals(8002L, packets[1].header.frameNumber)
+        assertTrue(packets[1].isSalvaged)
+        assertEquals(8003L, packets[2].header.frameNumber)
+        assertTrue(!packets[2].isSalvaged)
     }
 
     @Test
