@@ -53,6 +53,30 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         AppLogger.initAppLogging(applicationContext)
         AppLogger.i("MainActivity", "RoadSense started. App run diagnostics logging initialized.")
+
+        // Lock screen refresh rate to 60.0 Hz for exact integer harmonic synchronization:
+        // Radar 20.0 Hz = exactly 3 VSYNCs (50.0 ms) | Camera 30.0 FPS = exactly 2 VSYNCs (33.3 ms)
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                val params = window.attributes
+                params.preferredRefreshRate = 60.0f
+                window.attributes = params
+                AppLogger.i("MainActivity", "Enforced 60.0 Hz display refresh rate via preferredRefreshRate")
+            } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                @Suppress("DEPRECATION")
+                val display = windowManager.defaultDisplay
+                val mode60 = display?.supportedModes?.firstOrNull { kotlin.math.abs(it.refreshRate - 60.0f) < 1.0f }
+                if (mode60 != null) {
+                    val params = window.attributes
+                    params.preferredDisplayModeId = mode60.modeId
+                    window.attributes = params
+                    AppLogger.i("MainActivity", "Enforced 60.0 Hz display refresh rate via modeId: ${mode60.modeId}")
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.w("MainActivity", "Could not set 60.0 Hz display refresh rate: ${e.message}")
+        }
+
         enableEdgeToEdge()
         setContent {
             RoadSenseTheme {
@@ -222,47 +246,51 @@ fun RoadSenseCockpitScreen(
                 HorizontalPager(
                     state = pagerState,
                     userScrollEnabled = false,
+                    beyondViewportPageCount = 0,
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                 ) { page ->
-                    when (tabs[page]) {
-                        CockpitTab.RADAR -> {
-                            RadarDashboardCard(
-                                viewModel = viewModel
-                            )
-                        }
-                        CockpitTab.GNSS -> {
-                            GnssDashboardCard(
-                                viewModel = viewModel
-                            )
-                        }
-                        CockpitTab.IMU -> {
-                            ImuDashboardCard(
-                                viewModel = viewModel
-                            )
-                        }
-                        CockpitTab.CAMERA -> {
-                            CameraDashboardCard(
-                                viewModel = viewModel,
-                                isCurrentTab = pagerState.currentPage == page
-                            )
-                        }
-                        CockpitTab.CANEDGE -> {
-                            CanedgeDashboardCard(
-                                viewModel = viewModel
-                            )
-                        }
-                        CockpitTab.SBS -> {
-                            SbsDashboardCard(
-                                viewModel = viewModel,
-                                isCurrentTab = pagerState.currentPage == page
-                            )
-                        }
-                        CockpitTab.SESSION -> {
-                            SessionDeckCard(
-                                viewModel = viewModel
-                            )
+                    // Strict active-page isolation: inactive tabs are NEVER composed in the background
+                    if (page == pagerState.currentPage) {
+                        when (tabs[page]) {
+                            CockpitTab.RADAR -> {
+                                RadarDashboardCard(
+                                    viewModel = viewModel
+                                )
+                            }
+                            CockpitTab.GNSS -> {
+                                GnssDashboardCard(
+                                    viewModel = viewModel
+                                )
+                            }
+                            CockpitTab.IMU -> {
+                                ImuDashboardCard(
+                                    viewModel = viewModel
+                                )
+                            }
+                            CockpitTab.CAMERA -> {
+                                CameraDashboardCard(
+                                    viewModel = viewModel,
+                                    isCurrentTab = true
+                                )
+                            }
+                            CockpitTab.CANEDGE -> {
+                                CanedgeDashboardCard(
+                                    viewModel = viewModel
+                                )
+                            }
+                            CockpitTab.SBS -> {
+                                SbsDashboardCard(
+                                    viewModel = viewModel,
+                                    isCurrentTab = true
+                                )
+                            }
+                            CockpitTab.SESSION -> {
+                                SessionDeckCard(
+                                    viewModel = viewModel
+                                )
+                            }
                         }
                     }
                 }

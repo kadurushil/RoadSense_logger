@@ -414,7 +414,10 @@ class ImuManager(private val context: Context) {
                 }
 
                 // Throttle UI emit to ~25 Hz (every 40 ms)
-                if (deliveryNs - lastUiEmitMonoNs >= UI_UPDATE_INTERVAL_NS) {
+                // When recording is active, freeze detailed UI telemetry emission (0 Hz) to eliminate
+                // Compose StateFlow invalidation, array clones, and matrix math overhead on the UI thread,
+                // while keeping _imuHz (top bar indicator) and CSV disk recording at full 100 Hz.
+                if (activeRecorder == null && (deliveryNs - lastUiEmitMonoNs >= UI_UPDATE_INTERVAL_NS)) {
                     lastUiEmitMonoNs = deliveryNs
 
                     // Rate-limit display rotation query to once every 2 seconds to eliminate 25 Hz Binder IPC lock contention
