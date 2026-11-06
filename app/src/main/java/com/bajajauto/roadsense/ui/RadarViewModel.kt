@@ -264,6 +264,12 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         cameraEngine.setResolution(appPreferences.cameraResolution)
         cameraEngine.setFrameRate(appPreferences.cameraFrameRate)
 
+        // Pre-warm camera hardware on app startup to acquire MediaTek/OEM kernel CPU/GPU performance lock (perfLockAcq)
+        // and eliminate camera launch latency.
+        if (cameraEngine.hasCameraPermission()) {
+            cameraEngine.prewarmCamera()
+        }
+
 
         // Load persistent radar-camera calibration
         viewModelScope.launch {

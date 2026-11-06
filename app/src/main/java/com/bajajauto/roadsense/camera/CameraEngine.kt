@@ -161,6 +161,23 @@ class CameraEngine(private val context: Context) {
     private var isPreviewActive = false
 
     @Volatile
+    private var isPrewarming = false
+
+    /**
+     * Pre-warms the CameraDevice on app startup.
+     * This engages the MediaTek / OEM Camera Provider HAL kernel performance lock (perfLockAcq)
+     * bringing all CPU big cores online at maximum clock frequencies right from app launch,
+     * ensuring buttery smooth UI scrolling across all cards and 0 ms camera preview launch latency.
+     */
+    fun prewarmCamera() {
+        if (cameraDevice != null || isPreviewActive || isPrewarming) return
+        if (!hasCameraPermission()) return
+        AppLogger.i(TAG, "Pre-warming CameraDevice on app startup to acquire hardware performance lock")
+        isPrewarming = true
+        openCamera()
+    }
+
+    @Volatile
     var currentDisplayRotation: Int = Surface.ROTATION_0
         private set
 
@@ -377,6 +394,7 @@ class CameraEngine(private val context: Context) {
             }
         }
 
+        isPrewarming = false
         previewSurfaceTexture = surfaceTexture
         currentViewWidth = width
         currentViewHeight = height
@@ -473,7 +491,12 @@ class CameraEngine(private val context: Context) {
             return
         }
 
-        if (cameraDevice != null || _engineState.value is CameraEngineState.Opening) return
+        if (cameraDevice != null || _engineState.value is CameraEngineState.Opening) {
+            if (cameraDevice != null && isPrewarming) {
+                return
+            }
+            return
+        }
 
         try {
             val targetCameraId = _selectedCamera.value?.id
@@ -485,11 +508,13 @@ class CameraEngine(private val context: Context) {
                 return
             }
 
-            AppLogger.i(TAG, "Opening camera ID: $targetCameraId (${_selectedCamera.value?.displayName ?: "Default"})")
-            _engineState.value = CameraEngineState.Opening
+            AppLogger.i(TAG, "Opening camera ID: $targetCameraId (${_selectedCamera.value?.displayName ?: "Default"}) (prewarm=$isPrewarming)")
+            if (!isPrewarming) {
+                _engineState.value = CameraEngineState.Opening
+            }
             cameraManager.openCamera(targetCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
-                    if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording) {
+                    if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording && !isPrewarming) {
                         AppLogger.i(TAG, "Camera opened after preview was cancelled; closing immediately")
                         camera.close()
                         cameraDevice = null
@@ -497,7 +522,7 @@ class CameraEngine(private val context: Context) {
                         return
                     }
                     cameraDevice = camera
-                    AppLogger.i(TAG, "CameraDevice onOpened: id=${camera.id}")
+                    AppLogger.i(TAG, "CameraDevice onOpened: id=${camera.id} (prewarmed=$isPrewarming)")
                     createCaptureSession()
                 }
 
@@ -1225,6 +1250,7 @@ class CameraEngine(private val context: Context) {
 
     fun closeCamera() {
         try {
+            isPrewarming = false
             stopLuminanceAnalyzer()
             previewTextureViewRef = null
             captureSession?.close()
