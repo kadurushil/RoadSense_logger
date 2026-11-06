@@ -1,6 +1,7 @@
 package com.bajajauto.roadsense.ui.components
 
 import android.graphics.Paint
+import com.bajajauto.roadsense.logging.AppLogger
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -27,6 +28,11 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
+private class CanvasDrawTracker {
+    var lastDrawNs: Long = 0L
+    var drawCount: Long = 0L
+}
+
 /**
  * Bird's-Eye View (BEV) top-down Cartesian radar display.
  * Maps radar coordinates (X = lateral meters, Y = longitudinal meters) to screen pixels with 1:1 aspect ratio.
@@ -44,6 +50,28 @@ fun RadarBevPlot(
     val dynamicOnly by viewModel.radarDynamicOnly.collectAsState()
     val minSnrFilter by viewModel.radarMinSnr.collectAsState()
     val rangeOptions = listOf(15f, 30f, 60f, 130f)
+
+    // Cached Paint & Path objects to eliminate garbage collection during 20/60 Hz Canvas redraws
+    val textPaint = remember {
+        Paint().apply {
+            color = android.graphics.Color.argb(160, 176, 190, 197)
+            textSize = 28f
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+        }
+    }
+    val trackLabelPaint = remember {
+        Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 24f
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+            isFakeBoldText = true
+        }
+    }
+    val egoPath = remember { Path() }
+    val triPath = remember { Path() }
+    val drawTracker = remember { CanvasDrawTracker() }
 
     Card(
         modifier = modifier,
@@ -162,6 +190,11 @@ fun RadarBevPlot(
                     .background(Color(0xFF090B10))
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
+                    val startNs = System.nanoTime()
+                    val deltaDrawMs = if (drawTracker.lastDrawNs > 0L) (startNs - drawTracker.lastDrawNs) / 1_000_000.0 else 0.0
+                    drawTracker.lastDrawNs = startNs
+                    drawTracker.drawCount++
+
                     val activeFrame = frameProducer?.invoke() ?: radarFrameState.value ?: frame
                     val canvasWidth = size.width
                     val canvasHeight = size.height
@@ -178,14 +211,6 @@ fun RadarBevPlot(
                     val gridColor = Color(0xFF263238)
                     val ringColor = Color(0xFF37474F)
                     val fovColor = Color(0x334DD0E1)
-                    val textColor = android.graphics.Color.argb(160, 176, 190, 197)
-
-                    val textPaint = Paint().apply {
-                        color = textColor
-                        textSize = 28f
-                        isAntiAlias = true
-                        textAlign = Paint.Align.CENTER
-                    }
 
                     // 1. Draw Field of View (FOV) cone lines (+-60 degrees)
                     val fovRad = Math.toRadians(60.0).toFloat()
@@ -269,12 +294,11 @@ fun RadarBevPlot(
                     // 5. Draw Ego Vehicle Marker (Centered at origin)
                     val egoWidth = 24f
                     val egoHeight = 32f
-                    val egoPath = Path().apply {
-                        moveTo(originX, originY - egoHeight) // Front tip
-                        lineTo(originX + egoWidth / 2f, originY) // Bottom right
-                        lineTo(originX - egoWidth / 2f, originY) // Bottom left
-                        close()
-                    }
+                    egoPath.reset()
+                    egoPath.moveTo(originX, originY - egoHeight) // Front tip
+                    egoPath.lineTo(originX + egoWidth / 2f, originY) // Bottom right
+                    egoPath.lineTo(originX - egoWidth / 2f, originY) // Bottom left
+                    egoPath.close()
                     drawPath(path = egoPath, color = Color(0xFF00E5FF))
 
                     // 6. Draw Clusters (TLV Type 2) as distinct compact yellow circles without text labels
@@ -297,55 +321,46 @@ fun RadarBevPlot(
                         }
                     }
 
-                    // 7. Draw Point Cloud Reflections (TLV Type 1) with Doppler velocity colors
-                    val pointsToRender = activeFrame?.points?.filter { pt ->
-                        (!dynamicOnly || kotlin.math.abs(pt.doppler) > 0.35f) &&
-                        (!minSnrFilter || pt.snrDb >= 15f)
-                    } ?: emptyList()
+                    // 7. Draw Point Cloud Reflections (TLV Type 1) with Doppler velocity colors (zero allocations)
+                    activeFrame?.points?.forEach { pt ->
+                        val passDynamic = !dynamicOnly || kotlin.math.abs(pt.doppler) > 0.35f
+                        val passSnr = !minSnrFilter || pt.snrDb >= 15f
+                        if (passDynamic && passSnr) {
+                            val px = originX + pt.x * scale
+                            val py = originY - pt.y * scale
 
-                    for (pt in pointsToRender) {
-                        val px = originX + pt.x * scale
-                        val py = originY - pt.y * scale
+                            if (py in 0f..originY && px in 0f..canvasWidth) {
+                                val pointColor = when {
+                                    pt.doppler < -0.35f -> Color(0xFFFF5252) // Approaching (Red)
+                                    pt.doppler > 0.35f -> Color(0xFF40C4FF)  // Receding (Cyan)
+                                    else -> Color(0xFF69F0AE)                // Stationary (Green)
+                                }
 
-                        if (py in 0f..originY && px in 0f..canvasWidth) {
-                            val pointColor = when {
-                                pt.doppler < -0.35f -> Color(0xFFFF5252) // Approaching (Red)
-                                pt.doppler > 0.35f -> Color(0xFF40C4FF)  // Receding (Cyan)
-                                else -> Color(0xFF69F0AE)                // Stationary (Green)
+                                val dotRadius = 4.5f
+
+                                // Halo glow
+                                drawCircle(
+                                    color = pointColor.copy(alpha = 0.35f),
+                                    radius = dotRadius + 2.5f,
+                                    center = Offset(px, py)
+                                )
+                                // Solid core
+                                drawCircle(
+                                    color = pointColor,
+                                    radius = dotRadius,
+                                    center = Offset(px, py)
+                                )
                             }
-
-                            val dotRadius = 4.5f
-
-                            // Halo glow
-                            drawCircle(
-                                color = pointColor.copy(alpha = 0.35f),
-                                radius = dotRadius + 2.5f,
-                                center = Offset(px, py)
-                            )
-                            // Solid core
-                            drawCircle(
-                                color = pointColor,
-                                radius = dotRadius,
-                                center = Offset(px, py)
-                            )
                         }
                     }
 
                     // 8. Draw Active Tracked Targets (TLV Type 3) with dedicated ADAS highlighting (FCW Alert Target & ACC POI)
-                    val trackLabelPaint = Paint().apply {
-                        color = android.graphics.Color.WHITE
-                        textSize = 24f
-                        isAntiAlias = true
-                        textAlign = Paint.Align.CENTER
-                        isFakeBoldText = true
-                    }
-
                     val fcwAlert = activeFrame?.canOutputs?.fcw
                     val accTarget = activeFrame?.canOutputs?.acc
                     val fcwTrackId = if ((fcwAlert?.trackId ?: 0) > 0) fcwAlert?.trackId else null
                     val accPoiId = if ((accTarget?.poiId ?: 0) > 0) accTarget?.poiId else null
 
-                    // Multi-tiered FCW Target Matching
+                    // Multi-tiered FCW Target Matching (zero intermediate list/Pair allocation)
                     val tracksList = activeFrame?.tracks ?: emptyList()
                     var matchedFcwIndex: Int? = null
                     if (fcwAlert != null && fcwAlert.stage > 0) {
@@ -360,14 +375,34 @@ fun RadarBevPlot(
                         }
 
                         if (matchedFcwIndex == null) {
-                            val candidates = tracksList.mapIndexed { idx, track -> Pair(idx, track) }
-                                .filter { (_, track) -> track.risk >= 2 && kotlin.math.abs(track.x) <= 4.5f && track.y <= 50.0f }
-                                .ifEmpty {
-                                    tracksList.mapIndexed { idx, track -> Pair(idx, track) }
-                                        .filter { (_, track) -> track.risk >= 1 && track.vy < -1.0f && kotlin.math.abs(track.x) <= 4.5f }
+                            var bestRiskScore = -Float.MAX_VALUE
+                            var bestIdx = -1
+                            for (idx in tracksList.indices) {
+                                val track = tracksList[idx]
+                                val inCorridor = kotlin.math.abs(track.x) <= 4.5f
+                                if (track.risk >= 2 && inCorridor && track.y <= 50.0f) {
+                                    val score = track.risk * 100f - track.y
+                                    if (score > bestRiskScore) {
+                                        bestRiskScore = score
+                                        bestIdx = idx
+                                    }
                                 }
-                            if (candidates.isNotEmpty()) {
-                                matchedFcwIndex = candidates.minByOrNull { (_, track) -> -track.risk * 100f + track.y }?.first
+                            }
+                            if (bestIdx == -1) {
+                                for (idx in tracksList.indices) {
+                                    val track = tracksList[idx]
+                                    val inCorridor = kotlin.math.abs(track.x) <= 4.5f
+                                    if (track.risk >= 1 && track.vy < -1.0f && inCorridor) {
+                                        val score = track.risk * 100f - track.y
+                                        if (score > bestRiskScore) {
+                                            bestRiskScore = score
+                                            bestIdx = idx
+                                        }
+                                    }
+                                }
+                            }
+                            if (bestIdx >= 0) {
+                                matchedFcwIndex = bestIdx
                             }
                         }
                     }
@@ -479,12 +514,11 @@ fun RadarBevPlot(
                                 val b2X = circX - ux * 2f - px * triWidth
                                 val b2Y = circY - uy * 2f - py * triWidth
 
-                                val triPath = Path().apply {
-                                    moveTo(tipX, tipY)
-                                    lineTo(b1X, b1Y)
-                                    lineTo(b2X, b2Y)
-                                    close()
-                                }
+                                triPath.reset()
+                                triPath.moveTo(tipX, tipY)
+                                triPath.lineTo(b1X, b1Y)
+                                triPath.lineTo(b2X, b2Y)
+                                triPath.close()
                                 drawPath(path = triPath, color = vectorColor)
 
                                 // When velocity is large, vector extends out of the circle proportional to speed
@@ -569,6 +603,13 @@ fun RadarBevPlot(
                             24f,
                             bannerPaint
                         )
+                    }
+
+                    val endNs = System.nanoTime()
+                    val durationMs = (endNs - startNs) / 1_000_000.0
+                    val seq = activeFrame?.header?.frameNumber ?: -1L
+                    if (drawTracker.drawCount % 5L == 0L || deltaDrawMs > 75.0 || (deltaDrawMs < 25.0 && deltaDrawMs > 0.0)) {
+                        AppLogger.d("RadarBevPlot", "[DRAW_BEV] seq=#$seq | deltaDrawMs=${"%.2f".format(deltaDrawMs)} | durationMs=${"%.2f".format(durationMs)}")
                     }
                 }
             }

@@ -2,9 +2,14 @@ package com.bajajauto.roadsense.ui.components
 
 import android.graphics.Paint
 import android.graphics.Typeface
+import com.bajajauto.roadsense.logging.AppLogger
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -20,6 +25,11 @@ import com.bajajauto.roadsense.fusion.engine.CameraIntrinsics
 import com.bajajauto.roadsense.fusion.engine.SpatialProjectionEngine
 import com.bajajauto.roadsense.fusion.model.CalibrationParameters
 import com.bajajauto.roadsense.models.RadarFrame
+
+private class OverlayDrawTracker {
+    var lastDrawNs: Long = 0L
+    var drawCount: Long = 0L
+}
 
 /**
  * Renders 2D radar point cloud detections, tracked obstacles, and translucent radar range lines
@@ -38,7 +48,30 @@ fun ViewfinderRadarOverlay(
 ) {
     if (intrinsics == null || viewWidth <= 0 || viewHeight <= 0) return
 
+    val labelPaint = remember {
+        Paint().apply {
+            color = android.graphics.Color.argb(215, 128, 216, 255)
+            isFakeBoldText = true
+            typeface = Typeface.MONOSPACE
+            setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
+        }
+    }
+    val badgeTextPaint = remember {
+        Paint().apply {
+            color = android.graphics.Color.WHITE
+            isFakeBoldText = true
+            typeface = Typeface.MONOSPACE
+            setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
+        }
+    }
+    val drawTracker = remember { OverlayDrawTracker() }
+
     Canvas(modifier = modifier.fillMaxSize()) {
+        val startNs = System.nanoTime()
+        val deltaDrawMs = if (drawTracker.lastDrawNs > 0L) (startNs - drawTracker.lastDrawNs) / 1_000_000.0 else 0.0
+        drawTracker.lastDrawNs = startNs
+        drawTracker.drawCount++
+
         val activeFrame = radarFrameProducer?.invoke() ?: radarFrame
         if (activeFrame == null && !showRangeArcs) return@Canvas
 
@@ -95,13 +128,7 @@ fun ViewfinderRadarOverlay(
             }
 
             // Draw Concentric Range Arcs (10m, 30m, 60m, 120m) and Distance Labels
-            val labelPaint = Paint().apply {
-                color = android.graphics.Color.argb(215, 128, 216, 255)
-                textSize = 8.5f * density
-                isFakeBoldText = true
-                typeface = Typeface.MONOSPACE
-                setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
-            }
+            labelPaint.textSize = 8.5f * density
 
             for (arc in rangeOverlay.arcs) {
                 if (arc.points.size >= 2) {
@@ -141,13 +168,7 @@ fun ViewfinderRadarOverlay(
             android.os.Trace.endSection()
 
             android.os.Trace.beginSection("RS_UI_DrawLollipops")
-            val badgeTextPaint = Paint().apply {
-                color = android.graphics.Color.WHITE
-                textSize = 9f * density
-                isFakeBoldText = true
-                typeface = Typeface.MONOSPACE
-                setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
-            }
+            badgeTextPaint.textSize = 9f * density
 
                 for (lollipop in lollipops) {
                 // Color coding based on ADAS role, tracking, and Doppler velocity:
@@ -323,6 +344,13 @@ fun ViewfinderRadarOverlay(
                 }
             }
             android.os.Trace.endSection()
+        }
+
+        val endNs = System.nanoTime()
+        val durationMs = (endNs - startNs) / 1_000_000.0
+        val seq = activeFrame?.header?.frameNumber ?: -1L
+        if (drawTracker.drawCount % 5L == 0L || deltaDrawMs > 75.0 || (deltaDrawMs < 25.0 && deltaDrawMs > 0.0)) {
+            AppLogger.d("ViewfinderOverlay", "[DRAW_OVERLAY] seq=#$seq | deltaDrawMs=${"%.2f".format(deltaDrawMs)} | durationMs=${"%.2f".format(durationMs)}")
         }
     }
 }

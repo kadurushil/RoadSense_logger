@@ -26,6 +26,7 @@ import com.bajajauto.roadsense.recording.SessionInfo
 import com.bajajauto.roadsense.recording.SessionSyncAuditor
 import com.bajajauto.roadsense.sync.CrossSensorSyncAssociator
 import com.bajajauto.roadsense.sync.LiveSyncTelemetry
+import com.bajajauto.roadsense.sync.RadarDisplayPacer
 import com.bajajauto.roadsense.canedge.discovery.CanedgeDiscovery
 import com.bajajauto.roadsense.canedge.ingestion.CanedgeIngestionManager
 import com.bajajauto.roadsense.canedge.model.CanedgeConnectionState
@@ -43,7 +44,9 @@ import com.bajajauto.roadsense.imu.ImuSamplingBenchmark
 import com.bajajauto.roadsense.imu.ImuSensorCapability
 import com.bajajauto.roadsense.imu.ImuTelemetryState
 import java.io.File
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -183,8 +186,13 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val _latestPacket = MutableStateFlow<RawRadarPacket?>(null)
     val latestPacket: StateFlow<RawRadarPacket?> = _latestPacket.asStateFlow()
 
-    private val _latestFrame = MutableStateFlow<RadarFrame?>(null)
-    val latestFrame: StateFlow<RadarFrame?> = _latestFrame.asStateFlow()
+    val displayPacer = RadarDisplayPacer(
+        frameIntervalMs = 50L,
+        bufferDelayMs = 50L,
+        maxQueueDepth = 6,
+        scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    )
+    val latestFrame: StateFlow<RadarFrame?> = displayPacer.latestFrame
 
     private val _isHexPreviewEnabled = MutableStateFlow(false)
     val isHexPreviewEnabled: StateFlow<Boolean> = _isHexPreviewEnabled.asStateFlow()
@@ -255,6 +263,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         // Restore persistent camera settings
         cameraEngine.setResolution(appPreferences.cameraResolution)
         cameraEngine.setFrameRate(appPreferences.cameraFrameRate)
+
 
         // Load persistent radar-camera calibration
         viewModelScope.launch {
@@ -448,7 +457,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                         latestPointsNum = decoded.points.size
                         latestClustersNum = decoded.clusters.size
                         latestTracksNum = decoded.tracks.size
-                        _latestFrame.value = decoded
+                        displayPacer.enqueueFrame(decoded)
                     }
                 } catch (_: InterruptedException) {
                     break
@@ -734,6 +743,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         rawByteQueue.clear()
         packetAssembler.reset()
         clockDiscipliner.reset()
+        displayPacer.reset()
         connectionManager.scanAndConnect()
     }
 
@@ -743,6 +753,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         rawByteQueue.clear()
         packetAssembler.reset()
         clockDiscipliner.reset()
+        displayPacer.reset()
     }
 
     /**
@@ -754,6 +765,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         connectionManager.setDataBaudRate(baudRate)
         packetAssembler.baudRate = baudRate
         clockDiscipliner.reset()
+        displayPacer.reset()
     }
 
     fun sendConfig(command: String) {
@@ -1088,6 +1100,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
         isRadarWorkerRunning = false
         radarProcessingThread?.interrupt()
+        displayPacer.release()
         imuSessionRecorder.stopRecording()
         imuManager.release()
         canedgeDiscovery.disconnect()
