@@ -15,10 +15,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CenterFocusStrong
 import androidx.compose.material.icons.filled.AllInclusive
@@ -260,78 +259,89 @@ fun CameraDashboardCard(
                 }
             }
 
-            // Right Pane: Scrollable Controls & Telemetry
-            val scrollState = rememberScrollState()
-            Column(
+            // Right Pane: Virtualized Controls & Telemetry
+            LazyColumn(
                 modifier = Modifier
                     .weight(0.45f)
-                    .fillMaxHeight()
-                    .verticalScroll(scrollState),
+                    .fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                CameraPipelineStatusHeader(
-                    viewModel = viewModel,
-                    engineState = engineState,
-                    selectedRes = selectedRes,
-                    selectedFps = selectedFps,
-                    hasCameraPermission = hasCameraPermission,
-                    isPreviewMutedByUser = isPreviewMutedByUser,
-                    onGrant = { permissionLauncher.launch(Manifest.permission.CAMERA) },
-                    onToggleMute = { viewModel.setCameraPreviewMuted(!isPreviewMutedByUser) }
-                )
+                item(key = "pipeline_header") {
+                    CameraPipelineStatusHeader(
+                        viewModel = viewModel,
+                        engineState = engineState,
+                        selectedRes = selectedRes,
+                        selectedFps = selectedFps,
+                        hasCameraPermission = hasCameraPermission,
+                        isPreviewMutedByUser = isPreviewMutedByUser,
+                        onGrant = { permissionLauncher.launch(Manifest.permission.CAMERA) },
+                        onToggleMute = { viewModel.setCameraPreviewMuted(!isPreviewMutedByUser) }
+                    )
+                }
 
-                CameraCalibrationCard(
-                    calibrationParams = calibrationParams,
-                    isRadarOverlayEnabled = isRadarOverlayEnabled,
-                    onSyncImuPitch = { viewModel.syncPitchFromImu() },
-                    onLaunchCalibration = { viewModel.setCalibrationFullScreen(true) },
-                    onToggleRadarOverlay = { viewModel.toggleRadarOverlay() },
-                    onResetDefaults = { viewModel.resetCalibrationToDefaults() }
-                )
+                item(key = "calibration") {
+                    CameraCalibrationCard(
+                        calibrationParams = calibrationParams,
+                        isRadarOverlayEnabled = isRadarOverlayEnabled,
+                        onSyncImuPitch = { viewModel.syncPitchFromImu() },
+                        onLaunchCalibration = { viewModel.setCalibrationFullScreen(true) },
+                        onToggleRadarOverlay = { viewModel.toggleRadarOverlay() },
+                        onResetDefaults = { viewModel.resetCalibrationToDefaults() }
+                    )
+                }
 
-                CameraFocusControlCard(
-                    viewModel = viewModel,
-                    isInfinityLocked = isInfinityLocked,
-                    isAfAeLocked = isAfAeLocked,
-                    roadAeMode = roadAeMode,
-                    onTriggerAf = { viewModel.triggerCameraAf() },
-                    onToggleInfinity = { viewModel.toggleInfinityFocus() },
-                    onToggleRoadAe = { viewModel.toggleRoadAeMode() }
-                )
+                item(key = "focus_control") {
+                    CameraFocusControlCard(
+                        viewModel = viewModel,
+                        isInfinityLocked = isInfinityLocked,
+                        isAfAeLocked = isAfAeLocked,
+                        roadAeMode = roadAeMode,
+                        onTriggerAf = { viewModel.triggerCameraAf() },
+                        onToggleInfinity = { viewModel.toggleInfinityFocus() },
+                        onToggleRoadAe = { viewModel.toggleRoadAeMode() }
+                    )
+                }
 
-                CameraLensSelectorCard(
-                    availableCameras = availableCameras,
-                    selectedCamera = selectedCamera,
-                    isRecording = engineState is CameraEngineState.Recording,
-                    onSelectCamera = { viewModel.selectCamera(it) }
-                )
+                item(key = "lens_selector") {
+                    CameraLensSelectorCard(
+                        availableCameras = availableCameras,
+                        selectedCamera = selectedCamera,
+                        isRecording = engineState is CameraEngineState.Recording,
+                        onSelectCamera = { viewModel.selectCamera(it) }
+                    )
+                }
 
-                ResolutionSelectorCard(
-                    selectedRes = selectedRes,
-                    isRecording = engineState is CameraEngineState.Recording,
-                    onSelectRes = { viewModel.setCameraResolution(it) }
-                )
+                item(key = "res_selector") {
+                    ResolutionSelectorCard(
+                        selectedRes = selectedRes,
+                        isRecording = engineState is CameraEngineState.Recording,
+                        onSelectRes = { viewModel.setCameraResolution(it) }
+                    )
+                }
 
-                FrameRateSelectorCard(
-                    selectedFps = selectedFps,
-                    isRecording = engineState is CameraEngineState.Recording,
-                    onSelectFps = { viewModel.setCameraFrameRate(it) }
-                )
+                item(key = "fps_selector") {
+                    FrameRateSelectorCard(
+                        selectedFps = selectedFps,
+                        isRecording = engineState is CameraEngineState.Recording,
+                        onSelectFps = { viewModel.setCameraFrameRate(it) }
+                    )
+                }
 
-                CameraSyncSpecCard()
+                item(key = "sync_spec") {
+                    CameraSyncSpecCard()
+                }
             }
         }
     } else {
-        // --- PORTRAIT LAYOUT (Vertical Stack) ---
-        val scrollState = rememberScrollState()
-        Column(
+        // --- PORTRAIT LAYOUT (Virtualized Stack) ---
+        LazyColumn(
             modifier = modifier
                 .fillMaxSize()
-                .verticalScroll(scrollState)
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            CameraPipelineStatusHeader(
+            item(key = "pipeline_header") {
+                CameraPipelineStatusHeader(
                 viewModel = viewModel,
                 engineState = engineState,
                 selectedRes = selectedRes,
@@ -340,8 +350,10 @@ fun CameraDashboardCard(
                 isPreviewMutedByUser = isPreviewMutedByUser,
                 onGrant = { permissionLauncher.launch(Manifest.permission.CAMERA) },
                 onToggleMute = { viewModel.setCameraPreviewMuted(!isPreviewMutedByUser) }
-            )
+                )
+            }
 
+            item(key = "viewfinder") {
             // Live Camera Viewfinder Card
             Card(
                 shape = RoundedCornerShape(12.dp),
@@ -477,7 +489,9 @@ fun CameraDashboardCard(
                     }
                 }
             }
+            }
 
+            item(key = "calibration") {
             CameraCalibrationCard(
                 calibrationParams = calibrationParams,
                 isRadarOverlayEnabled = isRadarOverlayEnabled,
@@ -485,8 +499,10 @@ fun CameraDashboardCard(
                 onLaunchCalibration = { viewModel.setCalibrationFullScreen(true) },
                 onToggleRadarOverlay = { viewModel.toggleRadarOverlay() },
                 onResetDefaults = { viewModel.resetCalibrationToDefaults() }
-            )
+                )
+            }
 
+            item(key = "focus_control") {
             CameraFocusControlCard(
                 viewModel = viewModel,
                 isInfinityLocked = isInfinityLocked,
@@ -495,28 +511,37 @@ fun CameraDashboardCard(
                 onTriggerAf = { viewModel.triggerCameraAf() },
                 onToggleInfinity = { viewModel.toggleInfinityFocus() },
                 onToggleRoadAe = { viewModel.toggleRoadAeMode() }
-            )
+                )
+            }
 
+            item(key = "lens_selector") {
             CameraLensSelectorCard(
                 availableCameras = availableCameras,
                 selectedCamera = selectedCamera,
                 isRecording = engineState is CameraEngineState.Recording,
                 onSelectCamera = { viewModel.selectCamera(it) }
-            )
+                )
+            }
 
+            item(key = "res_selector") {
             ResolutionSelectorCard(
                 selectedRes = selectedRes,
                 isRecording = engineState is CameraEngineState.Recording,
                 onSelectRes = { viewModel.setCameraResolution(it) }
-            )
+                )
+            }
 
+            item(key = "fps_selector") {
             FrameRateSelectorCard(
                 selectedFps = selectedFps,
                 isRecording = engineState is CameraEngineState.Recording,
                 onSelectFps = { viewModel.setCameraFrameRate(it) }
-            )
+                )
+            }
 
-            CameraSyncSpecCard()
+            item(key = "sync_spec") {
+                CameraSyncSpecCard()
+            }
         }
     }
 }
@@ -842,7 +867,7 @@ private fun CameraOverlayStatusBadge(
 
     Surface(
         color = if (engineState is CameraEngineState.Recording) MaterialTheme.colorScheme.error else Color.Black.copy(alpha = 0.65f),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(2.dp),
         modifier = modifier
     ) {
         val lockBadge = when {
@@ -898,7 +923,7 @@ fun TapFocusReticleOverlay(
                 .border(
                     width = 2.dp,
                     color = Color(0xFFFFD54F),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(2.dp)
                 ),
             contentAlignment = Alignment.Center
         ) {

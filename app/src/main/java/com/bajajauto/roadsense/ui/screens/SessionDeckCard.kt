@@ -1,8 +1,7 @@
 package com.bajajauto.roadsense.ui.screens
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,7 +33,6 @@ fun SessionDeckCard(
     liveGnssFixes: Long = 0L,
     liveCameraFrames: Long = 0L
 ) {
-    val scrollState = rememberScrollState()
     val clipboardManager = LocalClipboardManager.current
     var copyNotice by remember { mutableStateOf(false) }
 
@@ -43,13 +41,13 @@ fun SessionDeckCard(
     val actualGnssFixes = if (liveGnssFixes > 0L) liveGnssFixes else viewModel.gnssSessionFixes.collectAsState().value
     val actualCameraFrames = if (liveCameraFrames > 0L) liveCameraFrames else viewModel.cameraSessionFrames.collectAsState().value
 
-    Column(
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
             .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        item(key = "status") {
         // Session Status & Control Card
         Card(
             colors = CardDefaults.cardColors(
@@ -163,8 +161,10 @@ fun SessionDeckCard(
             }
         }
 
+        }
         // Session Sync & Sensor Health Scorecard
         if (sessionState is SessionRecordingState.Finished) {
+            item(key = "scorecard") {
             val audit = sessionState.sessionInfo.syncAuditResult ?: viewModel.latestSessionAudit.collectAsState().value
 
             Card(
@@ -195,7 +195,7 @@ fun SessionDeckCard(
                             else -> Pair(Color(0xFF8B949E), Color(0xFF21262D))
                         }
                         Surface(
-                            shape = RoundedCornerShape(4.dp),
+                            shape = RoundedCornerShape(2.dp),
                             color = badgeBg,
                             border = BorderStroke(1.dp, badgeColor)
                         ) {
@@ -213,7 +213,7 @@ fun SessionDeckCard(
                     if (audit != null) {
                         Surface(
                             color = Color(0xFF0D1117),
-                            shape = RoundedCornerShape(6.dp),
+                            shape = RoundedCornerShape(2.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
@@ -307,63 +307,70 @@ fun SessionDeckCard(
                     }
                 }
             }
+            }
         }
 
         // ADB Pull & CLI Tools Quick-Action Card
         if (sessionState is SessionRecordingState.Finished) {
-            val sessionDir = sessionState.sessionInfo.sessionDir.absolutePath
-            val adbCmd = "adb pull \"$sessionDir\" ."
-            val inspectCmd = "python tools/inspect_session.py ${sessionState.sessionInfo.sessionId}"
+            item(key = "adb") {
+                val sessionDir = sessionState.sessionInfo.sessionDir.absolutePath
+                val adbCmd = "adb pull \"$sessionDir\" ."
+                val inspectCmd = "python tools/inspect_session.py ${sessionState.sessionInfo.sessionId}"
 
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                Card(
+                    shape = RoundedCornerShape(2.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(text = "Download & Inspect Commands", style = MaterialTheme.typography.titleSmall)
-
-                    Surface(
-                        color = Color.Black.copy(alpha = 0.85f),
-                        shape = MaterialTheme.shapes.small,
-                        modifier = Modifier.fillMaxWidth()
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Column(modifier = Modifier.padding(10.dp)) {
-                            Text(text = adbCmd, color = Color.Green, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(text = inspectCmd, color = Color.Cyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        Text(text = "Download & Inspect Commands", style = MaterialTheme.typography.titleSmall)
+
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.85f),
+                            shape = RoundedCornerShape(2.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Text(text = adbCmd, color = Color.Green, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(text = inspectCmd, color = Color.Cyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                            }
                         }
-                    }
 
-                    Button(
-                        onClick = {
-                            clipboardManager.setText(AnnotatedString(adbCmd))
-                            copyNotice = true
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (copyNotice) "Copied ADB Command!" else "Copy ADB Pull Command")
+                        Button(
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString(adbCmd))
+                                copyNotice = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (copyNotice) "Copied ADB Command!" else "Copy ADB Pull Command")
+                        }
                     }
                 }
             }
         }
 
-        // Active Stream Architecture Map
-        Card(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
+        item(key = "structure") {
+            // Active Stream Architecture Map
+            Card(
+                shape = RoundedCornerShape(2.dp),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text(text = "Multi-Sensor Storage Structure", style = MaterialTheme.typography.titleSmall)
-                Text(text = "• radar/radar_frames.bin (24-byte ROAD sync header)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                Text(text = "• radar/radar_raw_stream.bin (Uninterrupted UART)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                Text(text = "• gnss/gnss_fixes.csv (WGS84, speed, accuracy, sats)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                Text(text = "• session_timeline.csv (Master microsecond alignment)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                Text(text = "• session_metadata.json (Hardware & run descriptor)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(text = "Multi-Sensor Storage Structure", style = MaterialTheme.typography.titleSmall)
+                    Text(text = "• radar/radar_frames.bin (24-byte ROAD sync header)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                    Text(text = "• radar/radar_raw_stream.bin (Uninterrupted UART)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                    Text(text = "• gnss/gnss_fixes.csv (WGS84, speed, accuracy, sats)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                    Text(text = "• session_timeline.csv (Master microsecond alignment)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                    Text(text = "• session_metadata.json (Hardware & run descriptor)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                }
             }
         }
     }

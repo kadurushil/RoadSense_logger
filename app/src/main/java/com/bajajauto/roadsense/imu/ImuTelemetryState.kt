@@ -1,8 +1,11 @@
 package com.bajajauto.roadsense.imu
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Conflated telemetry snapshot throttled at ~25 Hz for smooth, low-overhead Compose UI rendering.
  */
+@Immutable
 data class ImuTelemetryState(
     val rawAccel: FloatArray = floatArrayOf(0f, 0f, 0f, 0f), // X, Y, Z, Magnitude (m/s²)
     val linearAccel: FloatArray = floatArrayOf(0f, 0f, 0f, 0f), // X, Y, Z, Magnitude without g (m/s²)

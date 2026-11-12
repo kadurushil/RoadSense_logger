@@ -4,9 +4,10 @@ import android.hardware.Sensor
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -56,19 +57,18 @@ fun ImuDashboardCard(
     var selectedBenchmarkSensorType by remember { mutableStateOf(Sensor.TYPE_ACCELEROMETER) }
     var selectedRatePreset by remember { mutableStateOf(ImuRatePreset.RATE_100HZ) }
 
-    val scrollState = rememberScrollState()
 
-    Column(
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        item(key = "subtab_bar") {
         // --- 1. Master Sub-Tab Bar ---
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(2.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
@@ -82,7 +82,7 @@ fun ImuDashboardCard(
                     Surface(
                         selected = isSelected,
                         onClick = { selectedSubTab = tab },
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(2.dp),
                         color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
                         contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier
@@ -100,11 +100,12 @@ fun ImuDashboardCard(
                 }
             }
         }
+        }
 
         // --- SUB-TAB CONTENT ---
         when (selectedSubTab) {
             ImuSubTab.AUDIT -> {
-                SensorAuditContent(
+                sensorAuditItems(
                     capabilities = capabilities,
                     selectedCategory = selectedCategoryFilter,
                     onSelectCategory = { selectedCategoryFilter = it },
@@ -112,7 +113,7 @@ fun ImuDashboardCard(
                 )
             }
             ImuSubTab.PROFILER -> {
-                RateProfilerContent(
+                rateProfilerItems(
                     capabilities = capabilities,
                     benchmarkStats = benchmarkStats,
                     selectedSensorType = selectedBenchmarkSensorType,
@@ -124,7 +125,7 @@ fun ImuDashboardCard(
                 )
             }
             ImuSubTab.TELEMETRY -> {
-                LiveTelemetryContent(
+                liveTelemetryItems(
                     telemetry = telemetry,
                     imuHz = imuHz,
                     onStartMonitoring = { viewModel.startImuMonitoring() },
@@ -139,60 +140,62 @@ fun ImuDashboardCard(
 // SUB-TAB 1: SENSOR AUDIT
 // ==========================================
 
-@Composable
-private fun SensorAuditContent(
+private fun LazyListScope.sensorAuditItems(
     capabilities: List<ImuSensorCapability>,
     selectedCategory: SensorCategory?,
     onSelectCategory: (SensorCategory?) -> Unit,
     onRefresh: () -> Unit
 ) {
-    // Header & Summary
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    item(key = "audit_header") {
+        Card(
+            shape = RoundedCornerShape(2.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Column {
-                Text(
-                    text = "Hardware Sensor Inventory",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "${capabilities.size} sensors discovered via Android HAL",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            IconButton(onClick = onRefresh) {
-                Icon(Icons.Default.Refresh, contentDescription = "Refresh Inventory")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Hardware Sensor Inventory",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "${capabilities.size} sensors discovered via Android HAL",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                IconButton(onClick = onRefresh) {
+                    Icon(Icons.Default.Refresh, contentDescription = "Refresh Inventory")
+                }
             }
         }
     }
 
-    // Category Filter Chips
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        FilterChip(
-            selected = selectedCategory == null,
-            onClick = { onSelectCategory(null) },
-            label = { Text("All (${capabilities.size})", fontSize = 11.sp) }
-        )
-        SensorCategory.values().forEach { cat ->
-            val count = capabilities.count { it.category == cat }
-            if (count > 0) {
-                FilterChip(
-                    selected = selectedCategory == cat,
-                    onClick = { onSelectCategory(if (selectedCategory == cat) null else cat) },
-                    label = { Text("${cat.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }} ($count)", fontSize = 11.sp) }
-                )
+    item(key = "audit_chips") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            FilterChip(
+                selected = selectedCategory == null,
+                onClick = { onSelectCategory(null) },
+                label = { Text("All (${capabilities.size})", fontSize = 11.sp) }
+            )
+            SensorCategory.values().forEach { cat ->
+                val count = capabilities.count { it.category == cat }
+                if (count > 0) {
+                    FilterChip(
+                        selected = selectedCategory == cat,
+                        onClick = { onSelectCategory(if (selectedCategory == cat) null else cat) },
+                        label = { Text("${cat.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }} ($count)", fontSize = 11.sp) }
+                    )
+                }
             }
         }
     }
@@ -203,7 +206,7 @@ private fun SensorAuditContent(
         capabilities
     }
 
-    filtered.forEach { cap ->
+    items(filtered, key = { it.sensorType }) { cap ->
         SensorCapabilityCard(cap = cap)
     }
 }
@@ -212,7 +215,7 @@ private fun SensorAuditContent(
 private fun SensorCapabilityCard(cap: ImuSensorCapability) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(2.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -240,7 +243,7 @@ private fun SensorCapabilityCard(cap: ImuSensorCapability) {
                 }
                 Surface(
                     color = if (cap.maxRateHz >= 100f) Color(0xFF1B5E20) else MaterialTheme.colorScheme.secondaryContainer,
-                    shape = RoundedCornerShape(4.dp)
+                    shape = RoundedCornerShape(2.dp)
                 ) {
                     Text(
                         text = cap.rateRangeFormatted,
@@ -280,8 +283,7 @@ private fun DetailColumn(label: String, value: String) {
 // SUB-TAB 2: RATE PROFILER & JITTER ANALYZER
 // ==========================================
 
-@Composable
-private fun RateProfilerContent(
+private fun LazyListScope.rateProfilerItems(
     capabilities: List<ImuSensorCapability>,
     benchmarkStats: ImuSamplingBenchmark,
     selectedSensorType: Int,
@@ -291,6 +293,7 @@ private fun RateProfilerContent(
     onStartBenchmark: () -> Unit,
     onStopBenchmark: () -> Unit
 ) {
+    item(key = "profiler_target") {
     // 1. Benchmark Target Selector
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -355,7 +358,7 @@ private fun RateProfilerContent(
                     Surface(
                         selected = isSelected,
                         onClick = { onSelectPreset(preset) },
-                        shape = RoundedCornerShape(6.dp),
+                        shape = RoundedCornerShape(2.dp),
                         color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                         contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f).height(32.dp)
@@ -395,6 +398,8 @@ private fun RateProfilerContent(
         }
     }
 
+    }
+    item(key = "profiler_metrics") {
     // 2. Real-Time Benchmark Metrics & Jitter KPI Cards
     Card(
         colors = CardDefaults.cardColors(
@@ -419,7 +424,7 @@ private fun RateProfilerContent(
                     fontWeight = FontWeight.Bold
                 )
                 if (benchmarkStats.isRunning) {
-                    Surface(color = Color(0xFF00E676), shape = RoundedCornerShape(4.dp)) {
+                    Surface(color = Color(0xFF00E676), shape = RoundedCornerShape(2.dp)) {
                         Text(
                             text = "● RUNNING (%.1fs)".format(benchmarkStats.durationSec),
                             color = Color.Black,
@@ -476,7 +481,7 @@ private fun RateProfilerContent(
             // HAL Cap Explanation Pill
             Surface(
                 color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(4.dp)
+                shape = RoundedCornerShape(2.dp)
             ) {
                 Text(
                     text = "Hardware Observation: Samsung Exynos sensor HAL enforces an upper rate cap of 100.00 Hz (minDelay = 10,000 µs) on the STMicroelectronics LSM6DSL chip.",
@@ -487,20 +492,20 @@ private fun RateProfilerContent(
             }
         }
     }
+    }
 }
 
 // ==========================================
 // SUB-TAB 3: LIVE TELEMETRY VISUALIZER
 // ==========================================
 
-@Composable
-private fun LiveTelemetryContent(
+private fun LazyListScope.liveTelemetryItems(
     telemetry: ImuTelemetryState,
     imuHz: Float,
     onStartMonitoring: () -> Unit,
     onStopMonitoring: () -> Unit
 ) {
-    // 1. Monitor Control Card
+    item(key = "telemetry_controls") {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier.fillMaxWidth()
@@ -534,10 +539,12 @@ private fun LiveTelemetryContent(
         }
     }
 
-    // 2. 3D Vehicle Attitude & Level Ground Visualizer
+    }
+    item(key = "telemetry_attitude") {
     PhoneOrientation3DVisualizer(telemetry = telemetry)
+    }
 
-    // 3. Accelerometer Comparison (Raw vs Linear without g)
+    item(key = "telemetry_accel") {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier.fillMaxWidth()
@@ -592,7 +599,8 @@ private fun LiveTelemetryContent(
         }
     }
 
-    // 3. Gyroscope Angular Velocity & Vehicle Attitude
+    }
+    item(key = "telemetry_gyro") {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         modifier = Modifier.fillMaxWidth()
@@ -628,6 +636,7 @@ private fun LiveTelemetryContent(
                 AttitudeGauge(label = "YAW (Relative)", angleDeg = telemetry.yawDeg)
             }
         }
+    }
     }
 }
 

@@ -1,5 +1,6 @@
 package com.bajajauto.roadsense.imu
 
+import androidx.compose.runtime.Immutable
 import android.hardware.Sensor
 import android.os.Build
 
@@ -16,6 +17,7 @@ enum class SensorCategory(val displayName: String) {
 /**
  * Hardware specifications and capabilities of a discovered device sensor.
  */
+@Immutable
 data class ImuSensorCapability(
     val sensorType: Int,
     val name: String,

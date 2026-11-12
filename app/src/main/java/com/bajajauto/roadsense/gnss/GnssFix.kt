@@ -1,5 +1,6 @@
 package com.bajajauto.roadsense.gnss
 
+import androidx.compose.runtime.Immutable
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -19,6 +20,7 @@ import java.util.Locale
  * @param satellitesInView Number of satellites in view
  * @param satellitesUsed Number of satellites used in fix calculation
  */
+@Immutable
 data class GnssFix(
     val latitude: Double,
     val longitude: Double,

@@ -1,8 +1,11 @@
 package com.bajajauto.roadsense.sync
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Real-time synchronization telemetry exposed to UI and diagnostic monitors.
  */
+@Immutable
 data class LiveSyncTelemetry(
     val isCameraActive: Boolean = false,
     val isImuActive: Boolean = false,

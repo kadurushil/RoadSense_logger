@@ -1,5 +1,10 @@
 # Plan: In-Depth UI Performance Audit & Ground-Up High-Performance Redesign
 
+> [!WARNING]
+> **Execution Outcome — Checkpointed (Unsuccessful On-Device):**  
+> Phases 1–4 below (`@Immutable` + `StableList`, `LazyColumn` virtualization across all dashboard tabs, `RoundedCornerShape(2.dp)` flattening, plus APK output parity and detached `SurfaceTexture(false)` camera pre-warming) were implemented and verified via `./gradlew testDebugUnitTest` and `./gradlew assembleDebug`.  
+> However, user testing after syncing and installing from Android Studio confirmed **no improvement in UI scrolling/navigation lag when camera preview is inactive**. See [`walkthrough_ui_optimization_and_virtualization.md`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/intel/Implementations/walkthrough_ui_optimization_and_virtualization.md) for the full checkpoint summary prior to pivoting to a drastically new UI architecture.
+
 ## 1. Goal Description
 The primary functional purpose of RoadSense in-flight is high-fidelity sensor logging and the Camera Fullscreen Viewfinder with perspective radar lollipops. All dashboard cards, status indicators, and menus serve visual and diagnostic purposes and must not compromise system responsiveness.
 
@@ -64,72 +69,33 @@ flowchart TD
 
 ---
 
-## 4. Diagnostic Tracing Runbook (Perfetto & gfxinfo)
+## 4. Empirical Baseline Diagnostics (Live Perfetto & gfxinfo Trace)
 
-Before and after implementing the optimization, we will capture deterministic traces via ADB:
+A deterministic 6-second interaction trace was captured on device `RZ8T41HW0FM` (Samsung Galaxy M32, MediaTek Helio G80) running the fresh build without camera preview:
 
-### Step 1: Capture Frame Pipeline Stats via `dumpsys gfxinfo`
-Reset counters and measure dropped VSYNC frames during active scrolling:
-```powershell
-# Reset stats
-& $env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe shell dumpsys gfxinfo com.bajajauto.roadsense reset
-
-# [User scrolls through tabs and cards for 10 seconds]
-
-# Dump framestats
-& $env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe shell dumpsys gfxinfo com.bajajauto.roadsense framestats > logs/baseline_gfxinfo.txt
+### 4.1 Quantitative `dumpsys gfxinfo` Baseline
+```text
+Total frames rendered: 25
+Janky frames: 25 (100.00%)
+50th percentile frame time: 85.0 ms  (Target: 16.67 ms at 60 Hz)
+90th percentile frame time: 89.0 ms
+Number Slow UI thread: 25 (100.00% of frames bottlenecked on Main Thread)
+Number Slow bitmap uploads: 0
+Number Slow issue draw commands: 20
+50th GPU percentile: 8.0 ms (GPU is fast and completely starved by CPU)
 ```
 
-### Step 2: Capture Kernel & Main Thread Perfetto System Trace
-Records exact thread scheduling, CPU frequencies, Choreographer traversals, and Skia draw stalls:
-```powershell
-& $env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe shell perfetto `
-  -c - --txt -o /data/misc/perfetto-traces/ui_scroll.perfetto-trace <<EOF
-buffers: {
-    size_kb: 65536
-    fill_policy: RING_BUFFER
-}
-data_sources: {
-    config {
-        name: "linux.process_stats"
-    }
-}
-data_sources: {
-    config {
-        name: "linux.sys_stats"
-    }
-}
-data_sources: {
-    config {
-        name: "linux.ftrace"
-        ftrace_config {
-            ftrace_events: "sched/sched_switch"
-            ftrace_events: "power/cpu_frequency"
-            ftrace_events: "power/cpu_idle"
-            atrace_categories: "am"
-            atrace_categories: "wm"
-            atrace_categories: "gfx"
-            atrace_categories: "view"
-            atrace_categories: "dalvik"
-            atrace_apps: "com.bajajauto.roadsense"
-        }
-    }
-}
-duration_ms: 10000
-EOF
+> [!CAUTION]
+> **Definitive Diagnosis:** **100.00% of rendered frames were janky**, with a median latency of **$85\text{ ms}$**—more than **$5\times$ the $16.67\text{ ms}$ frame deadline**. 
+> Meanwhile, the GPU is taking only **$8\text{ ms}$**. The bottleneck is **100% on the CPU Main Thread** spending dozens of milliseconds executing unbounded Compose layout passes on every touch gesture.
 
-& $env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe pull /data/misc/perfetto-traces/ui_scroll.perfetto-trace logs/ui_scroll.perfetto-trace
-```
-
-### Step 3: Compose Compiler Stability Report
-Enable Compose compiler metrics in `app/build.gradle.kts`:
-```kotlin
-composeCompiler {
-    metricsDestination = layout.buildDirectory.dir("compose_metrics")
-    reportsDestination = layout.buildDirectory.dir("compose_reports")
-}
-```
-This produces `app-classes.txt` and `app-composables.txt`, listing every single class marked `unstable` and every function marked `unskippable`.
+### 4.2 Perfetto Trace Analysis (`logs/baseline_scroll.perfetto-trace`)
+Querying the kernel and user-space slices from the 3.9 MB trace via the Perfetto TraceProcessor engine revealed:
+- **`input` event handling:** Consumed **$440.07\text{ ms}$** of Main Thread CPU time across 112 gesture dispatches.
+- **`animation` & fling:** Consumed **$226.57\text{ ms}$** of Main Thread time.
+- **`Choreographer#doFrame`:** Individual frames stalled the Main Thread for up to **$63.86\text{ ms}$**.
+- **MediaTek CPU Clocks:** Running between $774\text{ MHz}$ and $1324\text{ MHz}$ on the Cortex-A55 LITTLE cluster.
+- **Pre-warming Post-Mortem:** In logcat, `CameraEngine.prewarmCamera()` opened the camera device, but MediaTek's `powerd` kernel daemon timed out after 1.0 second (`libPowerHal: TIMER_MSG_PERF_LOCK_TIMEOUT hdl:3334`) and powered down the big cores because **no active repeating capture session was streaming frames to a preview surface**. This definitively confirms that relying on a camera performance lock is unviable. The UI must be optimized to run at a solid 60 FPS on low-frequency CPU cores.
 
 ---
 
@@ -225,4 +191,3 @@ Convert all card columns to virtualized `LazyColumn` with stable item keys:
 2. **Jank Count:** Confirm that `Janky frames` drops from $>50\%$ down to $<2\%$.
 3. **Visual Responsiveness:** Verify that menu scrolling and card navigation feel instant and fluid at 60 FPS immediately upon launching the app.
 4. **Recording Parity:** Confirm that fullscreen camera preview with perspective lollipops and 100 Hz IMU/CANedge disk recording run without frame drops.
-

@@ -119,7 +119,7 @@ fun RoadSenseCockpitScreen(
     var showSyncDialog by remember { mutableStateOf(false) }
 
     val coroutineScope = rememberCoroutineScope()
-    val tabs = CockpitTab.values()
+    val tabs = remember { CockpitTab.values() }
     val pagerState = rememberPagerState(initialPage = 0) { tabs.size }
 
     val isLandscape = androidx.compose.ui.platform.LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE

@@ -4,9 +4,11 @@ import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,7 +53,7 @@ fun RadarDashboardCard(
     val configuration = LocalConfiguration.current
     val effectiveConnectionState = connectionState ?: viewModel.connectionState.collectAsState().value
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val scrollState = rememberScrollState()
+    // Virtualized via LazyColumn (0 offscreen allocations)
 
     val recordingState by viewModel.sessionRecordingState.collectAsState()
     val isRecording = recordingState is SessionRecordingState.Recording
@@ -89,39 +91,43 @@ fun RadarDashboardCard(
                 isLandscape = true
             )
 
-            // Right Pane (45% width): Scrollable Telemetry, Controls
-            Column(
+            // Right Pane (45% width): Virtualized Telemetry, Controls
+            LazyColumn(
                 modifier = Modifier
                     .weight(0.45f)
-                    .fillMaxHeight()
-                    .verticalScroll(scrollState),
+                    .fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                RadarHardwareStatusCard(effectiveConnectionState, displayFrame, isRecording)
-                RadarConnectionButtons(viewModel, effectiveConnectionState)
-                // RadarTargetHudCard permanently removed to eliminate Main-thread layout stalls (analyzed in Foxglove)
-                // RadarHexPreviewCard hidden from view per user request (driver logic preserved)
+                item(key = "status") {
+                    RadarHardwareStatusCard(effectiveConnectionState, displayFrame, isRecording)
+                }
+                item(key = "controls") {
+                    RadarConnectionButtons(viewModel, effectiveConnectionState)
+                }
             }
         }
     } else {
-        // --- PORTRAIT MODE: Unified Vertical Deck ---
-        Column(
+        // --- PORTRAIT MODE: Unified Virtualized Deck ---
+        LazyColumn(
             modifier = modifier
                 .fillMaxSize()
-                .verticalScroll(scrollState)
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            RadarHardwareStatusCard(effectiveConnectionState, displayFrame, isRecording)
-            RadarBevPlot(
-                viewModel = viewModel,
-                frameProducer = { radarFrameState.value },
-                modifier = Modifier.fillMaxWidth(),
-                isLandscape = false
-            )
-            RadarConnectionButtons(viewModel, effectiveConnectionState)
-            // RadarTargetHudCard permanently removed to eliminate Main-thread layout stalls (analyzed in Foxglove)
-            // RadarHexPreviewCard hidden from view per user request (driver logic preserved)
+            item(key = "status") {
+                RadarHardwareStatusCard(effectiveConnectionState, displayFrame, isRecording)
+            }
+            item(key = "bev") {
+                RadarBevPlot(
+                    viewModel = viewModel,
+                    frameProducer = { radarFrameState.value },
+                    modifier = Modifier.fillMaxWidth(),
+                    isLandscape = false
+                )
+            }
+            item(key = "controls") {
+                RadarConnectionButtons(viewModel, effectiveConnectionState)
+            }
         }
     }
 }
@@ -163,7 +169,7 @@ private fun RadarHardwareStatusCard(
                         is RadarConnectionState.Error -> Color(0xFFFF5252)
                         else -> Color(0xFF78909C)
                     },
-                    shape = RoundedCornerShape(4.dp)
+                    shape = RoundedCornerShape(2.dp)
                 ) {
                     Text(
                         text = when (connectionState) {
@@ -204,7 +210,7 @@ private fun RadarHardwareStatusCard(
 
             Surface(
                 color = Color(0xFF11141C),
-                shape = RoundedCornerShape(6.dp),
+                shape = RoundedCornerShape(2.dp),
                 border = BorderStroke(1.dp, Color(0xFF263238)),
                 modifier = Modifier.fillMaxWidth()
             ) {

@@ -3,9 +3,11 @@ package com.bajajauto.roadsense.ui.screens
 import android.content.res.Configuration
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -70,16 +72,105 @@ fun CanedgeDashboardCard(
                 .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Left Pane: Hardware Status, Control Actions, Diagnostics
-            Column(
+            // Left Pane: Hardware Status, Control Actions, Diagnostics (Virtualized)
+            LazyColumn(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight()
-                    .verticalScroll(rememberScrollState()),
+                    .fillMaxHeight(),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                CanedgeConnectionStatusCard(connectionState = connectionState)
+                item(key = "status") {
+                    CanedgeConnectionStatusCard(connectionState = connectionState)
+                }
+                item(key = "controls") {
+                    CanedgeControlActions(
+                        connectionState = connectionState,
+                        syncStats = syncStats,
+                        onDiscoverDisconnect = {
+                            if (connectionState is CanedgeConnectionState.Connected) {
+                                viewModel.disconnectCanedge()
+                            } else {
+                                viewModel.startCanedgeDiscovery()
+                            }
+                        },
+                        onSync = { viewModel.triggerCanedgeSync() },
+                        onOpenExplorer = {
+                            viewModel.canedgeIngestionManager.refreshLocalFileList()
+                            showExplorerModal = true
+                        },
+                        onPrunePool = { viewModel.canedgeIngestionManager.pruneStagingPool() }
+                    )
+                }
+                item(key = "diagnostics") {
+                    CanedgeDiagnosticsCard(
+                        connectionState = connectionState,
+                        syncStats = syncStats
+                    )
+                }
+            }
 
+            // Right Pane: Live Transfer Monitor Console & Three-Metric Cockpit Cards (Virtualized)
+            LazyColumn(
+                modifier = Modifier
+                    .weight(1.15f)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                item(key = "transfer") {
+                    CanedgeLiveTransferCard(stats = syncStats)
+                }
+                item(key = "metrics") {
+                    CanedgeMetricsRow(
+                        syncStats = syncStats,
+                        onCardClick = {
+                            viewModel.canedgeIngestionManager.refreshLocalFileList()
+                            showExplorerModal = true
+                        }
+                    )
+                }
+                if (syncStats.lastError != null) {
+                    item(key = "error") {
+                        Card(
+                            shape = RoundedCornerShape(2.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "Notice: ${syncStats.lastError}",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // Portrait Single-Column Layout (Virtualized)
+        LazyColumn(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item(key = "status") {
+                CanedgeConnectionStatusCard(connectionState = connectionState)
+            }
+            item(key = "metrics") {
+                CanedgeMetricsRow(
+                    syncStats = syncStats,
+                    onCardClick = {
+                        viewModel.canedgeIngestionManager.refreshLocalFileList()
+                        showExplorerModal = true
+                    }
+                )
+            }
+            item(key = "transfer") {
+                CanedgeLiveTransferCard(stats = syncStats)
+            }
+            item(key = "controls") {
                 CanedgeControlActions(
                     connectionState = connectionState,
                     syncStats = syncStats,
@@ -97,90 +188,13 @@ fun CanedgeDashboardCard(
                     },
                     onPrunePool = { viewModel.canedgeIngestionManager.pruneStagingPool() }
                 )
-
+            }
+            item(key = "diagnostics") {
                 CanedgeDiagnosticsCard(
                     connectionState = connectionState,
                     syncStats = syncStats
                 )
             }
-
-            // Right Pane: Live Transfer Monitor Console & Three-Metric Cockpit Cards
-            Column(
-                modifier = Modifier
-                    .weight(1.15f)
-                    .fillMaxHeight()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                CanedgeLiveTransferCard(stats = syncStats)
-
-                CanedgeMetricsRow(
-                    syncStats = syncStats,
-                    onCardClick = {
-                        viewModel.canedgeIngestionManager.refreshLocalFileList()
-                        showExplorerModal = true
-                    }
-                )
-
-                if (syncStats.lastError != null) {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = "Notice: ${syncStats.lastError}",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(10.dp)
-                        )
-                    }
-                }
-            }
-        }
-    } else {
-        // Portrait Single-Column Layout
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            CanedgeConnectionStatusCard(connectionState = connectionState)
-
-            CanedgeMetricsRow(
-                syncStats = syncStats,
-                onCardClick = {
-                    viewModel.canedgeIngestionManager.refreshLocalFileList()
-                    showExplorerModal = true
-                }
-            )
-
-            CanedgeLiveTransferCard(stats = syncStats)
-
-            CanedgeControlActions(
-                connectionState = connectionState,
-                syncStats = syncStats,
-                onDiscoverDisconnect = {
-                    if (connectionState is CanedgeConnectionState.Connected) {
-                        viewModel.disconnectCanedge()
-                    } else {
-                        viewModel.startCanedgeDiscovery()
-                    }
-                },
-                onSync = { viewModel.triggerCanedgeSync() },
-                onOpenExplorer = {
-                    viewModel.canedgeIngestionManager.refreshLocalFileList()
-                    showExplorerModal = true
-                },
-                onPrunePool = { viewModel.canedgeIngestionManager.pruneStagingPool() }
-            )
-
-            CanedgeDiagnosticsCard(
-                connectionState = connectionState,
-                syncStats = syncStats
-            )
         }
     }
 
@@ -826,7 +840,7 @@ private fun CanedgeUnifiedFileExplorerDialog(
             modifier = Modifier
                 .fillMaxWidth(if (isLandscape) 0.94f else 0.96f)
                 .fillMaxHeight(if (isLandscape) 0.94f else 0.90f),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(4.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp
         ) {

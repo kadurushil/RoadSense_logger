@@ -1,10 +1,12 @@
 package com.bajajauto.roadsense.canedge.model
 
+import androidx.compose.runtime.Immutable
 import java.io.File
 
 /**
  * Represents a file or directory on the CANedge2 SD card storage.
  */
+@Immutable
 data class CanedgeFile(
     val name: String,
     val path: String,
@@ -32,6 +34,7 @@ enum class CanedgeFileStatus {
 /**
  * Unified representation of a CANedge file across remote SD, local pool, and session.
  */
+@Immutable
 data class CanedgeUnifiedFileItem(
     val file: CanedgeFile,
     val folderName: String,
@@ -45,6 +48,7 @@ data class CanedgeUnifiedFileItem(
 /**
  * High-level statistics displayed on the CANedge UI card.
  */
+@Immutable
 data class CanedgeSyncStats(
     val targetScopeFiles: Int = 0,            // Total planned files in 2-folder scope
     val poolSyncedFiles: Int = 0,             // Total files synced in local pool within scope

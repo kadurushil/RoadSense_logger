@@ -1,5 +1,7 @@
 package com.bajajauto.roadsense.models
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Represents a single 3D point detection from the radar point cloud (TLV Type 1).
  *
@@ -10,6 +12,7 @@ package com.bajajauto.roadsense.models
  * - doppler: Radial velocity in meters/second (negative = approaching, positive = receding)
  * - snrDb: Signal-to-Noise Ratio in dB (derived from TI peakVal)
  */
+@Immutable
 data class RadarPoint(
     val x: Float,
     val y: Float,
@@ -41,6 +44,7 @@ data class RadarPoint(
  * @param ttcCategory Time-to-Collision severity category (0: Safe, 1: Warning, 2: Critical)
  * @param confidencePct Estimation confidence percentage (0 to 100%)
  */
+@Immutable
 data class RadarTrack(
     val tid: Int,
     val x: Float,
@@ -76,6 +80,7 @@ data class RadarTrack(
  * @param isStationary Ground stationary in-corridor flag
  * @param isDeadZone Blind-spot / near-field bumper deadzone flag
  */
+@Immutable
 data class RadarCluster(
     val x: Float,
     val y: Float,
@@ -94,6 +99,7 @@ data class RadarCluster(
 /**
  * Real-time tracker runtime diagnostics emitted by TI Custom MRR firmware (TLV Type 4).
  */
+@Immutable
 data class RadarTrackerDiagnostics(
     val numInliers: Int,
     val ransacSuccessful: Boolean,
@@ -115,6 +121,7 @@ data class RadarTrackerDiagnostics(
 /**
  * Vehicle CAN bus and powertrain telemetry ingested by radar MCU (TLV Type 5).
  */
+@Immutable
 data class RadarCanInputs(
     val speedKmph: Float,
     val yawRateRadps: Float,
@@ -138,6 +145,7 @@ data class RadarCanInputs(
 /**
  * Forward Collision Warning alert state decoded from radar CAN output (TLV Type 6, frame 0x320).
  */
+@Immutable
 data class RadarFcwAlert(
     val stage: Int, // 0: None, 1: Visual, 2: Audible
     val trackId: Int,
@@ -151,6 +159,7 @@ data class RadarFcwAlert(
 /**
  * Blind Spot Detection alert state decoded from radar CAN output (TLV Type 6, frame 0x328 / 0x321).
  */
+@Immutable
 data class RadarBsdAlert(
     val leftActive: Boolean,
     val rightActive: Boolean,
@@ -165,6 +174,7 @@ data class RadarBsdAlert(
  * State Machine (0: IDLE, 1: FCW_ALERT, 2: ACC_GOVERN, 3: AEB_OVERRIDE), replacing the legacy
  * reference acceleration [aRefMps2].
  */
+@Immutable
 data class RadarAccTarget(
     val poiId: Int,
     val targetY: Float,
@@ -190,6 +200,7 @@ data class RadarAccTarget(
  * Subsystem version telemetry broadcast by TI mmWave radar (TLV Type 7, 12 bytes).
  * Encoded as 3x uint32 (Major << 24 | Minor << 16 | Patch << 8).
  */
+@Immutable
 data class RadarVersionInfo(
     val dssVersion: String,
     val mssVersion: String,
@@ -202,6 +213,7 @@ data class RadarVersionInfo(
 /**
  * Complete safety ADAS CAN output package (TLV Type 6).
  */
+@Immutable
 data class RadarCanOutputs(
     val fcw: RadarFcwAlert,
     val bsd: RadarBsdAlert,
@@ -215,6 +227,7 @@ data class RadarCanOutputs(
  * Represents a fully decoded radar frame combining the frame header, point cloud,
  * hardware tracks, clusters, diagnostics, and CAN telemetry, along with the raw packet.
  */
+@Immutable
 data class RadarFrame(
     val header: RadarHeader,
     val points: List<RadarPoint> = emptyList(),

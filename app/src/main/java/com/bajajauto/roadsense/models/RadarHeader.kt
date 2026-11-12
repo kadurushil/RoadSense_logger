@@ -1,8 +1,11 @@
 package com.bajajauto.roadsense.models
 
+import androidx.compose.runtime.Immutable
+
 /**
  * Represents the 40-byte TI AWR1843 radar frame header.
  */
+@Immutable
 data class RadarHeader(
     val version: Long,
     val totalPacketLen: Int,
@@ -25,6 +28,7 @@ data class RadarHeader(
 /**
  * Holds an assembled raw radar packet containing the header, raw payload bytes, and host timestamps.
  */
+@Immutable
 data class RawRadarPacket(
     val header: RadarHeader,
     val payload: ByteArray,

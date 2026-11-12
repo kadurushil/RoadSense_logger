@@ -1,5 +1,6 @@
 package com.bajajauto.roadsense.fusion.model
 
+import androidx.compose.runtime.Immutable
 import org.json.JSONObject
 
 /**
@@ -9,6 +10,7 @@ import org.json.JSONObject
  *
  * All radar detections are 2D planar (Z_radar = 0).
  */
+@Immutable
 data class CalibrationParameters(
     val setbackM: Float = 0.30f,          // Longitudinal setback (ΔY) from radar to phone lens (30 cm)
     val heightOffsetM: Float = 0.50f,     // Elevation difference (ΔZ = PhoneHeight - RadarHeight) (50 cm)

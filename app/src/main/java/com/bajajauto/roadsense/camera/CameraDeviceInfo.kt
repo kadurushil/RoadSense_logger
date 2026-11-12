@@ -1,10 +1,13 @@
 package com.bajajauto.roadsense.camera
 
+import androidx.compose.runtime.Immutable
+
 import android.hardware.camera2.CameraCharacteristics
 
 /**
  * Metadata describing an available physical or logical camera device on the phone.
  */
+@Immutable
 data class CameraDeviceInfo(
     val id: String,
     val displayName: String,

@@ -174,6 +174,19 @@ class CameraEngine(private val context: Context) {
         if (!hasCameraPermission()) return
         AppLogger.i(TAG, "Pre-warming CameraDevice on app startup to acquire hardware performance lock")
         isPrewarming = true
+
+        // Allocate a persistent SurfaceTexture detached from GL context to back the repeating capture session
+        // This ensures the Camera HAL actively streams frames, maintaining the OEM/MediaTek hardware performance lock.
+        if (previewSurfaceTexture == null) {
+            val res = _selectedResolution.value
+            val st = SurfaceTexture(false).apply {
+                setDefaultBufferSize(res.width, res.height)
+            }
+            previewSurfaceTexture = st
+            previewSurface?.release()
+            previewSurface = Surface(st)
+        }
+
         openCamera()
     }
 

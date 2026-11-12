@@ -1,5 +1,6 @@
 package com.bajajauto.roadsense.camera
 
+import androidx.compose.runtime.Immutable
 import android.util.Size
 
 /**
@@ -23,18 +24,24 @@ enum class CameraFrameRate(val label: String, val fps: Int) {
 /**
  * Lifecycle and recording states of the camera engine.
  */
+@Immutable
 sealed class CameraEngineState {
+    @Immutable
     object Closed : CameraEngineState()
+    @Immutable
     object Opening : CameraEngineState()
+    @Immutable
     data class Previewing(
         val resolution: CameraResolution,
         val fps: Int
     ) : CameraEngineState()
+    @Immutable
     data class Recording(
         val resolution: CameraResolution,
         val fps: Int,
         val framesRecorded: Long,
         val durationMs: Long
     ) : CameraEngineState()
+    @Immutable
     data class Error(val message: String) : CameraEngineState()
 }

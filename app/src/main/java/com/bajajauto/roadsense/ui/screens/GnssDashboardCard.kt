@@ -4,8 +4,8 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,7 +37,6 @@ fun GnssDashboardCard(
     val activeLatestFix = latestFix ?: viewModel.latestGnssFix.collectAsState().value
     val activeTotalFixes = totalFixes ?: viewModel.totalGnssFixes.collectAsState().value
 
-    val scrollState = rememberScrollState()
     var hasLocationPermission by remember { mutableStateOf(viewModel.hasLocationPermission()) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -50,15 +49,16 @@ fun GnssDashboardCard(
         }
     }
 
-    Column(
+    LazyColumn(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(scrollState)
             .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        item(key = "switch") {
         // Master GNSS Switch Card
         Card(
+            shape = RoundedCornerShape(2.dp),
             colors = CardDefaults.cardColors(
                 containerColor = when (activeGnssState) {
                     is GnssState.Active -> MaterialTheme.colorScheme.primaryContainer
@@ -115,8 +115,10 @@ fun GnssDashboardCard(
             }
         }
 
-        // Digital Speedometer Card
+        }
+        item(key = "speedometer") {
         Card(
+            shape = RoundedCornerShape(2.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -186,8 +188,10 @@ fun GnssDashboardCard(
             }
         }
 
-        // Satellite Constellation & Signal Health
+        }
+        item(key = "constellation") {
         Card(
+            shape = RoundedCornerShape(2.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
@@ -226,8 +230,10 @@ fun GnssDashboardCard(
             }
         }
 
-        // WGS84 Geodetic Position Details
+        }
+        item(key = "wgs84") {
         Card(
+            shape = RoundedCornerShape(2.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -273,6 +279,7 @@ fun GnssDashboardCard(
                     )
                 }
             }
+        }
         }
     }
 }
