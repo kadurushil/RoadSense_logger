@@ -6,8 +6,10 @@ import android.hardware.camera2.CameraCharacteristics
 import android.hardware.camera2.CameraManager
 import android.util.SizeF
 import android.view.Surface
+import androidx.compose.runtime.Immutable
 import com.bajajauto.roadsense.camera.CameraViewportTransform
 import com.bajajauto.roadsense.logging.AppLogger
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.atan
 import kotlin.math.tan
 
@@ -15,6 +17,7 @@ import kotlin.math.tan
  * Pinhole camera intrinsic parameters scaled to an arbitrary viewport resolution
  * in Standard 16:9 FIT (letterbox/pillarbox) geometry.
  */
+@Immutable
 data class CameraIntrinsics(
     val fx: Float,
     val fy: Float,
@@ -34,6 +37,19 @@ object CameraIntrinsicsProvider {
 
     private const val TAG = "CameraIntrinsics"
 
+    private data class IntrinsicsCacheKey(
+        val cameraId: String?,
+        val viewWidth: Int,
+        val viewHeight: Int,
+        val streamWidth: Int,
+        val streamHeight: Int,
+        val displayRotation: Int
+    )
+
+    private val characteristicsCache = ConcurrentHashMap<String, CameraCharacteristics>()
+    @Volatile private var lastCacheKey: IntrinsicsCacheKey? = null
+    @Volatile private var lastCachedIntrinsics: CameraIntrinsics? = null
+
     /**
      * Extracts or calculates camera intrinsics for the specified camera and viewport dimensions,
      * maintaining square pixels and standard 16:9 FIT geometry.
@@ -52,6 +68,12 @@ object CameraIntrinsicsProvider {
         val safeStreamW = if (streamWidth > 0) streamWidth else 1920
         val safeStreamH = if (streamHeight > 0) streamHeight else 1080
 
+        val key = IntrinsicsCacheKey(cameraId, safeW, safeH, safeStreamW, safeStreamH, displayRotation)
+        val cached = lastCachedIntrinsics
+        if (key == lastCacheKey && cached != null) {
+            return cached
+        }
+
         val geo = CameraViewportTransform.computeViewportGeometry(
             viewWidth = safeW,
             viewHeight = safeH,
@@ -61,12 +83,17 @@ object CameraIntrinsicsProvider {
         )
 
         if (cameraId == null) {
-            return fallbackIntrinsics(safeW, safeH, safeStreamW, safeStreamH, geo)
+            val fb = fallbackIntrinsics(safeW, safeH, safeStreamW, safeStreamH, geo)
+            lastCacheKey = key
+            lastCachedIntrinsics = fb
+            return fb
         }
 
         try {
-            val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
-            val chars = cameraManager.getCameraCharacteristics(cameraId)
+            val chars = characteristicsCache.getOrPut(cameraId) {
+                val cameraManager = context.getSystemService(Context.CAMERA_SERVICE) as CameraManager
+                cameraManager.getCameraCharacteristics(cameraId)
+            }
 
             val lensCalib = chars.get(CameraCharacteristics.LENS_INTRINSIC_CALIBRATION)
             val activeArray = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
@@ -117,7 +144,10 @@ object CameraIntrinsicsProvider {
                     videoOffsetY = geo.offsetY,
                     videoWidth = geo.videoWidth,
                     videoHeight = geo.videoHeight
-                )
+                ).also {
+                    lastCacheKey = key
+                    lastCachedIntrinsics = it
+                }
             }
 
             // 2. Physical sensor dimensions derivation (e.g. Galaxy M30 / LIMITED hardware level)
@@ -155,14 +185,20 @@ object CameraIntrinsicsProvider {
                     videoOffsetY = geo.offsetY,
                     videoWidth = geo.videoWidth,
                     videoHeight = geo.videoHeight
-                )
+                ).also {
+                    lastCacheKey = key
+                    lastCachedIntrinsics = it
+                }
             }
 
         } catch (e: Exception) {
             AppLogger.w(TAG, "Failed to query CameraCharacteristics: ${e.message}")
         }
 
-        return fallbackIntrinsics(safeW, safeH, safeStreamW, safeStreamH, geo)
+        return fallbackIntrinsics(safeW, safeH, safeStreamW, safeStreamH, geo).also {
+            lastCacheKey = key
+            lastCachedIntrinsics = it
+        }
     }
 
     /**

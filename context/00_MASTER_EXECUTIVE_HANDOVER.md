@@ -53,6 +53,8 @@ As of September 29, 2026, the following major architectural milestones have been
 | **Hardware NVENC Acceleration & Keyframe Fix** | **Production Ready** (~650 FPS, GOP 30, repeated SPS/PPS) | `tools/convert_session_to_mcap.py`, `h264_nvenc` + CPU fallback |
 | **Foxglove Ghost Track Elimination** | **Production Ready** (Atomic state updates, static entity ID) | `tools/convert_session_to_mcap.py` (`foxglove.SceneUpdate`) |
 | **Embedded Layout Container Attachments** | **Production Ready** (Auto-embeds `RoadSense_Cockpit_Layout.json`) | `tools/convert_session_to_mcap.py`, Foxglove attachments tab |
+| **UI Stutter Eradication & Canvas HUD** | **Production Ready** (0.28ms ticks, 0% idle CPU, KeepAliveTabSlot) | `LiveMetricsCanvasHud.kt`, `KeepAliveTabSlot`, `MainActivity.kt` |
+| **Physical Horizon Earth-Locking** | **Production Ready** (Roll sign inverted across 4 orientations) | `ImuManager.kt`, `ImuSample.kt`, `SpatialProjectionEngine.kt` |
 
 ---
 

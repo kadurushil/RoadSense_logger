@@ -3,10 +3,7 @@ package com.bajajauto.roadsense.camera
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
-import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.graphics.Rect
-import android.graphics.RectF
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
 import android.hardware.camera2.params.MeteringRectangle
@@ -89,6 +86,7 @@ class CameraEngine(private val context: Context) {
 
     private var repeatingRequestBuilder: CaptureRequest.Builder? = null
     private var repeatingCaptureCallback: CameraCaptureSession.CaptureCallback? = null
+    @Volatile private var isRepeatingActive: Boolean = false
 
     private val _isInfinityFocusLocked = MutableStateFlow(false)
     val isInfinityFocusLocked: StateFlow<Boolean> = _isInfinityFocusLocked.asStateFlow()
@@ -160,34 +158,13 @@ class CameraEngine(private val context: Context) {
     @Volatile
     private var isPreviewActive = false
 
-    @Volatile
-    private var isPrewarming = false
-
     /**
-     * Pre-warms the CameraDevice on app startup.
-     * This engages the MediaTek / OEM Camera Provider HAL kernel performance lock (perfLockAcq)
-     * bringing all CPU big cores online at maximum clock frequencies right from app launch,
-     * ensuring buttery smooth UI scrolling across all cards and 0 ms camera preview launch latency.
+     * Kept as a no-op for API compatibility.
+     * Pre-allocating an unconsumed `SurfaceTexture(false)` caused the BufferQueue to stall after
+     * 3 buffers while keeping the Camera HAL / ISP active in the background when preview was muted.
      */
     fun prewarmCamera() {
-        if (cameraDevice != null || isPreviewActive || isPrewarming) return
-        if (!hasCameraPermission()) return
-        AppLogger.i(TAG, "Pre-warming CameraDevice on app startup to acquire hardware performance lock")
-        isPrewarming = true
-
-        // Allocate a persistent SurfaceTexture detached from GL context to back the repeating capture session
-        // This ensures the Camera HAL actively streams frames, maintaining the OEM/MediaTek hardware performance lock.
-        if (previewSurfaceTexture == null) {
-            val res = _selectedResolution.value
-            val st = SurfaceTexture(false).apply {
-                setDefaultBufferSize(res.width, res.height)
-            }
-            previewSurfaceTexture = st
-            previewSurface?.release()
-            previewSurface = Surface(st)
-        }
-
-        openCamera()
+        AppLogger.d(TAG, "prewarmCamera() skipped: camera opens on-demand when preview or recording is active")
     }
 
     @Volatile
@@ -268,7 +245,6 @@ class CameraEngine(private val context: Context) {
                     val focalLengths = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)
                     val focal = focalLengths?.firstOrNull() ?: 0f
 
-                    // Ultra-wide lens focal lengths are typically <= 2.6mm (e.g. 2.20mm on Samsung)
                     val isUltra = (facing == CameraCharacteristics.LENS_FACING_BACK && focal > 0f && focal <= 2.6f)
 
                     val name = when {
@@ -298,7 +274,6 @@ class CameraEngine(private val context: Context) {
 
             _availableCameras.value = list
 
-            // Default selection: Prefer Main Back camera, or first available
             if (_selectedCamera.value == null) {
                 val defaultCam = list.firstOrNull { it.isBackFacing && !it.isUltraWide }
                     ?: list.firstOrNull { it.isBackFacing }
@@ -376,10 +351,38 @@ class CameraEngine(private val context: Context) {
         get() = previewSurfaceTexture
 
     /**
+     * Resumes the repeating preview capture request on `backgroundHandler` when re-attaching
+     * a persistent `SurfaceTexture` that was paused when switching away from the Camera/SBS tab.
+     */
+    private fun resumeRepeatingPreviewIfNeeded() {
+        if (isRepeatingActive) return
+        val session = captureSession ?: return
+        val builder = repeatingRequestBuilder ?: return
+        val callback = repeatingCaptureCallback ?: return
+        backgroundHandler?.post {
+            if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording) return@post
+            try {
+                session.setRepeatingRequest(builder.build(), callback, captureSyncHandler ?: backgroundHandler)
+                isRepeatingActive = true
+                if (!isRecordingVideo) {
+                    _engineState.value = CameraEngineState.Previewing(
+                        resolution = _selectedResolution.value,
+                        fps = _selectedFps.value.fps
+                    )
+                }
+                AppLogger.i(TAG, "Resumed repeating capture request on persistent preview surface")
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Could not resume repeating request on persistent surface; restarting session: ${e.message}")
+                restartSession()
+            }
+        }
+    }
+
+    /**
      * Attaches the live viewfinder surface texture from Compose AndroidView.
      */
     fun attachPreviewSurface(surfaceTexture: SurfaceTexture, width: Int = 0, height: Int = 0) {
-        if (previewSurfaceTexture === surfaceTexture && isPreviewActive && cameraDevice != null && _engineState.value !is CameraEngineState.Closed && _engineState.value !is CameraEngineState.Error) {
+        if (previewSurfaceTexture === surfaceTexture && isPreviewActive && isRepeatingActive && cameraDevice != null && _engineState.value !is CameraEngineState.Closed && _engineState.value !is CameraEngineState.Error) {
             AppLogger.d(TAG, "attachPreviewSurface: surface already active; updating dimensions ${width}x${height}")
             currentViewWidth = width
             currentViewHeight = height
@@ -387,13 +390,14 @@ class CameraEngine(private val context: Context) {
         }
 
         // If the session is already active:
-        // NEVER destroy and recreate CameraCaptureSession if we can reuse the existing session and persistent surface!
+        // Reuse the existing session and persistent surface without destroying CameraCaptureSession!
         if (captureSession != null && cameraDevice != null) {
             if (previewSurfaceTexture === surfaceTexture) {
                 AppLogger.i(TAG, "attachPreviewSurface: Re-attaching existing persistent preview surface (${width}x${height})")
                 currentViewWidth = width
                 currentViewHeight = height
                 isPreviewActive = true
+                resumeRepeatingPreviewIfNeeded()
                 if (_roadAeMode.value == RoadAeMode.AUTO_ROAD) {
                     startLuminanceAnalyzer()
                 }
@@ -407,7 +411,6 @@ class CameraEngine(private val context: Context) {
             }
         }
 
-        isPrewarming = false
         previewSurfaceTexture = surfaceTexture
         currentViewWidth = width
         currentViewHeight = height
@@ -474,24 +477,37 @@ class CameraEngine(private val context: Context) {
     }
 
     /**
-     * Detaches preview surface when the user swipes away to another tab or transitions views.
-     * Preserves persistent SurfaceTexture, CameraDevice, and CameraCaptureSession across view switches.
+     * Detaches preview surface when the user swipes away to another tab or mutes preview.
+     * Preserves persistent SurfaceTexture, CameraDevice, and CameraCaptureSession for instant (<16ms)
+     * re-attachment, while pausing the 30 FPS repeating request when not recording so the Camera ISP
+     * consumes 0% CPU when off-tab or muted!
      */
     fun detachPreviewSurface(surfaceTexture: SurfaceTexture? = null) {
         if (surfaceTexture != null && previewSurfaceTexture != null && previewSurfaceTexture !== surfaceTexture) {
             AppLogger.d(TAG, "Ignoring detachPreviewSurface for stale surfaceTexture")
             return
         }
-        AppLogger.i(TAG, "Detaching preview surface (user swiped away or switched views)")
+        AppLogger.i(TAG, "Detaching preview surface (user switched tabs or muted preview)")
         stopLuminanceAnalyzer()
         previewTextureViewRef = null
         isPreviewActive = false
 
-        // Keep previewSurface, previewSurfaceTexture, CameraDevice, and CameraCaptureSession alive across view transitions!
-        // Closing the camera halts the HAL pipeline, causing a 600-1200ms lag whenever switching
-        // between Camera card, Fullscreen mode, Calibration studio, or SBS card.
-        // We preserve the persistent SurfaceTexture so it can be seamlessly reattached without reopening the camera.
-        AppLogger.i(TAG, "Preserving CameraCaptureSession and persistent preview surface across view transitions")
+        if (!isRecordingVideo && !isPendingVideoRecording) {
+            backgroundHandler?.post {
+                if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording && isRepeatingActive) {
+                    try {
+                        captureSession?.stopRepeating()
+                        isRepeatingActive = false
+                        _engineState.value = CameraEngineState.Closed
+                        AppLogger.i(TAG, "Paused CameraCaptureSession repeating request (ISP idle while off-tab/muted)")
+                    } catch (e: Exception) {
+                        AppLogger.w(TAG, "Could not pause repeating request on detach: ${e.message}")
+                    }
+                }
+            }
+        } else {
+            AppLogger.i(TAG, "Preserving active CameraCaptureSession repeating request for ongoing recording")
+        }
     }
 
     /**
@@ -505,9 +521,6 @@ class CameraEngine(private val context: Context) {
         }
 
         if (cameraDevice != null || _engineState.value is CameraEngineState.Opening) {
-            if (cameraDevice != null && isPrewarming) {
-                return
-            }
             return
         }
 
@@ -521,13 +534,11 @@ class CameraEngine(private val context: Context) {
                 return
             }
 
-            AppLogger.i(TAG, "Opening camera ID: $targetCameraId (${_selectedCamera.value?.displayName ?: "Default"}) (prewarm=$isPrewarming)")
-            if (!isPrewarming) {
-                _engineState.value = CameraEngineState.Opening
-            }
+            AppLogger.i(TAG, "Opening camera ID: $targetCameraId (${_selectedCamera.value?.displayName ?: "Default"})")
+            _engineState.value = CameraEngineState.Opening
             cameraManager.openCamera(targetCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
-                    if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording && !isPrewarming) {
+                    if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording) {
                         AppLogger.i(TAG, "Camera opened after preview was cancelled; closing immediately")
                         camera.close()
                         cameraDevice = null
@@ -535,12 +546,13 @@ class CameraEngine(private val context: Context) {
                         return
                     }
                     cameraDevice = camera
-                    AppLogger.i(TAG, "CameraDevice onOpened: id=${camera.id} (prewarmed=$isPrewarming)")
+                    AppLogger.i(TAG, "CameraDevice onOpened: id=${camera.id}")
                     createCaptureSession()
                 }
 
                 override fun onDisconnected(camera: CameraDevice) {
                     AppLogger.w(TAG, "CameraDevice onDisconnected: id=${camera.id}")
+                    isRepeatingActive = false
                     camera.close()
                     cameraDevice = null
                     _engineState.value = CameraEngineState.Closed
@@ -548,6 +560,7 @@ class CameraEngine(private val context: Context) {
 
                 override fun onError(camera: CameraDevice, error: Int) {
                     AppLogger.e(TAG, "CameraDevice onError: id=${camera.id}, code=$error")
+                    isRepeatingActive = false
                     camera.close()
                     cameraDevice = null
                     _engineState.value = CameraEngineState.Error("CameraDevice error code: $error")
@@ -583,7 +596,6 @@ class CameraEngine(private val context: Context) {
             CameraResolution.RES_1080P -> VIDEO_BITRATE_1080P
         }
 
-        // Calculate rotation hint for video container
         val targetId = _selectedCamera.value?.id ?: "0"
         val chars = try { cameraManager.getCameraCharacteristics(targetId) } catch (e: Exception) { null }
         val sensorOrientation = chars?.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
@@ -647,7 +659,6 @@ class CameraEngine(private val context: Context) {
 
                     try {
                         val isRecSession = isRecordingVideo || isPendingVideoRecording
-                        // Synchronously start hardware MediaRecorder before repeating request streams frames
                         if (isPendingVideoRecording && mediaRecorder != null) {
                             try {
                                 mediaRecorder?.start()
@@ -667,7 +678,6 @@ class CameraEngine(private val context: Context) {
                         previewSurface?.let { requestBuilder.addTarget(it) }
                         recorderSurface?.let { requestBuilder.addTarget(it) }
 
-                        // Target FPS range
                         val targetFps = _selectedFps.value.fps
                         requestBuilder.set(
                             CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
@@ -675,18 +685,12 @@ class CameraEngine(private val context: Context) {
                         )
                         requestBuilder.set(CaptureRequest.CONTROL_MODE, CameraMetadata.CONTROL_MODE_AUTO)
 
-                        // Apply current focus mode (infinity lock vs continuous AF)
                         applyFocusSettings(requestBuilder)
-
-                        // Apply optical image stabilization (OIS) settings
                         applyStabilizationSettings(requestBuilder)
-
-                        // Apply autonomous road auto-exposure settings
                         applyAeMeteringSettings(requestBuilder)
 
                         repeatingRequestBuilder = requestBuilder
 
-                        // Shutter exposure timestamp callback for microsecond cross-sensor sync
                         val captureCallback = object : CameraCaptureSession.CaptureCallback() {
                             override fun onCaptureStarted(
                                 session: CameraCaptureSession,
@@ -694,12 +698,11 @@ class CameraEngine(private val context: Context) {
                                 timestamp: Long,
                                 frameNumber: Long
                             ) {
-                                // Strictly reject callbacks from defunct or closing sessions
                                 if (session !== captureSession) return
                                 val isRec = isRecordingVideo && isMediaRecorderActive
                                 val meta = CameraFrameMetadata(
                                     frameNumber = frameNumber,
-                                    shutterTimestampNs = timestamp, // Exposure start in monotonic nanoseconds
+                                    shutterTimestampNs = timestamp,
                                     utcTimestampMs = System.currentTimeMillis(),
                                     isRecording = isRec
                                 )
@@ -709,8 +712,8 @@ class CameraEngine(private val context: Context) {
                         }
 
                         repeatingCaptureCallback = captureCallback
-                        // Run capture callback on dedicated high-priority captureSyncHandler to eliminate userspace callback drops
                         session.setRepeatingRequest(requestBuilder.build(), captureCallback, captureSyncHandler ?: backgroundHandler)
+                        isRepeatingActive = true
                         startLuminanceAnalyzer()
 
                         if (isRecordingVideo) {
@@ -748,6 +751,7 @@ class CameraEngine(private val context: Context) {
 
     private fun restartSession() {
         try {
+            isRepeatingActive = false
             captureSession?.stopRepeating()
             captureSession?.close()
             captureSession = null
@@ -768,7 +772,6 @@ class CameraEngine(private val context: Context) {
         val afModes = chars?.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
 
         if (_isInfinityFocusLocked.value) {
-            // Lock focus to optical infinity (0 diopters)
             if (afModes.contains(CameraMetadata.CONTROL_AF_MODE_OFF)) {
                 builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
                 builder.set(CaptureRequest.LENS_FOCUS_DISTANCE, 0.0f)
@@ -776,12 +779,10 @@ class CameraEngine(private val context: Context) {
                 AppLogger.d(TAG, "Applied AF_MODE_OFF with lens focus distance = 0.0f (Infinity)")
             }
         } else if (_isAfAeLocked.value && currentMeteringRegion != null) {
-            // Tap-to-focus & AE locked
             builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_AUTO)
             builder.set(CaptureRequest.CONTROL_AF_REGIONS, arrayOf(currentMeteringRegion))
             AppLogger.d(TAG, "Applied AF Lock on region: $currentMeteringRegion")
         } else {
-            // Default Continuous Auto-Focus for video/preview
             val preferredAfMode = when {
                 afModes.contains(CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO) -> CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_VIDEO
                 afModes.contains(CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE) -> CameraMetadata.CONTROL_AF_MODE_CONTINUOUS_PICTURE
@@ -929,6 +930,7 @@ class CameraEngine(private val context: Context) {
     }
 
     private fun updateRepeatingAeSettings() {
+        if (!isRepeatingActive) return
         val session = captureSession ?: return
         val builder = repeatingRequestBuilder ?: return
         val callback = repeatingCaptureCallback ?: return
@@ -949,7 +951,7 @@ class CameraEngine(private val context: Context) {
         luminanceAnalysisJob = engineScope.launch {
             while (isActive) {
                 delay(250) // ~4 Hz sample rate
-                if (!isPreviewActive || _isAfAeLocked.value || _roadAeMode.value != RoadAeMode.AUTO_ROAD) {
+                if (!isPreviewActive || !isRepeatingActive || _isAfAeLocked.value || _roadAeMode.value != RoadAeMode.AUTO_ROAD) {
                     continue
                 }
 
@@ -966,7 +968,7 @@ class CameraEngine(private val context: Context) {
 
                     val startX = (32 * 0.1f).toInt()
                     val endX = (32 * 0.9f).toInt()
-                    val splitY = (24 * 0.35f).toInt() // Top 35% is sky
+                    val splitY = (24 * 0.35f).toInt()
 
                     for (y in 0 until 24) {
                         for (x in startX..endX) {
@@ -991,14 +993,12 @@ class CameraEngine(private val context: Context) {
                     val roadLuma = if (roadCount > 0) roadSum.toFloat() / roadCount else 128f
                     val rawRatio = skyLuma / maxOf(1.0f, roadLuma)
 
-                    // EMA smoothing (alpha = 0.25)
                     smoothedContrastRatio = 0.25f * rawRatio + 0.75f * smoothedContrastRatio
 
                     _skyLuminance.value = skyLuma
                     _roadLuminance.value = roadLuma
                     _contrastRatio.value = smoothedContrastRatio
 
-                    // Determine photometric state
                     val newState = when {
                         smoothedContrastRatio >= 1.8f -> RoadAeState.SKY_BLOOM
                         smoothedContrastRatio >= 0.9f -> RoadAeState.BALANCED
@@ -1014,8 +1014,7 @@ class CameraEngine(private val context: Context) {
                         AppLogger.d(TAG, "Road AE state shift -> $newState (contrast=${String.format(Locale.US, "%.2f", smoothedContrastRatio)}, sky=${skyLuma.toInt()}, road=${roadLuma.toInt()}, ev=$evTarget)")
                         updateRepeatingAeSettings()
                     }
-                } catch (e: Exception) {
-                    // Ignore transient frame buffer recycling exceptions
+                } catch (_: Exception) {
                 }
             }
         }
@@ -1064,6 +1063,7 @@ class CameraEngine(private val context: Context) {
         _isOisEnabled.value = enabled
         AppLogger.i(TAG, "OIS enabled state set to: $enabled")
 
+        if (!isRepeatingActive) return
         val session = captureSession
         val builder = repeatingRequestBuilder
         val callback = repeatingCaptureCallback
@@ -1080,8 +1080,6 @@ class CameraEngine(private val context: Context) {
 
     /**
      * Toggles or sets optical infinity focus lock.
-     * When locked, focus distance is clamped to 0.0f (infinity diopters), preventing
-     * windshield glare, rain, or dust from pulling focus away from distant road targets.
      */
     fun setInfinityFocus(locked: Boolean) {
         if (_isInfinityFocusLocked.value == locked) return
@@ -1093,6 +1091,7 @@ class CameraEngine(private val context: Context) {
         }
         AppLogger.i(TAG, "Infinity focus lock set to: $locked")
 
+        if (!isRepeatingActive) return
         val session = captureSession
         val builder = repeatingRequestBuilder
         val callback = repeatingCaptureCallback
@@ -1110,9 +1109,6 @@ class CameraEngine(private val context: Context) {
 
     /**
      * Triggers an explicit Auto-Focus cycle.
-     * If normX and normY are provided in [0..1] range (e.g. from screen tap), the AF/AE metering
-     * rectangle is placed at the corresponding sensor coordinates and locks both AF and AE.
-     * If normX and normY are null (Re-Focus button), all locks are cleared, returning to continuous AF.
      */
     fun triggerAutoFocus(normX: Float? = null, normY: Float? = null) {
         if (_isInfinityFocusLocked.value) {
@@ -1120,6 +1116,7 @@ class CameraEngine(private val context: Context) {
             AppLogger.i(TAG, "Infinity focus unlocked due to re-focus trigger")
         }
 
+        if (!isRepeatingActive) return
         val session = captureSession ?: run {
             AppLogger.w(TAG, "triggerAutoFocus: CaptureSession is null")
             return
@@ -1154,14 +1151,12 @@ class CameraEngine(private val context: Context) {
                 }
                 val isFacingFront = chars?.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
 
-                // Effective rotation from screen space to sensor space
                 val effectiveRotation = if (isFacingFront) {
                     (sensorOrientation + rotationDegrees) % 360
                 } else {
                     (sensorOrientation - rotationDegrees + 360) % 360
                 }
 
-                // Map normalized view (x, y) to sensor normalized (sensorX, sensorY)
                 val (sensorNormX, sensorNormY) = when (effectiveRotation) {
                     90 -> Pair(focusY, 1f - focusX)
                     180 -> Pair(1f - focusX, 1f - focusY)
@@ -1194,17 +1189,14 @@ class CameraEngine(private val context: Context) {
                 if (maxAeRegions > 0) {
                     builder.set(CaptureRequest.CONTROL_AE_REGIONS, regions)
                 }
-                // Temporarily unlock AE so it can meter for the tapped point
                 builder.set(CaptureRequest.CONTROL_AE_LOCK, false)
                 AppLogger.i(TAG, "Setting AF/AE metering region for tap lock: $afRect (norm: $focusX, $focusY)")
 
-                // Configure repeating request with tap-focus region in AUTO AF mode
                 builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_AUTO)
                 builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE)
                 builder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE)
                 session.setRepeatingRequest(builder.build(), callback, captureSyncHandler ?: backgroundHandler)
 
-                // Single-shot trigger to initiate AF & AE convergence with the active callback so no frame metadata is lost
                 if (callback != null) {
                     builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
                     builder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START)
@@ -1214,18 +1206,17 @@ class CameraEngine(private val context: Context) {
                 }
                 AppLogger.i(TAG, "Triggered in-stream tap AF/AE scan at ($focusX, $focusY)")
 
-                // Once AF/AE converges, lock AE in repeating request after 700ms
                 backgroundHandler?.postDelayed({
                     try {
                         val currentSession = captureSession
                         val currentBuilder = repeatingRequestBuilder
-                        if (currentSession != null && currentBuilder != null && _isAfAeLocked.value) {
+                        if (currentSession != null && currentBuilder != null && _isAfAeLocked.value && isRepeatingActive) {
                             currentBuilder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_AUTO)
                             currentBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE)
                             currentBuilder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE)
                             if (maxAfRegions > 0) currentBuilder.set(CaptureRequest.CONTROL_AF_REGIONS, regions)
                             if (maxAeRegions > 0) currentBuilder.set(CaptureRequest.CONTROL_AE_REGIONS, regions)
-                            currentBuilder.set(CaptureRequest.CONTROL_AE_LOCK, true) // Lock AE!
+                            currentBuilder.set(CaptureRequest.CONTROL_AE_LOCK, true)
                             currentSession.setRepeatingRequest(currentBuilder.build(), callback, captureSyncHandler ?: backgroundHandler)
                             AppLogger.i(TAG, "Locked AF and AE at tap point ($focusX, $focusY)")
                         }
@@ -1234,7 +1225,6 @@ class CameraEngine(private val context: Context) {
                     }
                 }, 700)
             } else {
-                // User pressed Re-Focus: Reset locks, unlock AE, and return to CONTINUOUS_VIDEO
                 _isAfAeLocked.value = false
                 _tapFocusPoint.value = null
                 currentMeteringRegion = null
@@ -1245,7 +1235,6 @@ class CameraEngine(private val context: Context) {
                 builder.set(CaptureRequest.CONTROL_AE_REGIONS, null)
                 applyAeMeteringSettings(builder)
 
-                // Single-shot cancel trigger with the active callback to reset AF state machine cleanly without dropping frames
                 if (callback != null) {
                     builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_CANCEL)
                     session.capture(builder.build(), callback, captureSyncHandler ?: backgroundHandler)
@@ -1263,7 +1252,7 @@ class CameraEngine(private val context: Context) {
 
     fun closeCamera() {
         try {
-            isPrewarming = false
+            isRepeatingActive = false
             stopLuminanceAnalyzer()
             previewTextureViewRef = null
             captureSession?.close()
@@ -1301,8 +1290,6 @@ class CameraEngine(private val context: Context) {
             recordingStartTimeMs = SystemClock.elapsedRealtime()
             _totalFramesLogged.value = 0L
 
-            // Smart Focus: Automatically lock to optical infinity on recording start
-            // to prevent windshield reflections, dust, or rain from hunting focus during drives.
             if (!_isInfinityFocusLocked.value) {
                 _isInfinityFocusLocked.value = true
                 AppLogger.i(TAG, "Auto-engaged infinity focus lock for video recording session")

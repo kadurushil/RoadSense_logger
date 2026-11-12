@@ -1,7 +1,6 @@
 package com.bajajauto.roadsense.ui.components
 
 import android.graphics.Paint
-import com.bajajauto.roadsense.logging.AppLogger
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -18,6 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -27,11 +27,6 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
-
-private class CanvasDrawTracker {
-    var lastDrawNs: Long = 0L
-    var drawCount: Long = 0L
-}
 
 /**
  * Bird's-Eye View (BEV) top-down Cartesian radar display.
@@ -49,9 +44,9 @@ fun RadarBevPlot(
     val maxRangeMeters by viewModel.radarMaxRange.collectAsState()
     val dynamicOnly by viewModel.radarDynamicOnly.collectAsState()
     val minSnrFilter by viewModel.radarMinSnr.collectAsState()
-    val rangeOptions = listOf(15f, 30f, 60f, 130f)
+    val rangeOptions = remember { listOf(15f, 30f, 60f, 130f) }
 
-    // Cached Paint & Path objects to eliminate garbage collection during 20/60 Hz Canvas redraws
+    // Cached Paint & Path objects to eliminate garbage collection during 20 Hz Canvas redraws
     val textPaint = remember {
         Paint().apply {
             color = android.graphics.Color.argb(160, 176, 190, 197)
@@ -69,9 +64,17 @@ fun RadarBevPlot(
             isFakeBoldText = true
         }
     }
+    val bannerPaint = remember {
+        Paint().apply {
+            color = android.graphics.Color.argb(240, 255, 23, 68)
+            textSize = 26f
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+            isFakeBoldText = true
+        }
+    }
     val egoPath = remember { Path() }
     val triPath = remember { Path() }
-    val drawTracker = remember { CanvasDrawTracker() }
 
     Card(
         modifier = modifier,
@@ -189,12 +192,11 @@ fun RadarBevPlot(
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF090B10))
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val startNs = System.nanoTime()
-                    val deltaDrawMs = if (drawTracker.lastDrawNs > 0L) (startNs - drawTracker.lastDrawNs) / 1_000_000.0 else 0.0
-                    drawTracker.lastDrawNs = startNs
-                    drawTracker.drawCount++
-
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clearAndSetSemantics {}
+                ) {
                     val activeFrame = frameProducer?.invoke() ?: radarFrameState.value ?: frame
                     val canvasWidth = size.width
                     val canvasHeight = size.height
@@ -246,7 +248,6 @@ fun RadarBevPlot(
                         val left = originX - radius
                         val diameter = radius * 2
 
-                        // Draw range arc (centered upwards from 180 to 360 deg)
                         drawArc(
                             color = ringColor,
                             startAngle = 180f,
@@ -257,7 +258,6 @@ fun RadarBevPlot(
                             style = Stroke(width = 1.2f)
                         )
 
-                        // Draw distance label on the ring
                         drawContext.canvas.nativeCanvas.drawText(
                             "${ringDist.toInt()}m",
                             originX,
@@ -295,9 +295,9 @@ fun RadarBevPlot(
                     val egoWidth = 24f
                     val egoHeight = 32f
                     egoPath.reset()
-                    egoPath.moveTo(originX, originY - egoHeight) // Front tip
-                    egoPath.lineTo(originX + egoWidth / 2f, originY) // Bottom right
-                    egoPath.lineTo(originX - egoWidth / 2f, originY) // Bottom left
+                    egoPath.moveTo(originX, originY - egoHeight)
+                    egoPath.lineTo(originX + egoWidth / 2f, originY)
+                    egoPath.lineTo(originX - egoWidth / 2f, originY)
                     egoPath.close()
                     drawPath(path = egoPath, color = Color(0xFF00E5FF))
 
@@ -338,13 +338,11 @@ fun RadarBevPlot(
 
                                 val dotRadius = 4.5f
 
-                                // Halo glow
                                 drawCircle(
                                     color = pointColor.copy(alpha = 0.35f),
                                     radius = dotRadius + 2.5f,
                                     center = Offset(px, py)
                                 )
-                                // Solid core
                                 drawCircle(
                                     color = pointColor,
                                     radius = dotRadius,
@@ -360,7 +358,6 @@ fun RadarBevPlot(
                     val fcwTrackId = if ((fcwAlert?.trackId ?: 0) > 0) fcwAlert?.trackId else null
                     val accPoiId = if ((accTarget?.poiId ?: 0) > 0) accTarget?.poiId else null
 
-                    // Multi-tiered FCW Target Matching (zero intermediate list/Pair allocation)
                     val tracksList = activeFrame?.tracks ?: emptyList()
                     var matchedFcwIndex: Int? = null
                     if (fcwAlert != null && fcwAlert.stage > 0) {
@@ -407,7 +404,6 @@ fun RadarBevPlot(
                         }
                     }
 
-                    // Multi-tiered ACC Target Matching
                     var matchedAccIndex: Int? = null
                     if (accTarget != null && (accPoiId != null || accTarget.targetY > 0.5f)) {
                         matchedAccIndex = tracksList.indexOfFirst { track ->
@@ -430,14 +426,13 @@ fun RadarBevPlot(
                             val isAcc = (index == matchedAccIndex)
 
                             val trackColor = when {
-                                isFcw -> Color(0xFFFF1744) // FCW Alert Target (Vivid Crimson Red)
-                                isAcc -> Color(0xFF00E5FF) // ACC POI Lead Vehicle (Electric Cyan)
-                                else -> Color(0xFFFFB300)  // Active Tracked Target (Golden Amber)
+                                isFcw -> Color(0xFFFF1744)
+                                isAcc -> Color(0xFF00E5FF)
+                                else -> Color(0xFFFFB300)
                             }
 
                             val trackRadius = if (isFcw || isAcc) 16f else 14f
 
-                            // Outer pulsating/glow halo for ADAS priority targets
                             if (isFcw) {
                                 drawCircle(
                                     color = Color(0xFFFF1744).copy(alpha = 0.25f),
@@ -464,7 +459,6 @@ fun RadarBevPlot(
                                 )
                             }
 
-                            // 1. Target body circle
                             drawCircle(
                                 color = trackColor.copy(alpha = 0.25f),
                                 center = Offset(tx, ty),
@@ -482,9 +476,8 @@ fun RadarBevPlot(
                                 radius = 3.5f
                             )
 
-                            // 2. Velocity vector & direction triangle on circumference
                             val vxPx = track.vx * scale * 0.75f
-                            val vyPx = -track.vy * scale * 0.75f // Forward is -Y on screen canvas
+                            val vyPx = -track.vy * scale * 0.75f
                             val vSpeed = hypot(vxPx, vyPx)
 
                             val vectorColor = when {
@@ -500,11 +493,9 @@ fun RadarBevPlot(
                                 val px = -uy
                                 val py = ux
 
-                                // Circumference anchor point
                                 val circX = tx + ux * trackRadius
                                 val circY = ty + uy * trackRadius
 
-                                // Small pointer triangle on circumference pointing in velocity direction
                                 val triLen = 6.5f
                                 val triWidth = 4f
                                 val tipX = circX + ux * triLen
@@ -521,7 +512,6 @@ fun RadarBevPlot(
                                 triPath.close()
                                 drawPath(path = triPath, color = vectorColor)
 
-                                // When velocity is large, vector extends out of the circle proportional to speed
                                 if (vSpeed > trackRadius) {
                                     val endX = tx + vxPx
                                     val endY = ty + vyPx
@@ -539,7 +529,6 @@ fun RadarBevPlot(
                                 }
                             }
 
-                            // 3. Target ID and ADAS Tag Label above the circle
                             val adasTag = when {
                                 isFcw && isAcc -> " [FCW+ACC]"
                                 isFcw -> " [FCW]"
@@ -583,33 +572,19 @@ fun RadarBevPlot(
                         }
                     }
 
-                    // 8.6 Draw Top-of-Canvas FCW Warning Banner if FCW is active
+                    // 8.6 Draw Top-of-Canvas FCW Warning Banner if FCW is active (using pre-allocated bannerPaint)
                     if (fcwAlert != null && fcwAlert.stage > 0) {
                         val stageText = if (fcwAlert.stage == 2) "FCW HAZARD: AUDIBLE ALERT" else "FCW: VISUAL WARNING"
                         val ttcText = if (fcwAlert.ttcSec > 0f) " • TTC ${"%.1f".format(fcwAlert.ttcSec)}s" else ""
                         val distText = if (fcwAlert.targetY > 0f) " • ${"%.1f".format(fcwAlert.targetY)}m" else ""
                         val bannerText = "$stageText$ttcText$distText"
 
-                        val bannerPaint = Paint().apply {
-                            color = android.graphics.Color.argb(240, 255, 23, 68)
-                            textSize = 26f
-                            isAntiAlias = true
-                            textAlign = Paint.Align.CENTER
-                            isFakeBoldText = true
-                        }
                         drawContext.canvas.nativeCanvas.drawText(
                             bannerText,
                             originX,
                             24f,
                             bannerPaint
                         )
-                    }
-
-                    val endNs = System.nanoTime()
-                    val durationMs = (endNs - startNs) / 1_000_000.0
-                    val seq = activeFrame?.header?.frameNumber ?: -1L
-                    if (drawTracker.drawCount % 5L == 0L || deltaDrawMs > 75.0 || (deltaDrawMs < 25.0 && deltaDrawMs > 0.0)) {
-                        AppLogger.d("RadarBevPlot", "[DRAW_BEV] seq=#$seq | deltaDrawMs=${"%.2f".format(deltaDrawMs)} | durationMs=${"%.2f".format(durationMs)}")
                     }
                 }
             }
@@ -664,7 +639,8 @@ fun RadarBevPlot(
                 // Legend: ADAS Targets & Point Cloud
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clearAndSetSemantics {}
                 ) {
                     Text(text = "■ FCW", color = Color(0xFFFF1744), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.Bold)
                     Text(text = "■ ACC", color = Color(0xFF00E5FF), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.Bold)

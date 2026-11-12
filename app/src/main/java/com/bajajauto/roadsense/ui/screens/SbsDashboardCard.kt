@@ -25,13 +25,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.bajajauto.roadsense.camera.CameraEngineState
-import com.bajajauto.roadsense.camera.CameraResolution
 import com.bajajauto.roadsense.models.RadarFrame
 import com.bajajauto.roadsense.ui.RadarViewModel
 import com.bajajauto.roadsense.ui.components.RadarBevPlot
@@ -46,7 +46,8 @@ import com.bajajauto.roadsense.ui.components.ViewfinderRadarOverlay
 @Composable
 fun SbsDashboardCard(
     viewModel: RadarViewModel,
-    isCurrentTab: Boolean,
+    isCurrentTab: Boolean = true,
+    isCurrentTabProvider: () -> Boolean = { isCurrentTab },
     latestFrame: RadarFrame? = null,
     frameProducer: (() -> RadarFrame?)? = null,
     modifier: Modifier = Modifier
@@ -67,7 +68,7 @@ fun SbsDashboardCard(
             // Left Pane: Live Camera Feed with telemetry header
             SbsCameraFeedPane(
                 viewModel = viewModel,
-                isCurrentTab = isCurrentTab,
+                isCurrentTabProvider = isCurrentTabProvider,
                 frameProducer = effectiveFrameProducer,
                 modifier = Modifier
                     .weight(0.5f)
@@ -94,7 +95,7 @@ fun SbsDashboardCard(
         ) {
             SbsCameraFeedPane(
                 viewModel = viewModel,
-                isCurrentTab = isCurrentTab,
+                isCurrentTabProvider = isCurrentTabProvider,
                 frameProducer = effectiveFrameProducer,
                 modifier = Modifier
                     .weight(0.5f)
@@ -115,11 +116,13 @@ fun SbsDashboardCard(
 
 /**
  * Live Camera Viewfinder pane for SBS view with compact telemetry header and matrix-aligned preview.
+ * High-frequency telemetry (`cameraSessionFrames` at 30 Hz and `cameraFps` at 1 Hz) is isolated
+ * inside `SbsCameraHudBadges` so `SbsCameraFeedPane` and its `AndroidView(TextureView)` never recompose.
  */
 @Composable
 private fun SbsCameraFeedPane(
     viewModel: RadarViewModel,
-    isCurrentTab: Boolean,
+    isCurrentTabProvider: () -> Boolean,
     frameProducer: (() -> RadarFrame?)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -129,9 +132,7 @@ private fun SbsCameraFeedPane(
     val engineState by viewModel.cameraEngineState.collectAsState()
     val selectedCamera by viewModel.selectedCamera.collectAsState()
     val selectedRes by viewModel.selectedResolution.collectAsState()
-    val sessionFrames by viewModel.cameraSessionFrames.collectAsState()
     val isPreviewMutedByUser by viewModel.isCameraPreviewMuted.collectAsState()
-    val cameraFps by viewModel.cameraFps.collectAsState()
 
     val calibrationParams by viewModel.calibrationParams.collectAsState()
     val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
@@ -155,7 +156,17 @@ private fun SbsCameraFeedPane(
     val isCalibrationFullScreen by viewModel.isCalibrationFullScreen.collectAsState()
 
     // Render preview only when this tab is active, not covered by fullscreen, and permitted/unmuted.
-    val shouldRenderPreview = isCurrentTab && !isCameraFullScreen && !isCalibrationFullScreen && !isPreviewMutedByUser && hasCameraPermission
+    val shouldRenderPreview by remember(
+        isCameraFullScreen,
+        isCalibrationFullScreen,
+        isPreviewMutedByUser,
+        hasCameraPermission,
+        isCurrentTabProvider
+    ) {
+        derivedStateOf {
+            !isCameraFullScreen && !isCalibrationFullScreen && !isPreviewMutedByUser && hasCameraPermission && isCurrentTabProvider()
+        }
+    }
 
     Card(
         modifier = modifier,
@@ -225,7 +236,8 @@ private fun SbsCameraFeedPane(
                     // Resolution Badge
                     Surface(
                         color = Color(0xFF1E2530),
-                        shape = RoundedCornerShape(4.dp)
+                        shape = RoundedCornerShape(4.dp),
+                        modifier = Modifier.clearAndSetSemantics {}
                     ) {
                         Text(
                             text = selectedRes.label,
@@ -236,37 +248,11 @@ private fun SbsCameraFeedPane(
                         )
                     }
 
-                    // FPS Badge
-                    Surface(
-                        color = Color(0xFF1E2530),
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            text = "%.0f FPS".format(cameraFps),
-                            color = Color(0xFF81C784),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-
-                    // REC Pill if actively recording
-                    if (engineState is CameraEngineState.Recording) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.errorContainer,
-                            shape = RoundedCornerShape(4.dp)
-                        ) {
-                            Text(
-                                text = "● REC (${sessionFrames}f)",
-                                color = MaterialTheme.colorScheme.error,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
-                    }
+                    // Isolated leaf composable for 1 Hz FPS and 30 Hz Recording Frame Counter
+                    SbsCameraHudBadges(
+                        viewModel = viewModel,
+                        isRecording = engineState is CameraEngineState.Recording
+                    )
                 }
             }
 
@@ -370,6 +356,7 @@ private fun SbsCameraFeedPane(
                                 modifier = Modifier
                                     .align(Alignment.BottomStart)
                                     .padding(6.dp)
+                                    .clearAndSetSemantics {}
                             ) {
                                 Text(
                                     text = cam.displayName,
@@ -418,6 +405,57 @@ private fun SbsCameraFeedPane(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Isolated leaf composable for 1 Hz FPS and 30 Hz recording frame counter badges.
+ * Prevents `SbsCameraFeedPane` and `AndroidView(TextureView)` from recomposing during active recording.
+ */
+@Composable
+private fun SbsCameraHudBadges(
+    viewModel: RadarViewModel,
+    isRecording: Boolean
+) {
+    val cameraFps by viewModel.cameraFps.collectAsState()
+    val sessionFrames by viewModel.cameraSessionFrames.collectAsState()
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.clearAndSetSemantics {}
+    ) {
+        // FPS Badge
+        Surface(
+            color = Color(0xFF1E2530),
+            shape = RoundedCornerShape(4.dp)
+        ) {
+            Text(
+                text = "%.0f FPS".format(cameraFps),
+                color = Color(0xFF81C784),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+            )
+        }
+
+        // REC Pill if actively recording
+        if (isRecording) {
+            Surface(
+                color = MaterialTheme.colorScheme.errorContainer,
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Text(
+                    text = "● REC (${sessionFrames}f)",
+                    color = MaterialTheme.colorScheme.error,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
             }
         }
     }

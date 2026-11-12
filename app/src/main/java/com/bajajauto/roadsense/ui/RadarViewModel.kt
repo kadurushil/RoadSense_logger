@@ -58,7 +58,9 @@ import com.bajajauto.roadsense.fusion.engine.CameraIntrinsicsProvider
 import com.bajajauto.roadsense.fusion.engine.SpatialProjectionEngine
 import com.bajajauto.roadsense.fusion.model.CalibrationParameters
 import com.bajajauto.roadsense.fusion.storage.CalibrationStorageManager
+import androidx.compose.runtime.Immutable
 
+@Immutable
 data class RadarUiTelemetry(
     val totalBytes: Long = 0L,
     val totalPackets: Long = 0L,
@@ -67,6 +69,24 @@ data class RadarUiTelemetry(
     val tracksCount: Int = 0,
     val dataRateKbps: Float = 0f,
     val lastFrameSeq: Long = 0L
+)
+
+@Immutable
+data class LiveMetricsSnapshot(
+    val radarHz: Float = 0.0f,
+    val cameraFps: Float = 0.0f,
+    val gnssHz: Float = 0.0f,
+    val imuHz: Float = 0.0f,
+    val satellitesUsed: Int = 0,
+    val satellitesInView: Int = 0,
+    val accuracyMeters: Float = 0.0f,
+    val batteryPct: Int = 0,
+    val batteryTempC: Float = 0.0f,
+    val cpuUsagePct: Int = 0,
+    val cpuTempC: Float? = null,
+    val syncGrade: String = "IDLE",
+    val syncDeltaMs: Float = 0.0f,
+    val isSyncActive: Boolean = false
 )
 
 class RadarViewModel(application: Application) : AndroidViewModel(application) {
@@ -252,6 +272,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val _cpuTempC = MutableStateFlow<Float?>(null)
     val cpuTempC: StateFlow<Float?> = _cpuTempC.asStateFlow()
 
+    private val _liveMetricsSnapshot = MutableStateFlow(LiveMetricsSnapshot())
+    val liveMetricsSnapshot: StateFlow<LiveMetricsSnapshot> = _liveMetricsSnapshot.asStateFlow()
+
     @Volatile private var radarFramesThisSec = 0
     @Volatile private var cameraFramesThisSec = 0
     @Volatile private var gnssFixesThisSec = 0
@@ -263,13 +286,6 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         // Restore persistent camera settings
         cameraEngine.setResolution(appPreferences.cameraResolution)
         cameraEngine.setFrameRate(appPreferences.cameraFrameRate)
-
-        // Pre-warm camera hardware on app startup to acquire MediaTek/OEM kernel CPU/GPU performance lock (perfLockAcq)
-        // and eliminate camera launch latency.
-        if (cameraEngine.hasCameraPermission()) {
-            cameraEngine.prewarmCamera()
-        }
-
 
         // Load persistent radar-camera calibration
         viewModelScope.launch {
@@ -286,53 +302,85 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
             while (isActive) {
                 delay(1000)
-                _radarHz.value = radarFramesThisSec.toFloat()
+                val rHz = radarFramesThisSec.toFloat()
                 radarFramesThisSec = 0
+                if (_radarHz.value != rHz) _radarHz.value = rHz
 
-                _cameraFps.value = cameraFramesThisSec.toFloat()
+                val cFps = cameraFramesThisSec.toFloat()
                 cameraFramesThisSec = 0
+                if (_cameraFps.value != cFps) _cameraFps.value = cFps
 
-                _gnssHz.value = gnssFixesThisSec.toFloat()
+                val gHz = gnssFixesThisSec.toFloat()
                 gnssFixesThisSec = 0
+                if (_gnssHz.value != gHz) _gnssHz.value = gHz
 
                 // 1. Process CPU usage %
                 val curCpuTimeMs = android.os.Process.getElapsedCpuTime()
                 val curWallTimeMs = SystemClock.elapsedRealtime()
                 val dCpu = curCpuTimeMs - lastCpuTimeMs
                 val dWall = curWallTimeMs - lastWallTimeMs
+                var usage = _cpuUsagePct.value
                 if (dWall > 0) {
-                    val usage = ((dCpu.toFloat() / (dWall * numCores)) * 100f).toInt().coerceIn(0, 100)
-                    _cpuUsagePct.value = usage
+                    usage = ((dCpu.toFloat() / (dWall * numCores)) * 100f).toInt().coerceIn(0, 100)
+                    if (_cpuUsagePct.value != usage) _cpuUsagePct.value = usage
                 }
                 lastCpuTimeMs = curCpuTimeMs
                 lastWallTimeMs = curWallTimeMs
 
                 // 2. Battery telemetry
+                var batPct = _batteryPct.value
+                var batTemp = _batteryTempC.value
                 try {
                     val bIntent = application.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
                     if (bIntent != null) {
                         val level = bIntent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
                         val scale = bIntent.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)
                         if (level >= 0 && scale > 0) {
-                            _batteryPct.value = (level * 100 / scale.toFloat()).toInt()
+                            batPct = (level * 100 / scale.toFloat()).toInt()
+                            if (_batteryPct.value != batPct) _batteryPct.value = batPct
                         }
                         val tempTenths = bIntent.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0)
                         if (tempTenths > 0) {
-                            _batteryTempC.value = tempTenths / 10.0f
+                            batTemp = tempTenths / 10.0f
+                            if (_batteryTempC.value != batTemp) _batteryTempC.value = batTemp
                         }
                     }
                 } catch (_: Exception) {}
 
                 // 3. Hardware CPU temperature (if permitted by OEM device policy)
+                var cTemp = _cpuTempC.value
                 try {
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
                         val hpm = application.getSystemService(android.content.Context.HARDWARE_PROPERTIES_SERVICE) as? android.os.HardwarePropertiesManager
                         val temps = hpm?.getDeviceTemperatures(android.os.HardwarePropertiesManager.DEVICE_TEMPERATURE_CPU, android.os.HardwarePropertiesManager.TEMPERATURE_CURRENT)
                         if (temps != null && temps.isNotEmpty() && temps[0] > 0f && temps[0] < 120f) {
-                            _cpuTempC.value = temps[0]
+                            cTemp = temps[0]
+                            if (_cpuTempC.value != cTemp) _cpuTempC.value = cTemp
                         }
                     }
                 } catch (_: Exception) {}
+
+                val fix = gnssLocationManager.latestFix.value
+                val sync = syncAssociator.liveSyncTelemetry.value
+                val newSnapshot = LiveMetricsSnapshot(
+                    radarHz = rHz,
+                    cameraFps = cFps,
+                    gnssHz = gHz,
+                    imuHz = imuManager.imuHz.value,
+                    satellitesUsed = fix?.satellitesUsed ?: 0,
+                    satellitesInView = fix?.satellitesInView ?: 0,
+                    accuracyMeters = fix?.accuracyMeters ?: 0f,
+                    batteryPct = batPct,
+                    batteryTempC = batTemp,
+                    cpuUsagePct = usage,
+                    cpuTempC = cTemp,
+                    syncGrade = sync.liveGrade,
+                    syncDeltaMs = sync.camToImuDeltaMs,
+                    isSyncActive = sync.isCameraActive && sync.isImuActive
+                )
+                if (_liveMetricsSnapshot.value != newSnapshot) {
+                    _liveMetricsSnapshot.value = newSnapshot
+                }
             }
         }
 
@@ -346,21 +394,25 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                 val dt = ((now - lastTimeMs).coerceAtLeast(1L)) / 1000f
                 val curBytes = rawBytesReceivedCounter
                 val curPackets = rawPacketsReceivedCounter
-                val rateKbps = ((curBytes - lastBytes) / 1024f) / dt
+                val rateKbps = (((curBytes - lastBytes) / 1024f) / dt).coerceAtLeast(0f)
                 lastBytes = curBytes
                 lastTimeMs = now
 
-                _totalBytes.value = curBytes
-                _totalPackets.value = curPackets
-                _radarUiTelemetry.value = RadarUiTelemetry(
+                if (_totalBytes.value != curBytes) _totalBytes.value = curBytes
+                if (_totalPackets.value != curPackets) _totalPackets.value = curPackets
+
+                val nextTelemetry = RadarUiTelemetry(
                     totalBytes = curBytes,
                     totalPackets = curPackets,
                     pointsCount = latestPointsNum,
                     clustersCount = latestClustersNum,
                     tracksCount = latestTracksNum,
-                    dataRateKbps = rateKbps.coerceAtLeast(0f),
+                    dataRateKbps = rateKbps,
                     lastFrameSeq = latestFrameSeqNum
                 )
+                if (_radarUiTelemetry.value != nextTelemetry) {
+                    _radarUiTelemetry.value = nextTelemetry
+                }
             }
         }
 

@@ -1,13 +1,13 @@
 package com.bajajauto.roadsense.ui.screens
 
 import android.hardware.Sensor
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -15,14 +15,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.imu.ImuRatePreset
-import com.bajajauto.roadsense.imu.ImuSamplingBenchmark
 import com.bajajauto.roadsense.imu.ImuSensorCapability
-import com.bajajauto.roadsense.imu.ImuTelemetryState
 import com.bajajauto.roadsense.imu.SensorCategory
 import com.bajajauto.roadsense.ui.RadarViewModel
 import com.bajajauto.roadsense.ui.components.PhoneOrientation3DVisualizer
@@ -40,6 +39,10 @@ enum class ImuSubTab(val title: String) {
  * 1. Hardware sensor audit exposing all device physical and synthetic chips.
  * 2. Real-time sampling rate benchmarking and timing jitter analyzer.
  * 3. Live 3-axis accelerometer, gyroscope, and vehicle attitude monitor.
+ *
+ * State subscriptions (`imuCapabilities`, `imuBenchmarkStats`, `imuTelemetry`, `imuHz`)
+ * are isolated inside their respective sub-tab composables so the root `ImuDashboardCard`
+ * never recomposes on 25 Hz telemetry ticks.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,24 +50,17 @@ fun ImuDashboardCard(
     viewModel: RadarViewModel,
     modifier: Modifier = Modifier
 ) {
-    val capabilities by viewModel.imuCapabilities.collectAsState()
-    val benchmarkStats by viewModel.imuBenchmarkStats.collectAsState()
-    val telemetry by viewModel.imuTelemetry.collectAsState()
-    val imuHz by viewModel.imuHz.collectAsState()
-
     var selectedSubTab by remember { mutableStateOf(ImuSubTab.PROFILER) }
     var selectedCategoryFilter by remember { mutableStateOf<SensorCategory?>(null) }
     var selectedBenchmarkSensorType by remember { mutableStateOf(Sensor.TYPE_ACCELEROMETER) }
     var selectedRatePreset by remember { mutableStateOf(ImuRatePreset.RATE_100HZ) }
 
-
-    LazyColumn(
+    Column(
         modifier = modifier
             .fillMaxSize()
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item(key = "subtab_bar") {
         // --- 1. Master Sub-Tab Bar ---
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
@@ -100,37 +96,33 @@ fun ImuDashboardCard(
                 }
             }
         }
-        }
 
-        // --- SUB-TAB CONTENT ---
-        when (selectedSubTab) {
-            ImuSubTab.AUDIT -> {
-                sensorAuditItems(
-                    capabilities = capabilities,
-                    selectedCategory = selectedCategoryFilter,
-                    onSelectCategory = { selectedCategoryFilter = it },
-                    onRefresh = { viewModel.auditImuSensors() }
-                )
-            }
-            ImuSubTab.PROFILER -> {
-                rateProfilerItems(
-                    capabilities = capabilities,
-                    benchmarkStats = benchmarkStats,
-                    selectedSensorType = selectedBenchmarkSensorType,
-                    onSelectSensorType = { selectedBenchmarkSensorType = it },
-                    selectedPreset = selectedRatePreset,
-                    onSelectPreset = { selectedRatePreset = it },
-                    onStartBenchmark = { viewModel.startImuBenchmark(selectedBenchmarkSensorType, selectedRatePreset) },
-                    onStopBenchmark = { viewModel.stopImuBenchmark() }
-                )
-            }
-            ImuSubTab.TELEMETRY -> {
-                liveTelemetryItems(
-                    telemetry = telemetry,
-                    imuHz = imuHz,
-                    onStartMonitoring = { viewModel.startImuMonitoring() },
-                    onStopMonitoring = { viewModel.stopImuMonitoring() }
-                )
+        // --- SUB-TAB CONTENT (Isolated state subscriptions per sub-tab) ---
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            when (selectedSubTab) {
+                ImuSubTab.AUDIT -> {
+                    ImuAuditSubTab(
+                        viewModel = viewModel,
+                        selectedCategory = selectedCategoryFilter,
+                        onSelectCategory = { selectedCategoryFilter = it }
+                    )
+                }
+                ImuSubTab.PROFILER -> {
+                    ImuProfilerSubTab(
+                        viewModel = viewModel,
+                        selectedSensorType = selectedBenchmarkSensorType,
+                        onSelectSensorType = { selectedBenchmarkSensorType = it },
+                        selectedPreset = selectedRatePreset,
+                        onSelectPreset = { selectedRatePreset = it }
+                    )
+                }
+                ImuSubTab.TELEMETRY -> {
+                    ImuTelemetrySubTab(viewModel = viewModel)
+                }
             }
         }
     }
@@ -140,74 +132,90 @@ fun ImuDashboardCard(
 // SUB-TAB 1: SENSOR AUDIT
 // ==========================================
 
-private fun LazyListScope.sensorAuditItems(
-    capabilities: List<ImuSensorCapability>,
+@Composable
+private fun ImuAuditSubTab(
+    viewModel: RadarViewModel,
     selectedCategory: SensorCategory?,
-    onSelectCategory: (SensorCategory?) -> Unit,
-    onRefresh: () -> Unit
+    onSelectCategory: (SensorCategory?) -> Unit
 ) {
-    item(key = "audit_header") {
-        Card(
-            shape = RoundedCornerShape(2.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+    val capabilities by viewModel.imuCapabilities.collectAsState()
+    val categoryCounts = remember(capabilities) {
+        SensorCategory.values().associateWith { cat -> capabilities.count { it.category == cat } }
+    }
+    val filtered = remember(capabilities, selectedCategory) {
+        if (selectedCategory != null) {
+            capabilities.filter { it.category == selectedCategory }
+        } else {
+            capabilities
+        }
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        item(key = "audit_header") {
+            Card(
+                shape = RoundedCornerShape(2.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Column {
-                    Text(
-                        text = "Hardware Sensor Inventory",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = "${capabilities.size} sensors discovered via Android HAL",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                IconButton(onClick = onRefresh) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh Inventory")
-                }
-            }
-        }
-    }
-
-    item(key = "audit_chips") {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            FilterChip(
-                selected = selectedCategory == null,
-                onClick = { onSelectCategory(null) },
-                label = { Text("All (${capabilities.size})", fontSize = 11.sp) }
-            )
-            SensorCategory.values().forEach { cat ->
-                val count = capabilities.count { it.category == cat }
-                if (count > 0) {
-                    FilterChip(
-                        selected = selectedCategory == cat,
-                        onClick = { onSelectCategory(if (selectedCategory == cat) null else cat) },
-                        label = { Text("${cat.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }} ($count)", fontSize = 11.sp) }
-                    )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.clearAndSetSemantics {}) {
+                        Text(
+                            text = "Hardware Sensor Inventory",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${capabilities.size} sensors discovered via Android HAL",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    IconButton(onClick = { viewModel.auditImuSensors() }) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh Inventory")
+                    }
                 }
             }
         }
-    }
 
-    val filtered = if (selectedCategory != null) {
-        capabilities.filter { it.category == selectedCategory }
-    } else {
-        capabilities
-    }
+        item(key = "audit_chips") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                FilterChip(
+                    selected = selectedCategory == null,
+                    onClick = { onSelectCategory(null) },
+                    label = { Text("All (${capabilities.size})", fontSize = 11.sp) }
+                )
+                SensorCategory.values().forEach { cat ->
+                    val count = categoryCounts[cat] ?: 0
+                    if (count > 0) {
+                        FilterChip(
+                            selected = selectedCategory == cat,
+                            onClick = { onSelectCategory(if (selectedCategory == cat) null else cat) },
+                            label = {
+                                Text(
+                                    "${cat.name.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }} ($count)",
+                                    fontSize = 11.sp
+                                )
+                            }
+                        )
+                    }
+                }
+            }
+        }
 
-    items(filtered, key = { it.sensorType }) { cap ->
-        SensorCapabilityCard(cap = cap)
+        items(filtered, key = { it.sensorType }) { cap ->
+            SensorCapabilityCard(cap = cap)
+        }
     }
 }
 
@@ -216,7 +224,9 @@ private fun SensorCapabilityCard(cap: ImuSensorCapability) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(2.dp),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .clearAndSetSemantics {}
     ) {
         Column(
             modifier = Modifier
@@ -283,215 +293,222 @@ private fun DetailColumn(label: String, value: String) {
 // SUB-TAB 2: RATE PROFILER & JITTER ANALYZER
 // ==========================================
 
-private fun LazyListScope.rateProfilerItems(
-    capabilities: List<ImuSensorCapability>,
-    benchmarkStats: ImuSamplingBenchmark,
+@Composable
+private fun ImuProfilerSubTab(
+    viewModel: RadarViewModel,
     selectedSensorType: Int,
     onSelectSensorType: (Int) -> Unit,
     selectedPreset: ImuRatePreset,
-    onSelectPreset: (ImuRatePreset) -> Unit,
-    onStartBenchmark: () -> Unit,
-    onStopBenchmark: () -> Unit
+    onSelectPreset: (ImuRatePreset) -> Unit
 ) {
-    item(key = "profiler_target") {
-    // 1. Benchmark Target Selector
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth()
+    val benchmarkStats by viewModel.imuBenchmarkStats.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        // 1. Benchmark Target Selector
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Text(
-                text = "Target Sensor for Empirical Profiling",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-
-            // Primary sensor targets
-            val keySensors = listOf(
-                Sensor.TYPE_ACCELEROMETER to "LSM6DSL Accel",
-                Sensor.TYPE_GYROSCOPE to "LSM6DSL Gyro",
-                Sensor.TYPE_LINEAR_ACCELERATION to "Linear Accel (No g)",
-                Sensor.TYPE_GAME_ROTATION_VECTOR to "Game Rotation (6-DOF)"
-            )
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                keySensors.forEach { (type, label) ->
-                    val isSelected = selectedSensorType == type
-                    OutlinedButton(
-                        onClick = { onSelectSensorType(type) },
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
-                        ),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                        modifier = Modifier.weight(1f).height(34.dp)
-                    ) {
-                        Text(
-                            text = label,
-                            fontSize = 10.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            maxLines = 1
-                        )
-                    }
-                }
-            }
+                Text(
+                    text = "Target Sensor for Empirical Profiling",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold
+                )
 
-            Text(
-                text = "Requested Sampling Delay Preset",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
+                val keySensors = listOf(
+                    Sensor.TYPE_ACCELEROMETER to "LSM6DSL Accel",
+                    Sensor.TYPE_GYROSCOPE to "LSM6DSL Gyro",
+                    Sensor.TYPE_LINEAR_ACCELERATION to "Linear Accel (No g)",
+                    Sensor.TYPE_GAME_ROTATION_VECTOR to "Game Rotation (6-DOF)"
+                )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                ImuRatePreset.values().forEach { preset ->
-                    val isSelected = selectedPreset == preset
-                    Surface(
-                        selected = isSelected,
-                        onClick = { onSelectPreset(preset) },
-                        shape = RoundedCornerShape(2.dp),
-                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f).height(32.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    keySensors.forEach { (type, label) ->
+                        val isSelected = selectedSensorType == type
+                        OutlinedButton(
+                            onClick = { onSelectSensorType(type) },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent
+                            ),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.weight(1f).height(34.dp)
+                        ) {
                             Text(
-                                text = preset.label.substringBefore(" "),
+                                text = label,
                                 fontSize = 10.sp,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1
                             )
                         }
                     }
                 }
-            }
 
-            // Start / Stop Control Button
-            Button(
-                onClick = {
-                    if (benchmarkStats.isRunning) onStopBenchmark() else onStartBenchmark()
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = if (benchmarkStats.isRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                ),
-                modifier = Modifier.fillMaxWidth().height(42.dp)
-            ) {
-                Icon(
-                    imageVector = if (benchmarkStats.isRunning) Icons.Default.Stop else Icons.Default.PlayArrow,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (benchmarkStats.isRunning) "Stop Rate Benchmark" else "Start Sampling Benchmark",
+                    text = "Requested Sampling Delay Preset",
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    ImuRatePreset.values().forEach { preset ->
+                        val isSelected = selectedPreset == preset
+                        Surface(
+                            selected = isSelected,
+                            onClick = { onSelectPreset(preset) },
+                            shape = RoundedCornerShape(2.dp),
+                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                            contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.weight(1f).height(32.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    text = preset.label.substringBefore(" "),
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        if (benchmarkStats.isRunning) {
+                            viewModel.stopImuBenchmark()
+                        } else {
+                            viewModel.startImuBenchmark(selectedSensorType, selectedPreset)
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (benchmarkStats.isRunning) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier.fillMaxWidth().height(42.dp)
+                ) {
+                    Icon(
+                        imageVector = if (benchmarkStats.isRunning) Icons.Default.Stop else Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (benchmarkStats.isRunning) "Stop Rate Benchmark" else "Start Sampling Benchmark",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
-    }
 
-    }
-    item(key = "profiler_metrics") {
-    // 2. Real-Time Benchmark Metrics & Jitter KPI Cards
-    Card(
-        colors = CardDefaults.cardColors(
-            containerColor = if (benchmarkStats.isRunning) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
-        ),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
+        // 2. Real-Time Benchmark Metrics & Jitter KPI Cards
+        Card(
+            colors = CardDefaults.cardColors(
+                containerColor = if (benchmarkStats.isRunning) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceVariant
+            ),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .clearAndSetSemantics {}
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
-                    text = "Empirical Rate Measurement",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                if (benchmarkStats.isRunning) {
-                    Surface(color = Color(0xFF00E676), shape = RoundedCornerShape(2.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Empirical Rate Measurement",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (benchmarkStats.isRunning) {
+                        Surface(color = Color(0xFF00E676), shape = RoundedCornerShape(2.dp)) {
+                            Text(
+                                text = "● RUNNING (%.1fs)".format(benchmarkStats.durationSec),
+                                color = Color.Black,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    } else {
+                        Text(text = "IDLE", style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+
+                // Big KPI Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text(text = "MEASURED RATE", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(
-                            text = "● RUNNING (%.1fs)".format(benchmarkStats.durationSec),
-                            color = Color.Black,
-                            fontSize = 10.sp,
+                            text = "%.1f Hz".format(benchmarkStats.measuredHz),
+                            fontSize = 28.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            fontFamily = FontFamily.Monospace,
+                            color = if (benchmarkStats.measuredHz >= 90f) Color(0xFF00E676) else MaterialTheme.colorScheme.primary
                         )
                     }
-                } else {
-                    Text(text = "IDLE", style = MaterialTheme.typography.labelSmall)
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(text = "TIMING JITTER (σ)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            text = benchmarkStats.jitterFormatted,
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = if (benchmarkStats.jitterStdDevMs < 1.0f) Color(0xFF00E676) else Color(0xFFFFB300)
+                        )
+                    }
                 }
-            }
 
-            // Big KPI Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text(text = "MEASURED RATE", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
+
+                // Secondary Metrics
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    DetailColumn(label = "Mean Δt", value = "%.2f ms".format(benchmarkStats.meanIntervalMs))
+                    DetailColumn(label = "Min / Max Δt", value = benchmarkStats.intervalRangeFormatted)
+                    DetailColumn(label = "Total Samples", value = "%,d".format(benchmarkStats.totalSamples))
+                    DetailColumn(label = "Target", value = "%.0f Hz".format(selectedPreset.targetHz))
+                }
+
+                // HAL Cap Explanation Pill
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(2.dp)
+                ) {
                     Text(
-                        text = "%.1f Hz".format(benchmarkStats.measuredHz),
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = if (benchmarkStats.measuredHz >= 90f) Color(0xFF00E676) else MaterialTheme.colorScheme.primary
+                        text = "Hardware Observation: Samsung Exynos sensor HAL enforces an upper rate cap of 100.00 Hz (minDelay = 10,000 µs) on the STMicroelectronics LSM6DSL chip.",
+                        fontSize = 10.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(8.dp)
                     )
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(text = "TIMING JITTER (σ)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        text = benchmarkStats.jitterFormatted,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = if (benchmarkStats.jitterStdDevMs < 1.0f) Color(0xFF00E676) else Color(0xFFFFB300)
-                    )
-                }
-            }
-
-            HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
-
-            // Secondary Metrics
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                DetailColumn(label = "Mean Δt", value = "%.2f ms".format(benchmarkStats.meanIntervalMs))
-                DetailColumn(label = "Min / Max Δt", value = benchmarkStats.intervalRangeFormatted)
-                DetailColumn(label = "Total Samples", value = "%,d".format(benchmarkStats.totalSamples))
-                DetailColumn(label = "Target", value = "%.0f Hz".format(selectedPreset.targetHz))
-            }
-
-            // HAL Cap Explanation Pill
-            Surface(
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(2.dp)
-            ) {
-                Text(
-                    text = "Hardware Observation: Samsung Exynos sensor HAL enforces an upper rate cap of 100.00 Hz (minDelay = 10,000 µs) on the STMicroelectronics LSM6DSL chip.",
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(8.dp)
-                )
             }
         }
-    }
     }
 }
 
@@ -499,144 +516,148 @@ private fun LazyListScope.rateProfilerItems(
 // SUB-TAB 3: LIVE TELEMETRY VISUALIZER
 // ==========================================
 
-private fun LazyListScope.liveTelemetryItems(
-    telemetry: ImuTelemetryState,
-    imuHz: Float,
-    onStartMonitoring: () -> Unit,
-    onStopMonitoring: () -> Unit
+@Composable
+private fun ImuTelemetrySubTab(
+    viewModel: RadarViewModel
 ) {
-    item(key = "telemetry_controls") {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text(
-                    text = "Multi-Sensor Live Stream",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = if (telemetry.isMonitoring) "Streaming at %.1f Hz (Throttled 25Hz UI)".format(imuHz) else "Monitoring Stopped",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (telemetry.isMonitoring) Color(0xFF00E676) else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+    val telemetry by viewModel.imuTelemetry.collectAsState()
+    val imuHz by viewModel.imuHz.collectAsState()
 
-            Switch(
-                checked = telemetry.isMonitoring,
-                onCheckedChange = { enable ->
-                    if (enable) onStartMonitoring() else onStopMonitoring()
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.clearAndSetSemantics {}) {
+                    Text(
+                        text = "Multi-Sensor Live Stream",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (telemetry.isMonitoring) "Streaming at %.1f Hz (Throttled 25Hz UI)".format(imuHz) else "Monitoring Stopped",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (telemetry.isMonitoring) Color(0xFF00E676) else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-            )
+
+                Switch(
+                    checked = telemetry.isMonitoring,
+                    onCheckedChange = { enable ->
+                        if (enable) viewModel.startImuMonitoring() else viewModel.stopImuMonitoring()
+                    }
+                )
+            }
         }
-    }
 
-    }
-    item(key = "telemetry_attitude") {
-    PhoneOrientation3DVisualizer(telemetry = telemetry)
-    }
+        PhoneOrientation3DVisualizer(telemetry = telemetry)
 
-    item(key = "telemetry_accel") {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+                .clearAndSetSemantics {}
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Raw Accel (with 1g)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "|a| = %.2f m/s²".format(telemetry.rawAccel[3]),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                AxisBarRow(label = "X (Lateral)", value = telemetry.rawAccel[0], maxRange = 20f)
+                AxisBarRow(label = "Y (Longitudinal)", value = telemetry.rawAccel[1], maxRange = 20f)
+                AxisBarRow(label = "Z (Vertical)", value = telemetry.rawAccel[2], maxRange = 20f)
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Linear Accel (without g)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "|a_lin| = %.2f m/s²".format(telemetry.linearAccel[3]),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp,
+                        color = Color(0xFF00E676)
+                    )
+                }
+                AxisBarRow(label = "X (Cornering)", value = telemetry.linearAccel[0], maxRange = 10f)
+                AxisBarRow(label = "Y (Brake / Gas)", value = telemetry.linearAccel[1], maxRange = 10f)
+                AxisBarRow(label = "Z (Bump / Dip)", value = telemetry.linearAccel[2], maxRange = 10f)
+            }
+        }
+
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clearAndSetSemantics {}
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text(
-                    text = "Raw Accel (with 1g)",
+                    text = "Gyroscope Angular Velocity (LSM6DSL)",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
-                Text(
-                    text = "|a| = %.2f m/s²".format(telemetry.rawAccel[3]),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            AxisBarRow(label = "X (Lateral)", value = telemetry.rawAccel[0], maxRange = 20f)
-            AxisBarRow(label = "Y (Longitudinal)", value = telemetry.rawAccel[1], maxRange = 20f)
-            AxisBarRow(label = "Z (Vertical)", value = telemetry.rawAccel[2], maxRange = 20f)
+                AxisBarRow(label = "Roll Rate (ωx)", value = telemetry.gyroRates[0], unit = "°/s", maxRange = 100f)
+                AxisBarRow(label = "Pitch Rate (ωy)", value = telemetry.gyroRates[1], unit = "°/s", maxRange = 100f)
+                AxisBarRow(label = "Yaw Rate (ωz)", value = telemetry.gyroRates[2], unit = "°/s", maxRange = 100f)
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
                 Text(
-                    text = "Linear Accel (without g)",
+                    text = "Vehicle Attitude (Game Rotation Vector 6-DOF)",
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
-                Text(
-                    text = "|a_lin| = %.2f m/s²".format(telemetry.linearAccel[3]),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
-                    color = Color(0xFF00E676)
-                )
-            }
-            AxisBarRow(label = "X (Cornering)", value = telemetry.linearAccel[0], maxRange = 10f)
-            AxisBarRow(label = "Y (Brake / Gas)", value = telemetry.linearAccel[1], maxRange = 10f)
-            AxisBarRow(label = "Z (Bump / Dip)", value = telemetry.linearAccel[2], maxRange = 10f)
-        }
-    }
-
-    }
-    item(key = "telemetry_gyro") {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "Gyroscope Angular Velocity (LSM6DSL)",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-            AxisBarRow(label = "Roll Rate (ωx)", value = telemetry.gyroRates[0], unit = "°/s", maxRange = 100f)
-            AxisBarRow(label = "Pitch Rate (ωy)", value = telemetry.gyroRates[1], unit = "°/s", maxRange = 100f)
-            AxisBarRow(label = "Yaw Rate (ωz)", value = telemetry.gyroRates[2], unit = "°/s", maxRange = 100f)
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-
-            Text(
-                text = "Vehicle Attitude (Game Rotation Vector 6-DOF)",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.Bold
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                AttitudeGauge(label = "PITCH (Grade)", angleDeg = telemetry.pitchDeg)
-                AttitudeGauge(label = "ROLL (Bank)", angleDeg = telemetry.rollDeg)
-                AttitudeGauge(label = "YAW (Relative)", angleDeg = telemetry.yawDeg)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    AttitudeGauge(label = "PITCH (Grade)", angleDeg = telemetry.pitchDeg)
+                    AttitudeGauge(label = "ROLL (Bank)", angleDeg = telemetry.rollDeg)
+                    AttitudeGauge(label = "YAW (Relative)", angleDeg = telemetry.yawDeg)
+                }
             }
         }
-    }
     }
 }
 
@@ -649,7 +670,9 @@ private fun AxisBarRow(
 ) {
     val fraction = (abs(value) / maxRange).coerceIn(0f, 1f)
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clearAndSetSemantics {},
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(text = label, fontSize = 11.sp, modifier = Modifier.width(110.dp))
@@ -686,6 +709,7 @@ private fun AttitudeGauge(label: String, angleDeg: Float) {
         modifier = Modifier
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
             .padding(horizontal = 12.dp, vertical = 8.dp)
+            .clearAndSetSemantics {}
     ) {
         Text(text = label, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(

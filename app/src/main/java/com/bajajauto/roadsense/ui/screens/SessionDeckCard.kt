@@ -1,22 +1,22 @@
 package com.bajajauto.roadsense.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.shape.RoundedCornerShape
-import com.bajajauto.roadsense.recording.SessionSyncAuditor
-import com.bajajauto.roadsense.recording.SessionInfo
 import com.bajajauto.roadsense.recording.SessionRecordingState
 import com.bajajauto.roadsense.ui.RadarViewModel
 
@@ -37,21 +37,21 @@ fun SessionDeckCard(
     var copyNotice by remember { mutableStateOf(false) }
 
     val currentSessionState = sessionState ?: viewModel.sessionRecordingState.collectAsState().value
-    val sessionState = currentSessionState
+    val sessionStateVal = currentSessionState
     val actualGnssFixes = if (liveGnssFixes > 0L) liveGnssFixes else viewModel.gnssSessionFixes.collectAsState().value
     val actualCameraFrames = if (liveCameraFrames > 0L) liveCameraFrames else viewModel.cameraSessionFrames.collectAsState().value
 
-    LazyColumn(
+    Column(
         modifier = modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        item(key = "status") {
         // Session Status & Control Card
         Card(
             colors = CardDefaults.cardColors(
-                containerColor = when (sessionState) {
+                containerColor = when (sessionStateVal) {
                     is SessionRecordingState.Recording -> MaterialTheme.colorScheme.errorContainer
                     is SessionRecordingState.Finished -> MaterialTheme.colorScheme.secondaryContainer
                     else -> MaterialTheme.colorScheme.surfaceVariant
@@ -69,69 +69,74 @@ fun SessionDeckCard(
                     fontWeight = FontWeight.Bold
                 )
 
-                when (sessionState) {
-                    is SessionRecordingState.Idle -> {
-                        Text(
-                            text = "Status: Idle (Ready to record)",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = "Synchronized streams (Radar, GNSS, Camera) will be written with hardware monotonic timestamps into an isolated session directory.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.Gray
-                        )
-                    }
-                    is SessionRecordingState.Recording -> {
-                        Text(
-                            text = "● RECORDING SESSION IN PROGRESS",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.error,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Text(
-                            text = "Session ID: ${sessionState.sessionInfo.sessionId}",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Text(
-                            text = "Radar Frames: ${sessionState.framesRecorded} (${sessionState.bytesRecorded / 1024} KB)",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = "GNSS Fixes: $actualGnssFixes fixes logged",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = "Camera Frames: $actualCameraFrames frames logged (H.264 MP4)",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = "Duration: ${sessionState.durationMs / 1000}s",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                    is SessionRecordingState.Finished -> {
-                        Text(
-                            text = "✓ Session Successfully Closed",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "Saved ${sessionState.totalFrames} radar frames, ${sessionState.totalGnssFixes} GNSS fixes, and ${sessionState.totalCameraFrames} camera frames in ${sessionState.durationMs / 1000}s",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = "Session ID: ${sessionState.sessionInfo.sessionId}",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                    is SessionRecordingState.Error -> {
-                        Text(
-                            text = "Recording Error: ${sessionState.message}",
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                Column(
+                    modifier = Modifier.clearAndSetSemantics {},
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    when (sessionStateVal) {
+                        is SessionRecordingState.Idle -> {
+                            Text(
+                                text = "Status: Idle (Ready to record)",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = "Synchronized streams (Radar, GNSS, Camera) will be written with hardware monotonic timestamps into an isolated session directory.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color.Gray
+                            )
+                        }
+                        is SessionRecordingState.Recording -> {
+                            Text(
+                                text = "● RECORDING SESSION IN PROGRESS",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.error,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "Session ID: ${sessionStateVal.sessionInfo.sessionId}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                text = "Radar Frames: ${sessionStateVal.framesRecorded} (${sessionStateVal.bytesRecorded / 1024} KB)",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = "GNSS Fixes: $actualGnssFixes fixes logged",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = "Camera Frames: $actualCameraFrames frames logged (H.264 MP4)",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = "Duration: ${sessionStateVal.durationMs / 1000}s",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        is SessionRecordingState.Finished -> {
+                            Text(
+                                text = "✓ Session Successfully Closed",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Text(
+                                text = "Saved ${sessionStateVal.totalFrames} radar frames, ${sessionStateVal.totalGnssFixes} GNSS fixes, and ${sessionStateVal.totalCameraFrames} camera frames in ${sessionStateVal.durationMs / 1000}s",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                text = "Session ID: ${sessionStateVal.sessionInfo.sessionId}",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        is SessionRecordingState.Error -> {
+                            Text(
+                                text = "Recording Error: ${sessionStateVal.message}",
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
                     }
                 }
 
@@ -144,15 +149,15 @@ fun SessionDeckCard(
                             copyNotice = false
                             viewModel.startSessionRecording()
                         },
-                        enabled = sessionState !is SessionRecordingState.Recording,
+                        enabled = sessionStateVal !is SessionRecordingState.Recording,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(if (sessionState is SessionRecordingState.Finished) "New Session" else "Start Session")
+                        Text(if (sessionStateVal is SessionRecordingState.Finished) "New Session" else "Start Session")
                     }
 
                     OutlinedButton(
                         onClick = { viewModel.stopSessionRecording() },
-                        enabled = sessionState is SessionRecordingState.Recording,
+                        enabled = sessionStateVal is SessionRecordingState.Recording,
                         modifier = Modifier.weight(1f)
                     ) {
                         Text("Stop Session")
@@ -161,16 +166,16 @@ fun SessionDeckCard(
             }
         }
 
-        }
         // Session Sync & Sensor Health Scorecard
-        if (sessionState is SessionRecordingState.Finished) {
-            item(key = "scorecard") {
-            val audit = sessionState.sessionInfo.syncAuditResult ?: viewModel.latestSessionAudit.collectAsState().value
+        if (sessionStateVal is SessionRecordingState.Finished) {
+            val audit = sessionStateVal.sessionInfo.syncAuditResult ?: viewModel.latestSessionAudit.collectAsState().value
 
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF161B22)),
                 border = BorderStroke(1.dp, Color(0xFF30363D)),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clearAndSetSemantics {}
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -241,10 +246,10 @@ fun SessionDeckCard(
                                     text = "• Camera: ${"%.1f".format(audit.cameraStats.effectiveRateHz)} FPS (${audit.cameraStats.totalCount} frames, ${audit.cameraStats.anomalyCount} drops)",
                                     fontSize = 11.sp,
                                     color = when {
-                                        audit.cameraStats.anomalyCount == 0 -> Color(0xFF3FB950) // Green
-                                        audit.cameraStats.anomalyCount <= 1 -> Color(0xFF69F0AE) // Soft Green / Nominal startup pause
-                                        audit.cameraStats.anomalyCount <= 3 -> Color(0xFFFFB300) // Amber / Moderate drops
-                                        else -> Color(0xFFFF5252)                                // Red / Critical drops
+                                        audit.cameraStats.anomalyCount == 0 -> Color(0xFF3FB950)
+                                        audit.cameraStats.anomalyCount <= 1 -> Color(0xFF69F0AE)
+                                        audit.cameraStats.anomalyCount <= 3 -> Color(0xFFFFB300)
+                                        else -> Color(0xFFFF5252)
                                     }
                                 )
                             }
@@ -307,70 +312,69 @@ fun SessionDeckCard(
                     }
                 }
             }
-            }
         }
 
         // ADB Pull & CLI Tools Quick-Action Card
-        if (sessionState is SessionRecordingState.Finished) {
-            item(key = "adb") {
-                val sessionDir = sessionState.sessionInfo.sessionDir.absolutePath
-                val adbCmd = "adb pull \"$sessionDir\" ."
-                val inspectCmd = "python tools/inspect_session.py ${sessionState.sessionInfo.sessionId}"
+        if (sessionStateVal is SessionRecordingState.Finished) {
+            val sessionDir = sessionStateVal.sessionInfo.sessionDir.absolutePath
+            val adbCmd = "adb pull \"$sessionDir\" ."
+            val inspectCmd = "python tools/inspect_session.py ${sessionStateVal.sessionInfo.sessionId}"
 
-                Card(
-                    shape = RoundedCornerShape(2.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                    modifier = Modifier.fillMaxWidth()
+            Card(
+                shape = RoundedCornerShape(2.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    Text(text = "Download & Inspect Commands", style = MaterialTheme.typography.titleSmall)
+
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(2.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clearAndSetSemantics {}
                     ) {
-                        Text(text = "Download & Inspect Commands", style = MaterialTheme.typography.titleSmall)
-
-                        Surface(
-                            color = Color.Black.copy(alpha = 0.85f),
-                            shape = RoundedCornerShape(2.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(10.dp)) {
-                                Text(text = adbCmd, color = Color.Green, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(text = inspectCmd, color = Color.Cyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                            }
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(text = adbCmd, color = Color.Green, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = inspectCmd, color = Color.Cyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                         }
+                    }
 
-                        Button(
-                            onClick = {
-                                clipboardManager.setText(AnnotatedString(adbCmd))
-                                copyNotice = true
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(if (copyNotice) "Copied ADB Command!" else "Copy ADB Pull Command")
-                        }
+                    Button(
+                        onClick = {
+                            clipboardManager.setText(AnnotatedString(adbCmd))
+                            copyNotice = true
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(if (copyNotice) "Copied ADB Command!" else "Copy ADB Pull Command")
                     }
                 }
             }
         }
 
-        item(key = "structure") {
-            // Active Stream Architecture Map
-            Card(
-                shape = RoundedCornerShape(2.dp),
-                modifier = Modifier.fillMaxWidth()
+        // Active Stream Architecture Map
+        Card(
+            shape = RoundedCornerShape(2.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clearAndSetSemantics {}
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(text = "Multi-Sensor Storage Structure", style = MaterialTheme.typography.titleSmall)
-                    Text(text = "• radar/radar_frames.bin (24-byte ROAD sync header)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                    Text(text = "• radar/radar_raw_stream.bin (Uninterrupted UART)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                    Text(text = "• gnss/gnss_fixes.csv (WGS84, speed, accuracy, sats)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                    Text(text = "• session_timeline.csv (Master microsecond alignment)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                    Text(text = "• session_metadata.json (Hardware & run descriptor)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
-                }
+                Text(text = "Multi-Sensor Storage Structure", style = MaterialTheme.typography.titleSmall)
+                Text(text = "• radar/radar_frames.bin (24-byte ROAD sync header)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                Text(text = "• radar/radar_raw_stream.bin (Uninterrupted UART)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                Text(text = "• gnss/gnss_fixes.csv (WGS84, speed, accuracy, sats)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                Text(text = "• session_timeline.csv (Master microsecond alignment)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+                Text(text = "• session_metadata.json (Hardware & run descriptor)", style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
             }
         }
     }

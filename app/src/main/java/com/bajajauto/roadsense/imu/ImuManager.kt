@@ -436,10 +436,10 @@ class ImuManager(private val context: Context) {
                         val cameraPitchDeg = Math.toDegrees(cameraPitchRad.toDouble()).toFloat()
 
                         val lateralRollRad = when (cachedDisplayRotation) {
-                            Surface.ROTATION_270 -> -asin(R[7].coerceIn(-1f, 1f))
-                            Surface.ROTATION_90 -> asin(R[7].coerceIn(-1f, 1f))
-                            Surface.ROTATION_180 -> asin(R[6].coerceIn(-1f, 1f))
-                            else -> -asin(R[6].coerceIn(-1f, 1f))
+                            Surface.ROTATION_270 -> asin(R[7].coerceIn(-1f, 1f))
+                            Surface.ROTATION_90 -> -asin(R[7].coerceIn(-1f, 1f))
+                            Surface.ROTATION_180 -> -asin(R[6].coerceIn(-1f, 1f))
+                            else -> asin(R[6].coerceIn(-1f, 1f))
                         }
                         val lateralRollDeg = Math.toDegrees(lateralRollRad.toDouble()).toFloat()
 

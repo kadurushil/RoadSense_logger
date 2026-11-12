@@ -1,29 +1,42 @@
 package com.bajajauto.roadsense.ui.components
 
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.gnss.GnssFix
 import com.bajajauto.roadsense.sync.LiveSyncTelemetry
+import com.bajajauto.roadsense.ui.LiveMetricsSnapshot
 import com.bajajauto.roadsense.ui.RadarViewModel
+import java.util.Locale
+
+private class HudHitBounds {
+    var syncLeft: Float = 0f
+    var syncRight: Float = 0f
+    var syncTop: Float = 0f
+    var syncBottom: Float = 0f
+}
 
 /**
- * Self-contained ViewModel-driven LiveMetricsBar:
- * Collects high-frequency sensor rates (Radar Hz, Camera FPS, GNSS Hz, IMU Hz, thermals, battery, sync)
- * internally so that top-level screen containers (e.g. RoadSenseCockpitScreen) do NOT recompose on every ticker update.
+ * Single-Node Direct Canvas LiveMetricsBar:
+ * - Reads `liveMetricsSnapshot` strictly inside the `Canvas` draw phase so 1 Hz system ticks
+ *   bypass Compose Recomposition, Measure, Layout, and Accessibility/Semantics tree walks (`0 ms` layout cost).
+ * - Uses pre-allocated `android.graphics.Paint` objects (`0` allocations per tick).
+ * - Applies `Modifier.clearAndSetSemantics {}` to eliminate `checkForSemanticsChanges` stalls.
  */
 @Composable
 fun LiveMetricsBar(
@@ -31,38 +44,14 @@ fun LiveMetricsBar(
     onSyncClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val radarHz by viewModel.radarHz.collectAsState()
-    val cameraFps by viewModel.cameraFps.collectAsState()
-    val gnssHz by viewModel.gnssHz.collectAsState()
-    val imuHz by viewModel.imuHz.collectAsState()
-    val latestFix by viewModel.latestGnssFix.collectAsState()
-    val batteryPct by viewModel.batteryPct.collectAsState()
-    val batteryTempC by viewModel.batteryTempC.collectAsState()
-    val cpuUsagePct by viewModel.cpuUsagePct.collectAsState()
-    val cpuTempC by viewModel.cpuTempC.collectAsState()
-    val syncTelemetry by viewModel.liveSyncTelemetry.collectAsState()
-
-    LiveMetricsBar(
-        radarHz = radarHz,
-        cameraFps = cameraFps,
-        gnssHz = gnssHz,
-        imuHz = imuHz,
-        latestFix = latestFix,
-        batteryPct = batteryPct,
-        batteryTempC = batteryTempC,
-        cpuUsagePct = cpuUsagePct,
-        cpuTempC = cpuTempC,
-        syncTelemetry = syncTelemetry,
+    val snapshotState = viewModel.liveMetricsSnapshot.collectAsState()
+    LiveMetricsCanvasHud(
+        snapshotProvider = { snapshotState.value },
         onSyncClick = onSyncClick,
         modifier = modifier
     )
 }
 
-/**
- * High-density live telemetry ticker for in-vehicle testing.
- * - Landscape: Single continuous horizontal row.
- * - Portrait: Two neat, compact lines (Sensors on Line 1; GNSS precision & Battery/Thermals on Line 2).
- */
 @Composable
 fun LiveMetricsBar(
     radarHz: Float,
@@ -78,231 +67,210 @@ fun LiveMetricsBar(
     onSyncClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-    val syncColor = when (syncTelemetry.liveGrade) {
-        "GOLD" -> Color(0xFF00E676)
-        "SILVER" -> Color(0xFF69F0AE)
-        "WARN" -> Color(0xFFFFB300)
-        "STALL", "ERROR" -> Color(0xFFFF5252)
-        else -> Color(0xFF78909C)
-    }
-    val syncValue = if (syncTelemetry.isCameraActive && syncTelemetry.isImuActive) {
-        "${"%.1f".format(syncTelemetry.camToImuDeltaMs)}ms"
-    } else {
-        "IDLE"
-    }
-
-    Surface(
-        color = Color(0xFF0D1117),
-        shape = RoundedCornerShape(4.dp),
-        modifier = modifier.fillMaxWidth()
-    ) {
-        if (isLandscape) {
-            // --- LANDSCAPE: Single slim row ---
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Sensor Hz rates + SYNC
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    MetricPill(
-                        label = "RADAR",
-                        value = "${"%.1f".format(radarHz)} Hz",
-                        color = if (radarHz > 15f) Color(0xFF00E676) else if (radarHz > 0f) Color(0xFFFFB300) else Color(0xFF78909C)
-                    )
-                    MetricPill(
-                        label = "CAM",
-                        value = "${"%.1f".format(cameraFps)} fps",
-                        color = if (cameraFps > 20f) Color(0xFF00E676) else if (cameraFps > 0f) Color(0xFFFFB300) else Color(0xFF78909C)
-                    )
-                    MetricPill(
-                        label = "GPS",
-                        value = "${"%.1f".format(gnssHz)} Hz",
-                        color = if (gnssHz > 0.5f) Color(0xFF00E676) else Color(0xFF78909C)
-                    )
-                    MetricPill(
-                        label = "IMU",
-                        value = "${"%.1f".format(imuHz)} Hz",
-                        color = if (imuHz > 80f) Color(0xFF00E676) else if (imuHz > 0f) Color(0xFFFFB300) else Color(0xFF78909C)
-                    )
-                    MetricPill(
-                        label = "SYNC",
-                        value = syncValue,
-                        color = syncColor,
-                        onClick = onSyncClick
-                    )
-                }
-
-                // GNSS Satellites & Accuracy
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    MetricPill(
-                        label = "SVs",
-                        value = "${latestFix?.satellitesUsed ?: 0}/${latestFix?.satellitesInView ?: 0}",
-                        color = if ((latestFix?.satellitesUsed ?: 0) >= 6) Color(0xFF00E676) else Color(0xFFFFB300)
-                    )
-                    if (latestFix != null && latestFix.accuracyMeters > 0f) {
-                        MetricPill(
-                            label = "ACC",
-                            value = "±${"%.1f".format(latestFix.accuracyMeters)}m",
-                            color = if (latestFix.accuracyMeters <= 2.5f) Color(0xFF00E676) else Color(0xFFFFB300)
-                        )
-                    }
-                }
-
-                // Battery & Device Thermal & CPU
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    MetricPill(
-                        label = "CPU",
-                        value = if (cpuTempC != null) "$cpuUsagePct% ${"%.0f".format(cpuTempC)}°C" else "$cpuUsagePct%",
-                        color = if (cpuUsagePct > 80) Color(0xFFFF5252) else if (cpuUsagePct > 40) Color(0xFFFFB300) else Color(0xFF00E676)
-                    )
-                    BatteryTempBadge(batteryPct = batteryPct, batteryTempC = batteryTempC)
-                }
-            }
-        } else {
-            // --- PORTRAIT: Exactly two compact rows under each other ---
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                // Line 1: Real-time sensor frequencies
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    MetricPill(
-                        label = "RADAR",
-                        value = "${"%.1f".format(radarHz)} Hz",
-                        color = if (radarHz > 15f) Color(0xFF00E676) else if (radarHz > 0f) Color(0xFFFFB300) else Color(0xFF78909C)
-                    )
-                    MetricPill(
-                        label = "CAM",
-                        value = "${"%.1f".format(cameraFps)} fps",
-                        color = if (cameraFps > 20f) Color(0xFF00E676) else if (cameraFps > 0f) Color(0xFFFFB300) else Color(0xFF78909C)
-                    )
-                    MetricPill(
-                        label = "GPS",
-                        value = "${"%.1f".format(gnssHz)} Hz",
-                        color = if (gnssHz > 0.5f) Color(0xFF00E676) else Color(0xFF78909C)
-                    )
-                    MetricPill(
-                        label = "IMU",
-                        value = "${"%.1f".format(imuHz)} Hz",
-                        color = if (imuHz > 80f) Color(0xFF00E676) else if (imuHz > 0f) Color(0xFFFFB300) else Color(0xFF78909C)
-                    )
-                    MetricPill(
-                        label = "SYNC",
-                        value = syncValue,
-                        color = syncColor,
-                        onClick = onSyncClick
-                    )
-                }
-
-                // Line 2: GNSS precision & CPU & Battery / Thermals
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        MetricPill(
-                            label = "SVs",
-                            value = "${latestFix?.satellitesUsed ?: 0}/${latestFix?.satellitesInView ?: 0}",
-                            color = if ((latestFix?.satellitesUsed ?: 0) >= 6) Color(0xFF00E676) else Color(0xFFFFB300)
-                        )
-                        if (latestFix != null && latestFix.accuracyMeters > 0f) {
-                            MetricPill(
-                                label = "ACC",
-                                value = "±${"%.1f".format(latestFix.accuracyMeters)}m",
-                                color = if (latestFix.accuracyMeters <= 2.5f) Color(0xFF00E676) else Color(0xFFFFB300)
-                            )
-                        }
-                    }
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        MetricPill(
-                            label = "CPU",
-                            value = if (cpuTempC != null) "$cpuUsagePct% ${"%.0f".format(cpuTempC)}°C" else "$cpuUsagePct%",
-                            color = if (cpuUsagePct > 80) Color(0xFFFF5252) else if (cpuUsagePct > 40) Color(0xFFFFB300) else Color(0xFF00E676)
-                        )
-                        BatteryTempBadge(batteryPct = batteryPct, batteryTempC = batteryTempC)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BatteryTempBadge(
-    batteryPct: Int,
-    batteryTempC: Float
-) {
-    val tempColor = when {
-        batteryTempC >= 45f -> Color(0xFFFF5252) // Overheating warning
-        batteryTempC >= 40f -> Color(0xFFFFB300) // Warm
-        else -> Color(0xFF80D8FF)               // Normal
-    }
-    Text(
-        text = "🔋 $batteryPct% • ${"%.1f".format(batteryTempC)}°C",
-        color = tempColor,
-        fontSize = 10.sp,
-        fontWeight = FontWeight.Bold,
-        fontFamily = FontFamily.Monospace,
-        maxLines = 1,
-        softWrap = false
+    val snap = LiveMetricsSnapshot(
+        radarHz = radarHz,
+        cameraFps = cameraFps,
+        gnssHz = gnssHz,
+        imuHz = imuHz,
+        satellitesUsed = latestFix?.satellitesUsed ?: 0,
+        satellitesInView = latestFix?.satellitesInView ?: 0,
+        accuracyMeters = latestFix?.accuracyMeters ?: 0f,
+        batteryPct = batteryPct,
+        batteryTempC = batteryTempC,
+        cpuUsagePct = cpuUsagePct,
+        cpuTempC = cpuTempC,
+        syncGrade = syncTelemetry.liveGrade,
+        syncDeltaMs = syncTelemetry.camToImuDeltaMs,
+        isSyncActive = syncTelemetry.isCameraActive && syncTelemetry.isImuActive
+    )
+    LiveMetricsCanvasHud(
+        snapshotProvider = { snap },
+        onSyncClick = onSyncClick,
+        modifier = modifier
     )
 }
 
 @Composable
-private fun MetricPill(
-    label: String,
-    value: String,
-    color: Color,
-    onClick: (() -> Unit)? = null
+private fun LiveMetricsCanvasHud(
+    snapshotProvider: () -> LiveMetricsSnapshot,
+    onSyncClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val density = LocalDensity.current.density
+    val scaledDensity = LocalDensity.current.fontScale * density
+
+    val bgPaint = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF0D1117.toInt()
+            style = Paint.Style.FILL
+        }
+    }
+    val labelPaint = remember(scaledDensity) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xFF90A4AE.toInt()
+            textSize = 9.5f * scaledDensity
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+    }
+    val valuePaint = remember(scaledDensity) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 10.2f * scaledDensity
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        }
+    }
+    val bgRect = remember { RectF() }
+    val hitBounds = remember { HudHitBounds() }
+
+    val barHeight = if (isLandscape) 24.dp else 42.dp
+
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(barHeight)
+            .clearAndSetSemantics {}
+            .pointerInput(onSyncClick) {
+                detectTapGestures { offset ->
+                    if (offset.x in hitBounds.syncLeft..hitBounds.syncRight &&
+                        offset.y in hitBounds.syncTop..hitBounds.syncBottom
+                    ) {
+                        onSyncClick()
+                    }
+                }
+            }
+            .graphicsLayer()
     ) {
-        Text(
-            text = label,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF90A4AE),
-            maxLines = 1,
-            softWrap = false
-        )
-        Text(
-            text = value,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = color,
-            fontFamily = FontFamily.Monospace,
-            maxLines = 1,
-            softWrap = false
-        )
+        val snap = snapshotProvider()
+        val nc = drawContext.canvas.nativeCanvas
+        val w = size.width
+        val h = size.height
+        val cornerPx = 4f * density
+        bgRect.set(0f, 0f, w, h)
+        nc.drawRoundRect(bgRect, cornerPx, cornerPx, bgPaint)
+
+        val padX = 8f * density
+        val pillGap = 10f * density
+        val labelValGap = 3.5f * density
+
+        val colorGreen = 0xFF00E676.toInt()
+        val colorMint = 0xFF69F0AE.toInt()
+        val colorAmber = 0xFFFFB300.toInt()
+        val colorRed = 0xFFFF5252.toInt()
+        val colorMuted = 0xFF78909C.toInt()
+        val colorCyan = 0xFF80D8FF.toInt()
+
+        val radarColor = if (snap.radarHz > 15f) colorGreen else if (snap.radarHz > 0f) colorAmber else colorMuted
+        val camColor = if (snap.cameraFps > 20f) colorGreen else if (snap.cameraFps > 0f) colorAmber else colorMuted
+        val gpsColor = if (snap.gnssHz > 0.5f) colorGreen else colorMuted
+        val imuColor = if (snap.imuHz > 80f) colorGreen else if (snap.imuHz > 0f) colorAmber else colorMuted
+        val syncColor = when (snap.syncGrade) {
+            "GOLD" -> colorGreen
+            "SILVER" -> colorMint
+            "WARN" -> colorAmber
+            "STALL", "ERROR" -> colorRed
+            else -> colorMuted
+        }
+        val syncText = if (snap.isSyncActive) {
+            String.format(Locale.US, "%.1fms", snap.syncDeltaMs)
+        } else {
+            "IDLE"
+        }
+
+        val svColor = if (snap.satellitesUsed >= 6) colorGreen else colorAmber
+        val svText = "${snap.satellitesUsed}/${snap.satellitesInView}"
+
+        val cpuColor = if (snap.cpuUsagePct > 80) colorRed else if (snap.cpuUsagePct > 40) colorAmber else colorGreen
+        val cpuText = if (snap.cpuTempC != null) {
+            String.format(Locale.US, "%d%% %.0f°C", snap.cpuUsagePct, snap.cpuTempC)
+        } else {
+            "${snap.cpuUsagePct}%"
+        }
+
+        val batColor = when {
+            snap.batteryTempC >= 45f -> colorRed
+            snap.batteryTempC >= 40f -> colorAmber
+            else -> colorCyan
+        }
+        val batText = String.format(Locale.US, "BAT %d%% • %.1f°C", snap.batteryPct, snap.batteryTempC)
+
+        fun drawPill(x: Float, baselineY: Float, label: String, value: String, valColor: Int): Float {
+            nc.drawText(label, x, baselineY, labelPaint)
+            val lw = labelPaint.measureText(label)
+            val vx = x + lw + labelValGap
+            valuePaint.color = valColor
+            nc.drawText(value, vx, baselineY, valuePaint)
+            val vw = valuePaint.measureText(value)
+            return vx + vw + pillGap
+        }
+
+        val textOffsetY = (valuePaint.descent() + valuePaint.ascent()) / 2f
+
+        if (isLandscape) {
+            val baseY = (h / 2f) - textOffsetY
+            var curX = padX
+            curX = drawPill(curX, baseY, "RADAR", String.format(Locale.US, "%.1f Hz", snap.radarHz), radarColor)
+            curX = drawPill(curX, baseY, "CAM", String.format(Locale.US, "%.1f fps", snap.cameraFps), camColor)
+            curX = drawPill(curX, baseY, "GPS", String.format(Locale.US, "%.1f Hz", snap.gnssHz), gpsColor)
+            curX = drawPill(curX, baseY, "IMU", String.format(Locale.US, "%.1f Hz", snap.imuHz), imuColor)
+
+            val syncStartX = curX
+            curX = drawPill(curX, baseY, "SYNC", syncText, syncColor)
+            hitBounds.syncLeft = syncStartX - 4f * density
+            hitBounds.syncRight = curX
+            hitBounds.syncTop = 0f
+            hitBounds.syncBottom = h
+
+            // Center-right SVs & ACC
+            var midX = (w * 0.62f).coerceAtLeast(curX + pillGap)
+            midX = drawPill(midX, baseY, "SVs", svText, svColor)
+            if (snap.accuracyMeters > 0f) {
+                val accColor = if (snap.accuracyMeters <= 2.5f) colorGreen else colorAmber
+                drawPill(midX, baseY, "ACC", String.format(Locale.US, "±%.1fm", snap.accuracyMeters), accColor)
+            }
+
+            // Right-aligned CPU & Battery
+            valuePaint.color = batColor
+            val batW = valuePaint.measureText(batText)
+            val batX = w - padX - batW
+            nc.drawText(batText, batX, baseY, valuePaint)
+
+            val cpuLabelW = labelPaint.measureText("CPU")
+            val cpuValW = valuePaint.measureText(cpuText)
+            val cpuStartX = batX - pillGap - cpuLabelW - labelValGap - cpuValW
+            drawPill(cpuStartX, baseY, "CPU", cpuText, cpuColor)
+        } else {
+            val row1Y = (h * 0.28f) - textOffsetY
+            val row2Y = (h * 0.76f) - textOffsetY
+            var curX = padX
+            curX = drawPill(curX, row1Y, "RADAR", String.format(Locale.US, "%.1f Hz", snap.radarHz), radarColor)
+            curX = drawPill(curX, row1Y, "CAM", String.format(Locale.US, "%.1f fps", snap.cameraFps), camColor)
+            curX = drawPill(curX, row1Y, "GPS", String.format(Locale.US, "%.1f Hz", snap.gnssHz), gpsColor)
+            curX = drawPill(curX, row1Y, "IMU", String.format(Locale.US, "%.1f Hz", snap.imuHz), imuColor)
+
+            val syncStartX = curX
+            val syncEndX = drawPill(curX, row1Y, "SYNC", syncText, syncColor)
+            hitBounds.syncLeft = syncStartX - 4f * density
+            hitBounds.syncRight = syncEndX
+            hitBounds.syncTop = 0f
+            hitBounds.syncBottom = h * 0.55f
+
+            // Row 2: Left SVs/ACC, Right CPU/BAT
+            var r2X = padX
+            r2X = drawPill(r2X, row2Y, "SVs", svText, svColor)
+            if (snap.accuracyMeters > 0f) {
+                val accColor = if (snap.accuracyMeters <= 2.5f) colorGreen else colorAmber
+                drawPill(r2X, row2Y, "ACC", String.format(Locale.US, "±%.1fm", snap.accuracyMeters), accColor)
+            }
+
+            valuePaint.color = batColor
+            val batW = valuePaint.measureText(batText)
+            val batX = w - padX - batW
+            nc.drawText(batText, batX, row2Y, valuePaint)
+
+            val cpuLabelW = labelPaint.measureText("CPU")
+            val cpuValW = valuePaint.measureText(cpuText)
+            val cpuStartX = batX - pillGap - cpuLabelW - labelValGap - cpuValW
+            drawPill(cpuStartX, row2Y, "CPU", cpuText, cpuColor)
+        }
     }
 }

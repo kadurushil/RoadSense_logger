@@ -1,5 +1,3 @@
-import java.io.File
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -26,6 +24,11 @@ android {
             optimization {
                 enable = false
             }
+        }
+        create("staging") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release", "debug")
         }
     }
     compileOptions {
@@ -59,17 +62,4 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
-}
-
-afterEvaluate {
-    tasks.named("assembleDebug").configure {
-        doLast {
-            val src = layout.buildDirectory.file("intermediates/apk/debug/app-debug.apk").get().asFile
-            val dstDir = layout.buildDirectory.dir("outputs/apk/debug").get().asFile
-            dstDir.mkdirs()
-            if (src.exists()) {
-                src.copyTo(File(dstDir, "app-debug.apk"), overwrite = true)
-            }
-        }
-    }
 }

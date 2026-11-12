@@ -3,11 +3,9 @@ package com.bajajauto.roadsense.ui.screens
 import android.content.res.Configuration
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
@@ -30,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,7 +57,6 @@ fun CanedgeDashboardCard(
 ) {
     val connectionState by viewModel.canedgeConnectionState.collectAsState()
     val syncStats by viewModel.canedgeSyncStats.collectAsState()
-    val unifiedFiles by viewModel.canedgeUnifiedFiles.collectAsState()
     var showExplorerModal by remember { mutableStateOf(false) }
 
     val configuration = LocalConfiguration.current
@@ -72,105 +70,15 @@ fun CanedgeDashboardCard(
                 .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Left Pane: Hardware Status, Control Actions, Diagnostics (Virtualized)
-            LazyColumn(
+            // Left Pane: Hardware Status, Control Actions, Diagnostics (Flat Column)
+            Column(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight(),
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                item(key = "status") {
-                    CanedgeConnectionStatusCard(connectionState = connectionState)
-                }
-                item(key = "controls") {
-                    CanedgeControlActions(
-                        connectionState = connectionState,
-                        syncStats = syncStats,
-                        onDiscoverDisconnect = {
-                            if (connectionState is CanedgeConnectionState.Connected) {
-                                viewModel.disconnectCanedge()
-                            } else {
-                                viewModel.startCanedgeDiscovery()
-                            }
-                        },
-                        onSync = { viewModel.triggerCanedgeSync() },
-                        onOpenExplorer = {
-                            viewModel.canedgeIngestionManager.refreshLocalFileList()
-                            showExplorerModal = true
-                        },
-                        onPrunePool = { viewModel.canedgeIngestionManager.pruneStagingPool() }
-                    )
-                }
-                item(key = "diagnostics") {
-                    CanedgeDiagnosticsCard(
-                        connectionState = connectionState,
-                        syncStats = syncStats
-                    )
-                }
-            }
-
-            // Right Pane: Live Transfer Monitor Console & Three-Metric Cockpit Cards (Virtualized)
-            LazyColumn(
-                modifier = Modifier
-                    .weight(1.15f)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                item(key = "transfer") {
-                    CanedgeLiveTransferCard(stats = syncStats)
-                }
-                item(key = "metrics") {
-                    CanedgeMetricsRow(
-                        syncStats = syncStats,
-                        onCardClick = {
-                            viewModel.canedgeIngestionManager.refreshLocalFileList()
-                            showExplorerModal = true
-                        }
-                    )
-                }
-                if (syncStats.lastError != null) {
-                    item(key = "error") {
-                        Card(
-                            shape = RoundedCornerShape(2.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = "Notice: ${syncStats.lastError}",
-                                fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(10.dp)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    } else {
-        // Portrait Single-Column Layout (Virtualized)
-        LazyColumn(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item(key = "status") {
                 CanedgeConnectionStatusCard(connectionState = connectionState)
-            }
-            item(key = "metrics") {
-                CanedgeMetricsRow(
-                    syncStats = syncStats,
-                    onCardClick = {
-                        viewModel.canedgeIngestionManager.refreshLocalFileList()
-                        showExplorerModal = true
-                    }
-                )
-            }
-            item(key = "transfer") {
-                CanedgeLiveTransferCard(stats = syncStats)
-            }
-            item(key = "controls") {
                 CanedgeControlActions(
                     connectionState = connectionState,
                     syncStats = syncStats,
@@ -188,18 +96,90 @@ fun CanedgeDashboardCard(
                     },
                     onPrunePool = { viewModel.canedgeIngestionManager.pruneStagingPool() }
                 )
-            }
-            item(key = "diagnostics") {
                 CanedgeDiagnosticsCard(
                     connectionState = connectionState,
                     syncStats = syncStats
                 )
             }
+
+            // Right Pane: Live Transfer Monitor Console & Three-Metric Cockpit Cards (Flat Column)
+            Column(
+                modifier = Modifier
+                    .weight(1.15f)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                CanedgeLiveTransferCard(stats = syncStats)
+                CanedgeMetricsRow(
+                    syncStats = syncStats,
+                    onCardClick = {
+                        viewModel.canedgeIngestionManager.refreshLocalFileList()
+                        showExplorerModal = true
+                    }
+                )
+                if (syncStats.lastError != null) {
+                    Card(
+                        shape = RoundedCornerShape(2.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Notice: ${syncStats.lastError}",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                }
+            }
+        }
+    } else {
+        // Portrait Single-Column Layout (Flat Column)
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            CanedgeConnectionStatusCard(connectionState = connectionState)
+            CanedgeMetricsRow(
+                syncStats = syncStats,
+                onCardClick = {
+                    viewModel.canedgeIngestionManager.refreshLocalFileList()
+                    showExplorerModal = true
+                }
+            )
+            CanedgeLiveTransferCard(stats = syncStats)
+            CanedgeControlActions(
+                connectionState = connectionState,
+                syncStats = syncStats,
+                onDiscoverDisconnect = {
+                    if (connectionState is CanedgeConnectionState.Connected) {
+                        viewModel.disconnectCanedge()
+                    } else {
+                        viewModel.startCanedgeDiscovery()
+                    }
+                },
+                onSync = { viewModel.triggerCanedgeSync() },
+                onOpenExplorer = {
+                    viewModel.canedgeIngestionManager.refreshLocalFileList()
+                    showExplorerModal = true
+                },
+                onPrunePool = { viewModel.canedgeIngestionManager.pruneStagingPool() }
+            )
+            CanedgeDiagnosticsCard(
+                connectionState = connectionState,
+                syncStats = syncStats
+            )
         }
     }
 
-    // Unified File Explorer Dialog
+    // Unified File Explorer Dialog (only collect unifiedFiles when dialog is open)
     if (showExplorerModal) {
+        val unifiedFiles by viewModel.canedgeUnifiedFiles.collectAsState()
         CanedgeUnifiedFileExplorerDialog(
             unifiedFiles = unifiedFiles,
             stats = syncStats,
@@ -227,7 +207,9 @@ private fun CanedgeConnectionStatusCard(
                 else -> MaterialTheme.colorScheme.surfaceVariant
             }
         ),
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            .clearAndSetSemantics {}
     ) {
         Column(
             modifier = Modifier
@@ -284,7 +266,7 @@ private fun CanedgeConnectionStatusCard(
             }
 
             if (connectionState is CanedgeConnectionState.Scanning) {
-                val scanProgress = (connectionState as CanedgeConnectionState.Scanning).progress
+                val scanProgress = connectionState.progress
                 LinearProgressIndicator(
                     progress = { scanProgress },
                     modifier = Modifier
@@ -315,7 +297,9 @@ fun CanedgeLiveTransferCard(
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
             }
         ),
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            .clearAndSetSemantics {}
     ) {
         Column(
             modifier = Modifier
@@ -418,7 +402,6 @@ fun CanedgeLiveTransferCard(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Size transferred
                     Text(
                         text = stats.formattedTransferSize.ifEmpty { "-- / --" },
                         fontSize = 10.sp,
@@ -426,7 +409,6 @@ fun CanedgeLiveTransferCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
 
-                    // Transfer Speed
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(3.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -446,7 +428,6 @@ fun CanedgeLiveTransferCard(
                         )
                     }
 
-                    // ETA
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(3.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -506,7 +487,9 @@ private fun CanedgeMetricsRow(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(
-                modifier = Modifier.padding(10.dp),
+                modifier = Modifier
+                    .padding(10.dp)
+                    .clearAndSetSemantics {},
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -538,7 +521,9 @@ private fun CanedgeMetricsRow(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(
-                modifier = Modifier.padding(10.dp),
+                modifier = Modifier
+                    .padding(10.dp)
+                    .clearAndSetSemantics {},
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -599,7 +584,9 @@ private fun CanedgeMetricsRow(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
         ) {
             Column(
-                modifier = Modifier.padding(10.dp),
+                modifier = Modifier
+                    .padding(10.dp)
+                    .clearAndSetSemantics {},
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -766,7 +753,9 @@ private fun CanedgeDiagnosticsCard(
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier
+            .fillMaxWidth()
+            .clearAndSetSemantics {}
     ) {
         Column(
             modifier = Modifier
@@ -974,7 +963,9 @@ private fun CanedgeUnifiedFileExplorerDialog(
                             )
                         }
                     } else {
-                        val grouped = unifiedFiles.groupBy { it.folderName }.toSortedMap(compareByDescending { it })
+                        val grouped = remember(unifiedFiles) {
+                            unifiedFiles.groupBy { it.folderName }.toSortedMap(compareByDescending { it })
+                        }
                         val latestDir = grouped.keys.firstOrNull()
                         var expandedFolders by remember { mutableStateOf(grouped.keys.toSet()) }
 
@@ -1128,7 +1119,8 @@ private fun CanedgeFileRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 4.dp),
+            .padding(horizontal = 4.dp, vertical = 4.dp)
+            .clearAndSetSemantics {},
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1166,7 +1158,6 @@ private fun CanedgeFileRow(
             horizontalArrangement = Arrangement.spacedBy(14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Col 1: Logger SD
             Box(modifier = Modifier.width(22.dp), contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Default.SdStorage,
@@ -1176,7 +1167,6 @@ private fun CanedgeFileRow(
                 )
             }
 
-            // Col 2: Copied to Device (Pool or Session)
             Box(modifier = Modifier.width(22.dp), contentAlignment = Alignment.Center) {
                 if (item.status == CanedgeFileStatus.SYNCING) {
                     CircularProgressIndicator(
@@ -1194,7 +1184,6 @@ private fun CanedgeFileRow(
                 }
             }
 
-            // Col 3: Assigned to Session
             Box(modifier = Modifier.width(22.dp), contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = Icons.Default.CheckCircle,

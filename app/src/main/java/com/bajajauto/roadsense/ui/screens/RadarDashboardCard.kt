@@ -4,17 +4,16 @@ import android.content.res.Configuration
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -53,25 +52,11 @@ fun RadarDashboardCard(
     val configuration = LocalConfiguration.current
     val effectiveConnectionState = connectionState ?: viewModel.connectionState.collectAsState().value
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    // Virtualized via LazyColumn (0 offscreen allocations)
 
     val recordingState by viewModel.sessionRecordingState.collectAsState()
     val isRecording = recordingState is SessionRecordingState.Recording
 
-    // Decimated 5 Hz UI Telemetry (relieves Main Thread from 20 Hz recomposition)
-    val telemetry by viewModel.radarUiTelemetry.collectAsState()
     val radarFrameState = viewModel.latestFrame.collectAsState()
-
-    // Sample latestFrame at 5 Hz for textual telemetry cards to eliminate 20 Hz text layout churn.
-    // When isRecording is true, freeze sampledFrame completely to eliminate Compose layout passes during recording.
-    var sampledFrame by remember { mutableStateOf(viewModel.latestFrame.value) }
-    LaunchedEffect(telemetry, isRecording) {
-        if (!isRecording) {
-            sampledFrame = viewModel.latestFrame.value
-        }
-    }
-
-    val displayFrame = latestFrame ?: sampledFrame
 
     if (isLandscape) {
         // --- LANDSCAPE MODE: Side-by-Side Dual Pane ---
@@ -91,56 +76,69 @@ fun RadarDashboardCard(
                 isLandscape = true
             )
 
-            // Right Pane (45% width): Virtualized Telemetry, Controls
-            LazyColumn(
+            // Right Pane (45% width): Flat Column (eliminates SubcomposeLayout overhead on tab switch)
+            Column(
                 modifier = Modifier
                     .weight(0.45f)
-                    .fillMaxHeight(),
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                item(key = "status") {
-                    RadarHardwareStatusCard(effectiveConnectionState, displayFrame, isRecording)
-                }
-                item(key = "controls") {
-                    RadarConnectionButtons(viewModel, effectiveConnectionState)
-                }
+                RadarHardwareStatusCard(
+                    viewModel = viewModel,
+                    connectionState = effectiveConnectionState,
+                    latestFrameOverride = latestFrame,
+                    isRecording = isRecording
+                )
+                RadarConnectionButtons(viewModel, effectiveConnectionState)
             }
         }
     } else {
-        // --- PORTRAIT MODE: Unified Virtualized Deck ---
-        LazyColumn(
+        // --- PORTRAIT MODE: Flat Scrollable Deck ---
+        Column(
             modifier = modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            item(key = "status") {
-                RadarHardwareStatusCard(effectiveConnectionState, displayFrame, isRecording)
-            }
-            item(key = "bev") {
-                RadarBevPlot(
-                    viewModel = viewModel,
-                    frameProducer = { radarFrameState.value },
-                    modifier = Modifier.fillMaxWidth(),
-                    isLandscape = false
-                )
-            }
-            item(key = "controls") {
-                RadarConnectionButtons(viewModel, effectiveConnectionState)
-            }
+            RadarHardwareStatusCard(
+                viewModel = viewModel,
+                connectionState = effectiveConnectionState,
+                latestFrameOverride = latestFrame,
+                isRecording = isRecording
+            )
+            RadarBevPlot(
+                viewModel = viewModel,
+                frameProducer = { radarFrameState.value },
+                modifier = Modifier.fillMaxWidth(),
+                isLandscape = false
+            )
+            RadarConnectionButtons(viewModel, effectiveConnectionState)
         }
     }
 }
 
 /**
  * Radar hardware connection status, port info, and streamlined telemetry summary.
+ * Isolates 5 Hz telemetry subscription inside leaf composable so root RadarDashboardCard never recomposes.
  */
 @Composable
 private fun RadarHardwareStatusCard(
+    viewModel: RadarViewModel,
     connectionState: RadarConnectionState,
-    latestFrame: RadarFrame?,
+    latestFrameOverride: RadarFrame?,
     isRecording: Boolean
 ) {
+    val telemetry by viewModel.radarUiTelemetry.collectAsState()
+    var sampledFrame by remember { mutableStateOf(viewModel.latestFrame.value) }
+    LaunchedEffect(telemetry, isRecording) {
+        if (!isRecording) {
+            sampledFrame = viewModel.latestFrame.value
+        }
+    }
+    val latestFrame = latestFrameOverride ?: sampledFrame
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
@@ -212,7 +210,9 @@ private fun RadarHardwareStatusCard(
                 color = Color(0xFF11141C),
                 shape = RoundedCornerShape(2.dp),
                 border = BorderStroke(1.dp, Color(0xFF263238)),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clearAndSetSemantics {}
             ) {
                 Row(
                     modifier = Modifier
