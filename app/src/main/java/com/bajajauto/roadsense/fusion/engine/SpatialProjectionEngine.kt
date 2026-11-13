@@ -413,8 +413,10 @@ object SpatialProjectionEngine {
      * from a [RadarFrame], sorted descending by depth (Painter's Algorithm) to guarantee proper
      * visual occlusion ordering on the 2D viewfinder canvas.
      *
-     * @param filterUntrackedClutter If true, untracked points are omitted or minimized to avoid visual clutter.
+     * @param filterUntrackedClutter If true, untracked clutter points are excluded.
      * @param trackGatingRadiusM Distance in meters to associate raw points with tracked obstacles.
+     * @param includeUntrackedPoints If false (default), skips raw TLV Type 1 points completely and projects tracks (`TLV 3`) only.
+     * @param maxRangeM Maximum radial detection range (meters) projected onto the viewfinder (`<= 0` disables range culling).
      */
     fun calculateRadarLollipops(
         radarFrame: RadarFrame,
@@ -422,8 +424,10 @@ object SpatialProjectionEngine {
         intrinsics: CameraIntrinsics,
         viewWidth: Int,
         viewHeight: Int,
-        filterUntrackedClutter: Boolean = false,
-        trackGatingRadiusM: Float = 1.8f
+        filterUntrackedClutter: Boolean = true,
+        trackGatingRadiusM: Float = 1.8f,
+        includeUntrackedPoints: Boolean = !filterUntrackedClutter,
+        maxRangeM: Float = 80f
     ): List<ProjectedRadarLollipop> {
         val roadZ = -abs(params.radarHeightM.takeIf { it > 0.1f } ?: 0.95f)
         val lollipops = mutableListOf<ProjectedRadarLollipop>()
@@ -479,13 +483,16 @@ object SpatialProjectionEngine {
         }
 
         // 1. Process Active Tracked Targets (TLV Type 3)
-        val trackedPositions = mutableListOf<Pair<Float, Float>>()
+        val trackedPositions = if (includeUntrackedPoints) mutableListOf<Pair<Float, Float>>() else null
         for ((index, track) in radarFrame.tracks.withIndex()) {
             val x = track.x
             val y = track.y
             if (y <= 0.5f) continue
 
-            trackedPositions.add(Pair(x, y))
+            val range = sqrt(x * x + y * y)
+            if (maxRangeM > 0f && range > maxRangeM) continue
+
+            trackedPositions?.add(Pair(x, y))
 
             val isFcw = (index == matchedFcwIndex)
             val isAcc = (index == matchedAccIndex)
@@ -503,7 +510,6 @@ object SpatialProjectionEngine {
             val ry = (track.ySize / 2f).coerceIn(0.7f, 1.6f)
             val footprint = calculateGroundFootprintEllipse(x, y, rx, ry, params, intrinsics, viewWidth, viewHeight, 12)
 
-            val range = sqrt(x * x + y * y)
             val adasTag = when {
                 isFcw && isAcc -> " [FCW+ACC]"
                 isFcw -> " [FCW]"
@@ -535,11 +541,63 @@ object SpatialProjectionEngine {
         if (fcwAlert != null && fcwAlert.stage > 0 && matchedFcwIndex == null && fcwAlert.targetY > 0.5f) {
             val fx = fcwAlert.targetX
             val fy = fcwAlert.targetY
-            val basePt = project2DRadarToScreen(fx, fy, params, intrinsics, viewWidth, viewHeight, roadZ)
-            val headPt = project2DRadarToScreen(fx, fy, params, intrinsics, viewWidth, viewHeight, roadZ + 0.80f)
-            if (basePt != null && headPt != null) {
-                val footprint = calculateGroundFootprintEllipse(fx, fy, 0.90f, 1.20f, params, intrinsics, viewWidth, viewHeight, 12)
-                val range = sqrt(fx * fx + fy * fy)
+            val range = sqrt(fx * fx + fy * fy)
+            if (maxRangeM <= 0f || range <= maxRangeM) {
+                val basePt = project2DRadarToScreen(fx, fy, params, intrinsics, viewWidth, viewHeight, roadZ)
+                val headPt = project2DRadarToScreen(fx, fy, params, intrinsics, viewWidth, viewHeight, roadZ + 0.80f)
+                if (basePt != null && headPt != null) {
+                    val footprint = calculateGroundFootprintEllipse(fx, fy, 0.90f, 1.20f, params, intrinsics, viewWidth, viewHeight, 12)
+                    lollipops.add(
+                        ProjectedRadarLollipop(
+                            basePt = basePt,
+                            headPt = headPt,
+                            footprint = footprint,
+                            depthM = basePt.depthM,
+                            rangeM = range,
+                            isTracked = true,
+                            trackId = fcwTrackId,
+                            dopplerMps = fcwAlert.targetVy,
+                            snrDb = 40f,
+                            label = "[FCW S${fcwAlert.stage}] • ${range.toInt()}m",
+                            isFcwTarget = true,
+                            isAccTarget = false,
+                            fcwStage = fcwAlert.stage
+                        )
+                    )
+                    trackedPositions?.add(Pair(fx, fy))
+                }
+            }
+        }
+
+        // 2. Process Radar Points (TLV Type 1) only when explicitly requested
+        if (includeUntrackedPoints) {
+            for (pt in radarFrame.points) {
+                if (pt.y <= 0.5f) continue
+
+                val range = sqrt(pt.x * pt.x + pt.y * pt.y)
+                if (maxRangeM > 0f && range > maxRangeM) continue
+
+                // Check if point is associated with an existing track
+                val isNearTrack = trackedPositions?.any { (tx, ty) ->
+                    val dx = pt.x - tx
+                    val dy = pt.y - ty
+                    (dx * dx + dy * dy) <= (trackGatingRadiusM * trackGatingRadiusM)
+                } ?: false
+
+                if (filterUntrackedClutter && !isNearTrack) continue
+
+                // Ground base anchor
+                val basePt = project2DRadarToScreen(pt.x, pt.y, params, intrinsics, viewWidth, viewHeight, roadZ) ?: continue
+
+                // Head point: use measured elevation if non-zero, otherwise default to slight vertical stem
+                val headZ = if (abs(pt.z) > 0.05f) (roadZ + abs(pt.z)).coerceAtMost(roadZ + 1.2f) else (roadZ + 0.45f)
+                val headPt = project2DRadarToScreen(pt.x, pt.y, params, intrinsics, viewWidth, viewHeight, headZ) ?: continue
+
+                // Subtle micro footprint for points associated with tracks
+                val footprint = if (isNearTrack) {
+                    calculateGroundFootprintEllipse(pt.x, pt.y, 0.30f, 0.30f, params, intrinsics, viewWidth, viewHeight, 8)
+                } else null
+
                 lollipops.add(
                     ProjectedRadarLollipop(
                         basePt = basePt,
@@ -547,61 +605,14 @@ object SpatialProjectionEngine {
                         footprint = footprint,
                         depthM = basePt.depthM,
                         rangeM = range,
-                        isTracked = true,
-                        trackId = fcwTrackId,
-                        dopplerMps = fcwAlert.targetVy,
-                        snrDb = 40f,
-                        label = "[FCW S${fcwAlert.stage}] • ${range.toInt()}m",
-                        isFcwTarget = true,
-                        isAccTarget = false,
-                        fcwStage = fcwAlert.stage
+                        isTracked = isNearTrack,
+                        trackId = null,
+                        dopplerMps = pt.doppler,
+                        snrDb = pt.snrDb,
+                        label = "${range.toInt()}m"
                     )
                 )
-                trackedPositions.add(Pair(fx, fy))
             }
-        }
-
-        // 2. Process Radar Points (TLV Type 1)
-        for (pt in radarFrame.points) {
-            if (pt.y <= 0.5f) continue
-
-            // Check if point is associated with an existing track
-            val isNearTrack = trackedPositions.any { (tx, ty) ->
-                val dx = pt.x - tx
-                val dy = pt.y - ty
-                (dx * dx + dy * dy) <= (trackGatingRadiusM * trackGatingRadiusM)
-            }
-
-            if (filterUntrackedClutter && !isNearTrack) continue
-
-            // Ground base anchor
-            val basePt = project2DRadarToScreen(pt.x, pt.y, params, intrinsics, viewWidth, viewHeight, roadZ) ?: continue
-
-            // Head point: use measured elevation if non-zero, otherwise default to slight vertical stem
-            val headZ = if (abs(pt.z) > 0.05f) (roadZ + abs(pt.z)).coerceAtMost(roadZ + 1.2f) else (roadZ + 0.45f)
-            val headPt = project2DRadarToScreen(pt.x, pt.y, params, intrinsics, viewWidth, viewHeight, headZ) ?: continue
-
-            // Subtle micro footprint for points associated with tracks
-            val footprint = if (isNearTrack) {
-                calculateGroundFootprintEllipse(pt.x, pt.y, 0.30f, 0.30f, params, intrinsics, viewWidth, viewHeight, 8)
-            } else null
-
-            val range = sqrt(pt.x * pt.x + pt.y * pt.y)
-
-            lollipops.add(
-                ProjectedRadarLollipop(
-                    basePt = basePt,
-                    headPt = headPt,
-                    footprint = footprint,
-                    depthM = basePt.depthM,
-                    rangeM = range,
-                    isTracked = isNearTrack,
-                    trackId = null,
-                    dopplerMps = pt.doppler,
-                    snrDb = pt.snrDb,
-                    label = "${range.toInt()}m"
-                )
-            )
         }
 
         // 3. Painter's Algorithm Depth-Sorting: Farthest targets drawn first, nearest targets drawn last

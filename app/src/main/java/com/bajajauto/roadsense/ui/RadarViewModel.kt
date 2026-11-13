@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import android.os.SystemClock
 import com.bajajauto.roadsense.DebugToggleSnapshot
 import com.bajajauto.roadsense.DebugToggles
+import com.bajajauto.roadsense.HudOverlayMode
 import com.bajajauto.roadsense.acquisition.RadarConnectionManager
 import com.bajajauto.roadsense.acquisition.RadarConnectionState
 import com.bajajauto.roadsense.camera.CameraEngine
@@ -297,13 +298,14 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             _savedBaselineParams.value = loaded
         }
 
-        // Restore persistent BEV debug layer filters while keeping master timing logs governed by DebugToggles default
+        // Restore persistent BEV & HUD overlay filters while keeping master timing logs governed by DebugToggles default
         DebugToggles.setBevLayerToggles(
             showRawPoints = appPreferences.bevShowRawPoints,
             showTracks = appPreferences.bevShowTracks,
             showClusters = appPreferences.bevShowClusters,
             showGrid = appPreferences.bevShowGrid
         )
+        DebugToggles.setHudOverlayMode(appPreferences.hudOverlayMode)
 
         // Periodic 1-second ticker for multi-sensor rates & battery/CPU telemetry
         viewModelScope.launch(Dispatchers.Default) {
@@ -628,6 +630,17 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setBenchTimingLogging(enabled: Boolean) {
         DebugToggles.setBenchTimingLogging(enabled)
+    }
+
+    fun setHudOverlayMode(mode: HudOverlayMode) {
+        DebugToggles.setHudOverlayMode(mode)
+        appPreferences.hudOverlayMode = mode
+    }
+
+    fun cycleHudOverlayMode() {
+        val modes = HudOverlayMode.entries
+        val next = modes[(DebugToggles.hudOverlayMode.ordinal + 1) % modes.size]
+        setHudOverlayMode(next)
     }
 
     fun setCameraPreviewMuted(muted: Boolean) {

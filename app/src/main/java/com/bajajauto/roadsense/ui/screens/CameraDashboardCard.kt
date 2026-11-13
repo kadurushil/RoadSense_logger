@@ -89,6 +89,7 @@ fun CameraDashboardCard(
     val calibrationParams by viewModel.calibrationParams.collectAsState()
     val isRadarOverlayEnabled by viewModel.isRadarOverlayEnabled.collectAsState()
     val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
+    val debugState by viewModel.debugToggleState.collectAsState()
     val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
     val radarFrameState = viewModel.latestFrame.collectAsState()
 
@@ -297,6 +298,12 @@ fun CameraDashboardCard(
                 CameraCalibrationCard(
                     calibrationParams = calibrationParams,
                     isRadarOverlayEnabled = isRadarOverlayEnabled,
+                    hudOverlayMode = debugState.hudOverlayMode,
+                    onCycleHudOverlayMode = { viewModel.cycleHudOverlayMode() },
+                    isBenchTimingLogEnabled = if (debugState.masterDebugEnabled) debugState.canvasTimingLogs else null,
+                    onToggleBenchTimingLogs = if (debugState.masterDebugEnabled) {
+                        { viewModel.setBenchTimingLogging(!debugState.canvasTimingLogs) }
+                    } else null,
                     onSyncImuPitch = { viewModel.syncPitchFromImu() },
                     onLaunchCalibration = { viewModel.setCalibrationFullScreen(true) },
                     onToggleRadarOverlay = { viewModel.toggleRadarOverlay() },
@@ -499,6 +506,12 @@ fun CameraDashboardCard(
             CameraCalibrationCard(
                 calibrationParams = calibrationParams,
                 isRadarOverlayEnabled = isRadarOverlayEnabled,
+                hudOverlayMode = debugState.hudOverlayMode,
+                onCycleHudOverlayMode = { viewModel.cycleHudOverlayMode() },
+                isBenchTimingLogEnabled = if (debugState.masterDebugEnabled) debugState.canvasTimingLogs else null,
+                onToggleBenchTimingLogs = if (debugState.masterDebugEnabled) {
+                    { viewModel.setBenchTimingLogging(!debugState.canvasTimingLogs) }
+                } else null,
                 onSyncImuPitch = { viewModel.syncPitchFromImu() },
                 onLaunchCalibration = { viewModel.setCalibrationFullScreen(true) },
                 onToggleRadarOverlay = { viewModel.toggleRadarOverlay() },

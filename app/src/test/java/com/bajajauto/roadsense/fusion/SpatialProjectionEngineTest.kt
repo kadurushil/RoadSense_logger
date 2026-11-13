@@ -605,6 +605,60 @@ class SpatialProjectionEngineTest {
     }
 
     @Test
+    fun testCalculateRadarLollipopsDefaultsToTracksOnlyUnder80m() {
+        val frame = createTestRadarFrame(
+            points = listOf(
+                RadarPoint(x = 0.2f, y = 20f, z = 0f, doppler = -1f, snrDb = 25f),
+                RadarPoint(x = 3.0f, y = 40f, z = 0f, doppler = 0f, snrDb = 20f),
+                RadarPoint(x = 0.0f, y = 85f, z = 0f, doppler = -2f, snrDb = 30f)
+            ),
+            tracks = listOf(
+                RadarTrack(tid = 101, x = 0f, y = 75f, vx = 0f, vy = -2f, xSize = 1.8f, ySize = 4.0f),
+                RadarTrack(tid = 102, x = 0f, y = 85f, vx = 0f, vy = -3f, xSize = 1.8f, ySize = 4.0f)
+            )
+        )
+        val params = CalibrationParameters(radarHeightM = 0.95f)
+        val lollipops = SpatialProjectionEngine.calculateRadarLollipops(
+            radarFrame = frame,
+            params = params,
+            intrinsics = testIntrinsics,
+            viewWidth = viewW,
+            viewHeight = viewH
+        )
+
+        assertEquals("Only tracked target within 80m should be projected by default", 1, lollipops.size)
+        assertEquals(101, lollipops[0].trackId)
+        assertTrue(lollipops[0].isTracked)
+    }
+
+    @Test
+    fun testCalculateRadarLollipopsIncludesRawPointsUnder80mWhenRequested() {
+        val frame = createTestRadarFrame(
+            points = listOf(
+                RadarPoint(x = -2.0f, y = 25f, z = 0f, doppler = -1f, snrDb = 24f),
+                RadarPoint(x = 0.0f, y = 92f, z = 0f, doppler = -2f, snrDb = 28f)
+            ),
+            tracks = listOf(
+                RadarTrack(tid = 201, x = 0f, y = 40f, vx = 0f, vy = -1f, xSize = 1.8f, ySize = 4.0f)
+            )
+        )
+        val params = CalibrationParameters(radarHeightM = 0.95f)
+        val lollipops = SpatialProjectionEngine.calculateRadarLollipops(
+            radarFrame = frame,
+            params = params,
+            intrinsics = testIntrinsics,
+            viewWidth = viewW,
+            viewHeight = viewH,
+            filterUntrackedClutter = false,
+            includeUntrackedPoints = true,
+            maxRangeM = 80f
+        )
+
+        assertEquals("Tracked target + raw point <= 80m should be projected, excluding 92m clutter", 2, lollipops.size)
+        assertTrue(lollipops.all { it.rangeM <= 80f })
+    }
+
+    @Test
     fun testPhase2SemanticAliasesAndClampLeveling() {
         val params = CalibrationParameters(
             pitchDeg = 7.5f,

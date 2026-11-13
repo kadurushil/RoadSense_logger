@@ -944,19 +944,22 @@ class CameraEngine(private val context: Context) {
     }
 
     /**
-     * Starts the autonomous 4 Hz dual-zone luminance analysis coroutine loop.
+     * Starts the autonomous dual-zone luminance analysis coroutine loop.
+     * Throttles TextureView.getBitmap(32, 24) readbacks to 2 Hz during active H.264 recording
+     * (vs 4 Hz in preview-only mode) to minimize GPU/SurfaceTexture bus contention under 30 FPS HAL limit.
      */
     private fun startLuminanceAnalyzer() {
         luminanceAnalysisJob?.cancel()
         luminanceAnalysisJob = engineScope.launch {
             while (isActive) {
-                delay(250) // ~4 Hz sample rate
+                val intervalMs = if (isRecordingVideo) 500L else 250L
+                delay(intervalMs)
                 if (!isPreviewActive || !isRepeatingActive || _isAfAeLocked.value || _roadAeMode.value != RoadAeMode.AUTO_ROAD) {
                     continue
                 }
 
                 val textureView = previewTextureViewRef?.get() ?: continue
-                if (!textureView.isAvailable) continue
+                if (!textureView.isAvailable || textureView.width <= 0 || textureView.height <= 0) continue
 
                 try {
                     val bitmap = textureView.getBitmap(32, 24) ?: continue
@@ -1031,6 +1034,8 @@ class CameraEngine(private val context: Context) {
         AppLogger.i(TAG, "Road AE mode changed to: $mode")
         if (mode == RoadAeMode.AUTO_ROAD) {
             startLuminanceAnalyzer()
+        } else {
+            stopLuminanceAnalyzer()
         }
         updateRepeatingAeSettings()
     }

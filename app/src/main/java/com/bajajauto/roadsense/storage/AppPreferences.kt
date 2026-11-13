@@ -2,6 +2,7 @@ package com.bajajauto.roadsense.storage
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.bajajauto.roadsense.HudOverlayMode
 import com.bajajauto.roadsense.camera.CameraFrameRate
 import com.bajajauto.roadsense.camera.CameraResolution
 
@@ -24,6 +25,7 @@ class AppPreferences(context: Context) {
         private const val KEY_BEV_SHOW_TRACKS = "bev_show_tracks"
         private const val KEY_BEV_SHOW_CLUSTERS = "bev_show_clusters"
         private const val KEY_BEV_SHOW_GRID = "bev_show_grid"
+        private const val KEY_HUD_OVERLAY_MODE = "hud_overlay_mode"
 
         private const val KEY_CAMERA_RES = "camera_resolution"
         private const val KEY_CAMERA_FPS = "camera_fps"
@@ -68,6 +70,17 @@ class AppPreferences(context: Context) {
     var bevShowGrid: Boolean
         get() = prefs.getBoolean(KEY_BEV_SHOW_GRID, true)
         set(value) = prefs.edit().putBoolean(KEY_BEV_SHOW_GRID, value).apply()
+
+    var hudOverlayMode: HudOverlayMode
+        get() {
+            val name = prefs.getString(KEY_HUD_OVERLAY_MODE, HudOverlayMode.TRACKS_LOLLIPOP_80M.name)
+            return try {
+                HudOverlayMode.valueOf(name ?: HudOverlayMode.TRACKS_LOLLIPOP_80M.name)
+            } catch (_: Exception) {
+                HudOverlayMode.TRACKS_LOLLIPOP_80M
+            }
+        }
+        set(value) = prefs.edit().putString(KEY_HUD_OVERLAY_MODE, value.name).apply()
 
     var cameraResolution: CameraResolution
         get() {

@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bajajauto.roadsense.HudOverlayMode
 import com.bajajauto.roadsense.fusion.model.CalibrationParameters
 import com.bajajauto.roadsense.imu.ImuTelemetryState
 import java.util.Locale
@@ -27,6 +28,10 @@ import java.util.Locale
 fun CameraCalibrationCard(
     calibrationParams: CalibrationParameters,
     isRadarOverlayEnabled: Boolean,
+    hudOverlayMode: HudOverlayMode = HudOverlayMode.TRACKS_LOLLIPOP_80M,
+    onCycleHudOverlayMode: (() -> Unit)? = null,
+    isBenchTimingLogEnabled: Boolean? = null,
+    onToggleBenchTimingLogs: (() -> Unit)? = null,
     imuTelemetry: ImuTelemetryState? = null,
     onSyncImuPitch: (() -> Unit)? = null,
     onLaunchCalibration: () -> Unit,
@@ -264,6 +269,66 @@ fun CameraCalibrationCard(
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Normal
                     )
+                }
+            }
+
+            if (onCycleHudOverlayMode != null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                val modeTint = when (hudOverlayMode) {
+                    HudOverlayMode.TRACKS_LOLLIPOP_80M -> Color(0xFF00B0FF)
+                    HudOverlayMode.SIMPLE_BOXES_80M -> Color(0xFF4CAF50)
+                    HudOverlayMode.RAW_POINTS_LEGACY -> Color(0xFFFFB74D)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onCycleHudOverlayMode,
+                        enabled = isRadarOverlayEnabled,
+                        shape = RoundedCornerShape(8.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = modeTint
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GridOn,
+                            contentDescription = "Cycle HUD Overlay Mode",
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Mode: ${hudOverlayMode.label}",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
+
+                    if (onToggleBenchTimingLogs != null && isBenchTimingLogEnabled != null) {
+                        OutlinedButton(
+                            onClick = onToggleBenchTimingLogs,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = if (isBenchTimingLogEnabled) Color(0xFFFFD54F) else MaterialTheme.colorScheme.onSurfaceVariant
+                            ),
+                            modifier = Modifier
+                                .width(68.dp)
+                                .height(32.dp)
+                        ) {
+                            Text(
+                                text = if (isBenchTimingLogEnabled) "Log ON" else "Log OFF",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
+                    }
                 }
             }
         }

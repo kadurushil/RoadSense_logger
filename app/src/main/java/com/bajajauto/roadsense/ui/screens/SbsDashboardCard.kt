@@ -31,6 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.bajajauto.roadsense.HudOverlayMode
 import com.bajajauto.roadsense.camera.CameraEngineState
 import com.bajajauto.roadsense.models.RadarFrame
 import com.bajajauto.roadsense.ui.RadarViewModel
@@ -138,6 +139,7 @@ private fun SbsCameraFeedPane(
     val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
     val isRadarOverlayEnabled by viewModel.isRadarOverlayEnabled.collectAsState()
     val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
+    val debugState by viewModel.debugToggleState.collectAsState()
 
     var previewWidth by remember { mutableIntStateOf(1920) }
     var previewHeight by remember { mutableIntStateOf(1080) }
@@ -217,6 +219,42 @@ private fun SbsCameraFeedPane(
                     ) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 5.dp)) {
                             Text("HUD", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // HUD Mode Cycling Chip (Tracks <80m -> Boxes <80m -> Raw Points)
+                    if (isRadarOverlayEnabled) {
+                        val (modeBg, modeFg) = when (debugState.hudOverlayMode) {
+                            HudOverlayMode.TRACKS_LOLLIPOP_80M -> Color(0xFF006064).copy(alpha = 0.55f) to Color(0xFF80DEEA)
+                            HudOverlayMode.SIMPLE_BOXES_80M -> Color(0xFF1B5E20).copy(alpha = 0.55f) to Color(0xFFA5D6A7)
+                            HudOverlayMode.RAW_POINTS_LEGACY -> Color(0xFFE65100).copy(alpha = 0.55f) to Color(0xFFFFCC80)
+                        }
+                        Surface(
+                            onClick = { viewModel.cycleHudOverlayMode() },
+                            shape = RoundedCornerShape(4.dp),
+                            color = modeBg,
+                            contentColor = modeFg,
+                            modifier = Modifier.height(20.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 5.dp)) {
+                                Text(debugState.hudOverlayMode.label, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+
+                    // Bench Timing Log Chip (synchronized with BEV/Overlay [DRAW_*] timing logs)
+                    if (debugState.masterDebugEnabled) {
+                        Surface(
+                            selected = debugState.canvasTimingLogs,
+                            onClick = { viewModel.setBenchTimingLogging(!debugState.canvasTimingLogs) },
+                            shape = RoundedCornerShape(4.dp),
+                            color = if (debugState.canvasTimingLogs) Color(0xFF37474F) else Color(0xFF1E2530),
+                            contentColor = if (debugState.canvasTimingLogs) Color(0xFFFFD54F) else Color(0xFF78909C),
+                            modifier = Modifier.height(20.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 5.dp)) {
+                                Text("Log", fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                     }
 
