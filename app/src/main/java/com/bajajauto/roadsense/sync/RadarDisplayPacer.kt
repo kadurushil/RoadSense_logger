@@ -1,5 +1,6 @@
 package com.bajajauto.roadsense.sync
 
+import com.bajajauto.roadsense.DebugToggles
 import com.bajajauto.roadsense.logging.AppLogger
 import com.bajajauto.roadsense.models.RadarFrame
 import kotlinx.coroutines.*
@@ -60,9 +61,11 @@ class RadarDisplayPacer(
         lastEnqueueNs = nowNs
 
         queue.offer(frame)
-        val qSize = queue.size
         val seq = frame.header.frameNumber
-        AppLogger.d("DisplayPacer", "[ENQUEUE] seq=#$seq | deltaArrMs=${"%.2f".format(deltaArrMs)} | qDepth=$qSize")
+        if (DebugToggles.isDisplayPacerVerboseActive) {
+            val qSize = queue.size
+            AppLogger.d("DisplayPacer", "[ENQUEUE] seq=#$seq | deltaArrMs=${"%.2f".format(deltaArrMs)} | qDepth=$qSize")
+        }
 
         // Ensure pacing job is actively running
         if (isRunning.compareAndSet(false, true)) {
@@ -116,11 +119,13 @@ class RadarDisplayPacer(
                     val dropped = queue.poll()
                     if (dropped != null) {
                         totalDroppedFrames++
-                        val droppedSeq = dropped.header.frameNumber
-                        AppLogger.w(
-                            "DisplayPacer",
-                            "[DROP] seq=#$droppedSeq | qDepth=${queue.size} | totalDrops=$totalDroppedFrames"
-                        )
+                        if (DebugToggles.displayPacerDropWarnings || DebugToggles.isDisplayPacerVerboseActive) {
+                            val droppedSeq = dropped.header.frameNumber
+                            AppLogger.w(
+                                "DisplayPacer",
+                                "[DROP] seq=#$droppedSeq | qDepth=${queue.size} | totalDrops=$totalDroppedFrames"
+                            )
+                        }
                     }
                 }
 
@@ -130,16 +135,18 @@ class RadarDisplayPacer(
                 if (frameToEmit != null) {
                     val deltaEmitMs = if (lastEmitNs > 0L) (nowNs - lastEmitNs) / 1_000_000.0 else 0.0
                     lastEmitNs = nowNs
-                    val timerJitterMs = (nowNs - nextTargetNs) / 1_000_000.0
-                    val seq = frameToEmit.header.frameNumber
                     _latestFrame.value = frameToEmit
-                    AppLogger.d(
-                        "DisplayPacer",
-                        "[EMIT] seq=#$seq | deltaEmitMs=${"%.2f".format(deltaEmitMs)} | jitterMs=${
-                            "%.2f".format(timerJitterMs)
-                        } | qDepth=${queue.size} | totalDrops=$totalDroppedFrames"
-                    )
-                } else {
+                    if (DebugToggles.isDisplayPacerVerboseActive) {
+                        val timerJitterMs = (nowNs - nextTargetNs) / 1_000_000.0
+                        val seq = frameToEmit.header.frameNumber
+                        AppLogger.d(
+                            "DisplayPacer",
+                            "[EMIT] seq=#$seq | deltaEmitMs=${"%.2f".format(deltaEmitMs)} | jitterMs=${
+                                "%.2f".format(timerJitterMs)
+                            } | qDepth=${queue.size} | totalDrops=$totalDroppedFrames"
+                        )
+                    }
+                } else if (DebugToggles.isDisplayPacerVerboseActive) {
                     val holdSeq = _latestFrame.value?.header?.frameNumber ?: -1L
                     AppLogger.d("DisplayPacer", "[STARVATION] queue empty at tick | holdSeq=#$holdSeq")
                 }

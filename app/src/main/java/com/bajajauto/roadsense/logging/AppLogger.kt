@@ -1,5 +1,6 @@
 package com.bajajauto.roadsense.logging
 
+import android.os.Process
 import android.util.Log
 import java.io.BufferedWriter
 import java.io.File
@@ -7,6 +8,12 @@ import java.io.FileWriter
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Diagnostic Flight Recorder / Black Box Logger for RoadSense.
@@ -16,12 +23,19 @@ import java.util.concurrent.ConcurrentLinkedQueue
  * - When a recording session starts, immediately flushes pre-session history and streams
  *   all subsequent diagnostic events to `session_debug.log` in the session directory.
  * - Dual outputs to standard Android Logcat and session file.
+ * - Non-blocking async single writer thread (`RS-LogWriter`) so real-time callers
+ *   (`main`, `RadarProcessingWorker`, `DisplayPacer`, `UiFrameMetricsProfiler`) never
+ *   block on flash I/O locks or synchronous `writer.flush()`.
  */
 object AppLogger {
 
     private const val MAX_RING_BUFFER_SIZE = 500
     private const val MAX_APP_RUN_RETENTION_DAYS = 5
     private const val MAX_APP_RUN_DIRS = 10
+    private const val MAX_QUEUE_CAPACITY = 4096
+    private const val BATCH_DRAIN_LIMIT = 64
+    private const val FLUSH_INTERVAL_MS = 250L
+    private const val CONTROL_TIMEOUT_MS = 5000L
 
     data class LogEntry(
         val timestampMs: Long,
@@ -31,17 +45,35 @@ object AppLogger {
         val threadName: String
     )
 
-    private val ringBuffer = ConcurrentLinkedQueue<LogEntry>()
-    private val lock = Any()
+    private class ControlOp(
+        val action: () -> Unit,
+        val latch: CountDownLatch = CountDownLatch(1)
+    )
 
-    @Volatile
+    private val WAKEUP_SENTINEL = LogEntry(
+        timestampMs = -1L,
+        level = "",
+        tag = "",
+        message = "",
+        threadName = ""
+    )
+
+    private val ringBuffer = ConcurrentLinkedQueue<LogEntry>()
+    private val ringBufferCount = AtomicInteger(0)
+    private val logQueue = LinkedBlockingQueue<LogEntry>(MAX_QUEUE_CAPACITY)
+    private val controlQueue = ConcurrentLinkedQueue<ControlOp>()
+    private val droppedLogCount = AtomicLong(0L)
+    private var lastReportedDroppedCount = 0L
+
+    private val writerStarted = AtomicBoolean(false)
+    private val writerThreadInitLock = Any()
+
+    // Accessed strictly from the single RS-LogWriter thread
     private var appLogWriter: BufferedWriter? = null
+    private var activeWriter: BufferedWriter? = null
 
     @Volatile
     private var currentAppRunDir: File? = null
-
-    @Volatile
-    private var activeWriter: BufferedWriter? = null
 
     private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).apply {
         timeZone = TimeZone.getDefault()
@@ -51,14 +83,190 @@ object AppLogger {
         timeZone = TimeZone.getDefault()
     }
 
+    private fun ensureWriterThreadStarted() {
+        if (writerStarted.get()) return
+        synchronized(writerThreadInitLock) {
+            if (writerStarted.get()) return
+            val thread = Thread({ writerLoop() }, "RS-LogWriter").apply {
+                isDaemon = true
+            }
+            writerStarted.set(true)
+            thread.start()
+        }
+    }
+
+    private fun writerLoop() {
+        try {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+        } catch (_: Throwable) {
+            // Safe fallback under JVM unit tests
+        }
+
+        val batch = ArrayList<LogEntry>(BATCH_DRAIN_LIMIT)
+        var lastFlushMs = System.currentTimeMillis()
+        var hasUnflushedWrites = false
+
+        while (true) {
+            try {
+                if (controlQueue.isNotEmpty()) {
+                    if (processPendingControls()) {
+                        hasUnflushedWrites = false
+                        lastFlushMs = System.currentTimeMillis()
+                    }
+                }
+
+                val first = logQueue.poll(FLUSH_INTERVAL_MS, TimeUnit.MILLISECONDS)
+                var batchHasPriority = false
+
+                if (first != null) {
+                    if (first !== WAKEUP_SENTINEL) {
+                        batch.add(first)
+                    }
+                    logQueue.drainTo(batch, BATCH_DRAIN_LIMIT - batch.size)
+
+                    for (i in batch.indices) {
+                        val entry = batch[i]
+                        if (entry === WAKEUP_SENTINEL) continue
+                        if (entry.level == "WARN" || entry.level == "ERROR") {
+                            batchHasPriority = true
+                        }
+                        writeFormattedEntry(formatEntry(entry))
+                        hasUnflushedWrites = true
+                    }
+                    batch.clear()
+                }
+
+                if (controlQueue.isNotEmpty()) {
+                    if (processPendingControls()) {
+                        hasUnflushedWrites = false
+                        lastFlushMs = System.currentTimeMillis()
+                    }
+                }
+
+                val nowMs = System.currentTimeMillis()
+                if (hasUnflushedWrites && (batchHasPriority || first == null || (nowMs - lastFlushMs) >= FLUSH_INTERVAL_MS)) {
+                    reportDropsIfAny()
+                    flushAllWriters()
+                    hasUnflushedWrites = false
+                    lastFlushMs = nowMs
+                }
+            } catch (_: InterruptedException) {
+                // Keep daemon alive
+            } catch (t: Throwable) {
+                try {
+                    Log.e("AppLogger", "Unexpected error in RS-LogWriter loop", t)
+                } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    private fun drainLogQueueToWriters(): Boolean {
+        val temp = ArrayList<LogEntry>(BATCH_DRAIN_LIMIT)
+        var wroteAny = false
+        while (true) {
+            temp.clear()
+            val drained = logQueue.drainTo(temp, BATCH_DRAIN_LIMIT)
+            if (drained == 0) break
+            for (i in temp.indices) {
+                val entry = temp[i]
+                if (entry === WAKEUP_SENTINEL) continue
+                writeFormattedEntry(formatEntry(entry))
+                wroteAny = true
+            }
+        }
+        return wroteAny
+    }
+
+    private fun processPendingControls(): Boolean {
+        var ranAny = false
+        while (true) {
+            val op = controlQueue.poll() ?: break
+            ranAny = true
+            drainLogQueueToWriters()
+            reportDropsIfAny()
+            flushAllWriters()
+            try {
+                op.action()
+            } catch (t: Throwable) {
+                try {
+                    Log.e("AppLogger", "Control op failed on RS-LogWriter", t)
+                } catch (_: Throwable) {}
+            } finally {
+                op.latch.countDown()
+            }
+        }
+        return ranAny
+    }
+
+    private fun writeFormattedEntry(formatted: String) {
+        appLogWriter?.let { writer ->
+            try {
+                writer.write(formatted)
+                writer.newLine()
+            } catch (e: Exception) {
+                try {
+                    Log.e("AppLogger", "Failed to write to app_system.log", e)
+                } catch (_: Throwable) {}
+            }
+        }
+
+        activeWriter?.let { writer ->
+            try {
+                writer.write(formatted)
+                writer.newLine()
+            } catch (e: Exception) {
+                try {
+                    Log.e("AppLogger", "Failed to write log entry to session file", e)
+                } catch (_: Throwable) {}
+            }
+        }
+    }
+
+    private fun reportDropsIfAny() {
+        val currentDrops = droppedLogCount.get()
+        if (currentDrops > lastReportedDroppedCount) {
+            val delta = currentDrops - lastReportedDroppedCount
+            lastReportedDroppedCount = currentDrops
+            val warnEntry = LogEntry(
+                timestampMs = System.currentTimeMillis(),
+                level = "WARN",
+                tag = "AppLogger",
+                message = "[LOGGER_OVERFLOW] Dropped $delta async log entries (totalDropped=$currentDrops)",
+                threadName = "RS-LogWriter"
+            )
+            writeFormattedEntry(formatEntry(warnEntry))
+        }
+    }
+
+    private fun flushAllWriters() {
+        try {
+            appLogWriter?.flush()
+        } catch (_: Exception) {}
+        try {
+            activeWriter?.flush()
+        } catch (_: Exception) {}
+    }
+
+    private fun runOnWriterAndAwait(action: () -> Unit) {
+        ensureWriterThreadStarted()
+        val op = ControlOp(action)
+        controlQueue.offer(op)
+        logQueue.offer(WAKEUP_SENTINEL)
+        try {
+            op.latch.await(CONTROL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+    }
+
     /**
      * Initializes continuous app-wide flight recorder logging upon application start.
      * Creates: app_logs/app_run_YYYYMMDD_HHMMSS/app_system.log
      * Auto-prunes older run folders exceeding retention limits.
      */
     fun initAppLogging(context: android.content.Context) {
-        synchronized(lock) {
-            if (appLogWriter != null) return // Already initialized
+        runOnWriterAndAwait {
+            if (appLogWriter != null) return@runOnWriterAndAwait
 
             try {
                 val externalFiles = context.getExternalFilesDir(null) ?: context.filesDir
@@ -109,7 +317,7 @@ object AppLogger {
      * Closes the continuous app run log writer upon app shutdown.
      */
     fun closeAppLogging() {
-        synchronized(lock) {
+        runOnWriterAndAwait {
             appLogWriter?.let { writer ->
                 try {
                     writer.write("\n===========================================================================\n")
@@ -182,37 +390,18 @@ object AppLogger {
             threadName = Thread.currentThread().name
         )
 
-        // 2. In-Memory Ring Buffer
+        // 2. Bounded In-Memory Ring Buffer
         ringBuffer.add(entry)
-        while (ringBuffer.size > MAX_RING_BUFFER_SIZE) {
-            ringBuffer.poll()
+        if (ringBufferCount.incrementAndGet() > MAX_RING_BUFFER_SIZE) {
+            if (ringBuffer.poll() != null) {
+                ringBufferCount.decrementAndGet()
+            }
         }
 
-        // 3. Write to Continuous App Log and/or Active Session Log
-        synchronized(lock) {
-            val formatted = formatEntry(entry)
-
-            // Continuous App Log
-            appLogWriter?.let { writer ->
-                try {
-                    writer.write(formatted)
-                    writer.newLine()
-                    writer.flush()
-                } catch (e: Exception) {
-                    Log.e("AppLogger", "Failed to write to app_system.log", e)
-                }
-            }
-
-            // Active Recording Session Log
-            activeWriter?.let { writer ->
-                try {
-                    writer.write(formatted)
-                    writer.newLine()
-                    writer.flush()
-                } catch (e: Exception) {
-                    Log.e("AppLogger", "Failed to write log entry to session file", e)
-                }
-            }
+        // 3. Non-blocking enqueue to dedicated RS-LogWriter thread
+        ensureWriterThreadStarted()
+        if (!logQueue.offer(entry)) {
+            droppedLogCount.incrementAndGet()
         }
     }
 
@@ -221,7 +410,7 @@ object AppLogger {
      * Dumps all historical pre-session breadcrumbs first.
      */
     fun attachSession(sessionDir: File) {
-        synchronized(lock) {
+        runOnWriterAndAwait {
             try {
                 val logFile = File(sessionDir, "session_debug.log")
                 val writer = BufferedWriter(FileWriter(logFile, true))
@@ -242,18 +431,18 @@ object AppLogger {
                 writer.flush()
 
                 activeWriter = writer
-                i("AppLogger", "Attached session flight recorder: ${logFile.absolutePath}")
             } catch (e: Exception) {
                 Log.e("AppLogger", "Failed to attach session debug logger", e)
             }
         }
+        i("AppLogger", "Attached session flight recorder: ${File(sessionDir, "session_debug.log").absolutePath}")
     }
 
     /**
      * Flushes and detaches the session log writer upon recording stop.
      */
     fun detachSession() {
-        synchronized(lock) {
+        runOnWriterAndAwait {
             activeWriter?.let { writer ->
                 try {
                     writer.write("\n--- ACTIVE SESSION RECORDING FINISHED AT ${dateFormat.format(Date())} ---\n")
@@ -267,6 +456,54 @@ object AppLogger {
             }
         }
     }
+
+    /**
+     * Drains queued entries and flushes active writers synchronously (for tests and graceful flush).
+     */
+    internal fun flushAndSync() {
+        runOnWriterAndAwait {
+            flushAllWriters()
+        }
+    }
+
+    /**
+     * Attaches a custom session log file directly (intended for JVM unit tests).
+     */
+    internal fun attachSessionFileForTesting(logFile: File) {
+        runOnWriterAndAwait {
+            activeWriter?.let {
+                try {
+                    it.flush()
+                    it.close()
+                } catch (_: Exception) {}
+            }
+            activeWriter = BufferedWriter(FileWriter(logFile, false))
+        }
+    }
+
+    /**
+     * Resets queued entries and writers between JVM unit tests.
+     */
+    internal fun resetForTesting() {
+        runOnWriterAndAwait {
+            try {
+                activeWriter?.close()
+            } catch (_: Exception) {}
+            activeWriter = null
+            try {
+                appLogWriter?.close()
+            } catch (_: Exception) {}
+            appLogWriter = null
+            currentAppRunDir = null
+            logQueue.clear()
+            ringBuffer.clear()
+            ringBufferCount.set(0)
+            droppedLogCount.set(0L)
+            lastReportedDroppedCount = 0L
+        }
+    }
+
+    fun getDroppedLogCount(): Long = droppedLogCount.get()
 
     private fun formatEntry(entry: LogEntry): String {
         val dateStr = dateFormat.format(Date(entry.timestampMs))
