@@ -11,7 +11,9 @@ import com.bajajauto.roadsense.camera.AutoFitTextureView
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Videocam
@@ -28,6 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -180,27 +183,33 @@ private fun SbsCameraFeedPane(
                 .fillMaxSize()
                 .padding(horizontal = 8.dp, vertical = 6.dp)
         ) {
-            // Header Row: Title & Telemetry Pills
+            // Header Row 1: Title & Critical Camera Telemetry (never wraps vertically)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Videocam,
                         contentDescription = "Camera",
                         tint = Color(0xFF80D8FF),
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(15.dp)
                     )
                     Text(
                         text = "Camera Feed",
                         style = MaterialTheme.typography.labelMedium,
                         color = Color(0xFF80D8FF),
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
 
@@ -208,66 +217,16 @@ private fun SbsCameraFeedPane(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // HUD Overlay Toggle Chip
-                    Surface(
-                        selected = isRadarOverlayEnabled,
-                        onClick = { viewModel.toggleRadarOverlay() },
-                        shape = RoundedCornerShape(4.dp),
-                        color = if (isRadarOverlayEnabled) Color(0xFF1B5E20).copy(alpha = 0.5f) else Color(0xFF1E2530),
-                        contentColor = if (isRadarOverlayEnabled) Color(0xFF81C784) else Color(0xFF90A4AE),
-                        modifier = Modifier.height(20.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 5.dp)) {
-                            Text("HUD", fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    // HUD Mode Cycling Chip (Tracks <80m -> Boxes <80m -> Raw Points)
-                    if (isRadarOverlayEnabled) {
-                        val (modeBg, modeFg) = when (debugState.hudOverlayMode) {
-                            HudOverlayMode.TRACKS_LOLLIPOP_80M -> Color(0xFF006064).copy(alpha = 0.55f) to Color(0xFF80DEEA)
-                            HudOverlayMode.SIMPLE_BOXES_80M -> Color(0xFF1B5E20).copy(alpha = 0.55f) to Color(0xFFA5D6A7)
-                            HudOverlayMode.RAW_POINTS_LEGACY -> Color(0xFFE65100).copy(alpha = 0.55f) to Color(0xFFFFCC80)
-                        }
-                        Surface(
-                            onClick = { viewModel.cycleHudOverlayMode() },
-                            shape = RoundedCornerShape(4.dp),
-                            color = modeBg,
-                            contentColor = modeFg,
-                            modifier = Modifier.height(20.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 5.dp)) {
-                                Text(debugState.hudOverlayMode.label, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                        }
-                    }
-
-                    // Bench Timing Log Chip (synchronized with BEV/Overlay [DRAW_*] timing logs)
-                    if (debugState.masterDebugEnabled) {
-                        Surface(
-                            selected = debugState.canvasTimingLogs,
-                            onClick = { viewModel.setBenchTimingLogging(!debugState.canvasTimingLogs) },
-                            shape = RoundedCornerShape(4.dp),
-                            color = if (debugState.canvasTimingLogs) Color(0xFF37474F) else Color(0xFF1E2530),
-                            contentColor = if (debugState.canvasTimingLogs) Color(0xFFFFD54F) else Color(0xFF78909C),
-                            modifier = Modifier.height(20.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 5.dp)) {
-                                Text("Log", fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
                     // Mute / Pause Preview Toggle
                     IconButton(
                         onClick = { viewModel.setCameraPreviewMuted(!isPreviewMutedByUser) },
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
                     ) {
                         Icon(
                             imageVector = if (isPreviewMutedByUser) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                             contentDescription = if (isPreviewMutedByUser) "Resume Viewfinder" else "Pause Viewfinder",
                             tint = if (isPreviewMutedByUser) MaterialTheme.colorScheme.error else Color(0xFF80D8FF),
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(15.dp)
                         )
                     }
 
@@ -282,7 +241,9 @@ private fun SbsCameraFeedPane(
                             color = Color(0xFF90A4AE),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                         )
                     }
 
@@ -291,6 +252,85 @@ private fun SbsCameraFeedPane(
                         viewModel = viewModel,
                         isRecording = engineState is CameraEngineState.Recording
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(3.dp))
+
+            // Header Row 2: Compact HUD & Bench Controls (horizontally scrollable, never compresses preview)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // HUD Overlay Toggle Chip
+                Surface(
+                    selected = isRadarOverlayEnabled,
+                    onClick = { viewModel.toggleRadarOverlay() },
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (isRadarOverlayEnabled) Color(0xFF1B5E20).copy(alpha = 0.5f) else Color(0xFF1E2530),
+                    contentColor = if (isRadarOverlayEnabled) Color(0xFF81C784) else Color(0xFF90A4AE),
+                    modifier = Modifier.height(20.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp)) {
+                        Text(
+                            text = if (isRadarOverlayEnabled) "HUD ON" else "HUD OFF",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+
+                // HUD Mode Cycling Chip (Tracks <80m -> Boxes <80m -> Raw Points)
+                if (isRadarOverlayEnabled) {
+                    val (modeBg, modeFg) = when (debugState.hudOverlayMode) {
+                        HudOverlayMode.TRACKS_LOLLIPOP_80M -> Color(0xFF006064).copy(alpha = 0.55f) to Color(0xFF80DEEA)
+                        HudOverlayMode.SIMPLE_BOXES_80M -> Color(0xFF1B5E20).copy(alpha = 0.55f) to Color(0xFFA5D6A7)
+                        HudOverlayMode.RAW_POINTS_LEGACY -> Color(0xFFE65100).copy(alpha = 0.55f) to Color(0xFFFFCC80)
+                    }
+                    Surface(
+                        onClick = { viewModel.cycleHudOverlayMode() },
+                        shape = RoundedCornerShape(4.dp),
+                        color = modeBg,
+                        contentColor = modeFg,
+                        modifier = Modifier.height(20.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp)) {
+                            Text(
+                                text = debugState.hudOverlayMode.label,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                }
+
+                // Bench Timing Log Chip (synchronized with BEV/Overlay [DRAW_*] timing logs)
+                if (debugState.masterDebugEnabled) {
+                    Surface(
+                        selected = debugState.canvasTimingLogs,
+                        onClick = { viewModel.setBenchTimingLogging(!debugState.canvasTimingLogs) },
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (debugState.canvasTimingLogs) Color(0xFF37474F) else Color(0xFF1E2530),
+                        contentColor = if (debugState.canvasTimingLogs) Color(0xFFFFD54F) else Color(0xFF78909C),
+                        modifier = Modifier.height(20.dp)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp)) {
+                            Text(
+                                text = if (debugState.canvasTimingLogs) "Log ON" else "Log OFF",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
                 }
             }
 
@@ -475,6 +515,8 @@ private fun SbsCameraHudBadges(
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
             )
         }
@@ -499,6 +541,8 @@ private fun SbsRecordingFramePill(viewModel: RadarViewModel) {
             fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.Monospace,
+            maxLines = 1,
+            softWrap = false,
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
         )
     }

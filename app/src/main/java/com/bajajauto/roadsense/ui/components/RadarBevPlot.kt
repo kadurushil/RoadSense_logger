@@ -4,7 +4,9 @@ import android.graphics.Paint
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,6 +21,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.DebugToggleSnapshot
@@ -125,7 +128,13 @@ fun RadarBevPlot(
                         text = "BEV Scope (${maxRangeMeters.toInt()}m)",
                         style = MaterialTheme.typography.labelMedium,
                         color = Color(0xFF80D8FF),
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 6.dp)
                     )
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -145,7 +154,9 @@ fun RadarBevPlot(
                                     Text(
                                         text = "${range.toInt()}m",
                                         fontSize = 11.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -225,79 +236,112 @@ fun RadarBevPlot(
             Spacer(modifier = Modifier.height(if (isLandscape) 4.dp else 8.dp))
 
             // Filter Toggles, Bench Toggle & Target/Velocity Legend
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Filters + Compact Bench Expand Chip
-                Row(horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 6.dp)) {
-                    Surface(
-                        selected = dynamicOnly,
-                        onClick = { viewModel.setRadarDynamicOnly(!dynamicOnly) },
-                        shape = RoundedCornerShape(4.dp),
-                        color = if (dynamicOnly) Color(0xFF37474F) else Color(0xFF181D26),
-                        border = BorderStroke(1.dp, if (dynamicOnly) Color(0xFF80D8FF) else Color(0xFF263238)),
-                        modifier = Modifier.height(if (isLandscape) 24.dp else 28.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp)) {
-                            Text(
-                                text = "Moving Only",
-                                fontSize = if (isLandscape) 10.sp else 11.sp,
-                                color = if (dynamicOnly) Color(0xFF80D8FF) else Color(0xFF90A4AE),
-                                fontWeight = if (dynamicOnly) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
+            // Responsive layout: single row on wide viewports; stacked cleanly on narrow SBS/portrait panes
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val useCompactFooter = maxWidth < 460.dp
 
-                    Surface(
-                        selected = minSnrFilter,
-                        onClick = { viewModel.setRadarMinSnr(!minSnrFilter) },
-                        shape = RoundedCornerShape(4.dp),
-                        color = if (minSnrFilter) Color(0xFF37474F) else Color(0xFF181D26),
-                        border = BorderStroke(1.dp, if (minSnrFilter) Color(0xFF80D8FF) else Color(0xFF263238)),
-                        modifier = Modifier.height(if (isLandscape) 24.dp else 28.dp)
+                val filtersContent: @Composable () -> Unit = {
+                    Row(
+                        modifier = if (useCompactFooter) Modifier.horizontalScroll(rememberScrollState()) else Modifier,
+                        horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp)) {
-                            Text(
-                                text = "SNR ≥ 15dB",
-                                fontSize = if (isLandscape) 10.sp else 11.sp,
-                                color = if (minSnrFilter) Color(0xFF80D8FF) else Color(0xFF90A4AE),
-                                fontWeight = if (minSnrFilter) FontWeight.Bold else FontWeight.Normal
-                            )
+                        Surface(
+                            selected = dynamicOnly,
+                            onClick = { viewModel.setRadarDynamicOnly(!dynamicOnly) },
+                            shape = RoundedCornerShape(4.dp),
+                            color = if (dynamicOnly) Color(0xFF37474F) else Color(0xFF181D26),
+                            border = BorderStroke(1.dp, if (dynamicOnly) Color(0xFF80D8FF) else Color(0xFF263238)),
+                            modifier = Modifier.height(if (isLandscape) 24.dp else 28.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp)) {
+                                Text(
+                                    text = "Moving Only",
+                                    fontSize = if (isLandscape) 10.sp else 11.sp,
+                                    color = if (dynamicOnly) Color(0xFF80D8FF) else Color(0xFF90A4AE),
+                                    fontWeight = if (dynamicOnly) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
-                    }
 
-                    Surface(
-                        selected = showBenchStrip,
-                        onClick = { showBenchStrip = !showBenchStrip },
-                        shape = RoundedCornerShape(4.dp),
-                        color = if (showBenchStrip) Color(0xFF2A2438) else Color(0xFF181D26),
-                        border = BorderStroke(1.dp, if (showBenchStrip) Color(0xFFB388FF) else Color(0xFF263238)),
-                        modifier = Modifier.height(if (isLandscape) 24.dp else 28.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = if (isLandscape) 5.dp else 7.dp)) {
-                            Text(
-                                text = "Bench",
-                                fontSize = if (isLandscape) 10.sp else 11.sp,
-                                color = if (showBenchStrip) Color(0xFFD1C4E9) else Color(0xFF90A4AE),
-                                fontWeight = if (showBenchStrip) FontWeight.Bold else FontWeight.Normal
-                            )
+                        Surface(
+                            selected = minSnrFilter,
+                            onClick = { viewModel.setRadarMinSnr(!minSnrFilter) },
+                            shape = RoundedCornerShape(4.dp),
+                            color = if (minSnrFilter) Color(0xFF37474F) else Color(0xFF181D26),
+                            border = BorderStroke(1.dp, if (minSnrFilter) Color(0xFF80D8FF) else Color(0xFF263238)),
+                            modifier = Modifier.height(if (isLandscape) 24.dp else 28.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp)) {
+                                Text(
+                                    text = "SNR ≥ 15dB",
+                                    fontSize = if (isLandscape) 10.sp else 11.sp,
+                                    color = if (minSnrFilter) Color(0xFF80D8FF) else Color(0xFF90A4AE),
+                                    fontWeight = if (minSnrFilter) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+
+                        Surface(
+                            selected = showBenchStrip,
+                            onClick = { showBenchStrip = !showBenchStrip },
+                            shape = RoundedCornerShape(4.dp),
+                            color = if (showBenchStrip) Color(0xFF2A2438) else Color(0xFF181D26),
+                            border = BorderStroke(1.dp, if (showBenchStrip) Color(0xFFB388FF) else Color(0xFF263238)),
+                            modifier = Modifier.height(if (isLandscape) 24.dp else 28.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp)) {
+                                Text(
+                                    text = "Bench",
+                                    fontSize = if (isLandscape) 10.sp else 11.sp,
+                                    color = if (showBenchStrip) Color(0xFFD1C4E9) else Color(0xFF90A4AE),
+                                    fontWeight = if (showBenchStrip) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
                         }
                     }
                 }
 
-                // Legend: ADAS Targets & Point Cloud
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clearAndSetSemantics {}
-                ) {
-                    Text(text = "■ FCW", color = Color(0xFFFF1744), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.Bold)
-                    Text(text = "■ ACC", color = Color(0xFF00E5FF), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.Bold)
-                    Text(text = "■ Trk", color = Color(0xFFFFB300), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.Bold)
-                    Text(text = "● Appr", color = Color(0xFFFF5252), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.Medium)
-                    Text(text = "● Rec", color = Color(0xFF40C4FF), fontSize = if (isLandscape) 9.sp else 10.sp, fontWeight = FontWeight.Medium)
+                val legendContent: @Composable () -> Unit = {
+                    val legendFont = if (isLandscape) 9.sp else 10.sp
+                    Row(
+                        modifier = Modifier
+                            .then(if (useCompactFooter) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
+                            .clearAndSetSemantics {},
+                        horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 6.dp else 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "■ FCW", color = Color(0xFFFF1744), fontSize = legendFont, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        Text(text = "■ ACC", color = Color(0xFF00E5FF), fontSize = legendFont, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        Text(text = "■ Trk", color = Color(0xFFFFB300), fontSize = legendFont, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                        Text(text = "● Appr", color = Color(0xFFFF5252), fontSize = legendFont, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+                        Text(text = "● Rec", color = Color(0xFF40C4FF), fontSize = legendFont, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+                    }
+                }
+
+                if (useCompactFooter) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        filtersContent()
+                        legendContent()
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        filtersContent()
+                        legendContent()
+                    }
                 }
             }
 
@@ -374,7 +418,8 @@ private fun BevBenchToggleChip(
                 fontSize = if (isLandscape) 9.sp else 10.sp,
                 color = if (enabled) accentColor else Color(0xFF78909C),
                 fontWeight = if (enabled) FontWeight.Bold else FontWeight.Normal,
-                maxLines = 1
+                maxLines = 1,
+                softWrap = false
             )
         }
     }
