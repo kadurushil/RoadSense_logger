@@ -20,7 +20,9 @@ class FrameWindowStatsTest {
                 layoutMs = i * 0.25f,     // 0.25..5.0 ms
                 drawMs = i * 0.50f,       // 0.50..10.0 ms
                 syncMs = i * 0.15f,       // 0.15..3.0 ms
-                gpuMs = i * 0.40f         // 0.40..8.0 ms
+                gpuMs = i * 0.40f,        // 0.40..8.0 ms
+                unkMs = i * 0.30f,        // 0.30..6.0 ms
+                swapMs = i * 0.20f        // 0.20..4.0 ms
             )
         }
 
@@ -40,6 +42,8 @@ class FrameWindowStatsTest {
         assertTrue(summary.contains("layoutP95=5.00ms"))
         assertTrue(summary.contains("syncP95=3.00ms"))
         assertTrue(summary.contains("gpuP95=8.00ms"))
+        assertTrue(summary.contains("unkP95=6.00ms"))
+        assertTrue(summary.contains("swapP95=4.00ms"))
 
         // State resets cleanly
         assertEquals(0, stats.frameCount)

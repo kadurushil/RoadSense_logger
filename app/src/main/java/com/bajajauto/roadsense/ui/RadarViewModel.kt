@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import android.os.SystemClock
+import com.bajajauto.roadsense.DebugToggleSnapshot
+import com.bajajauto.roadsense.DebugToggles
 import com.bajajauto.roadsense.acquisition.RadarConnectionManager
 import com.bajajauto.roadsense.acquisition.RadarConnectionState
 import com.bajajauto.roadsense.camera.CameraEngine
@@ -244,6 +246,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val _radarMinSnr = MutableStateFlow(appPreferences.radarMinSnrFilter)
     val radarMinSnr: StateFlow<Boolean> = _radarMinSnr.asStateFlow()
 
+    val debugToggleState: StateFlow<DebugToggleSnapshot> = DebugToggles.state
+
     // Camera preview is always off/muted by default on every app launch (lag elimination).
     // While the app is running in the current session, the state stays as left by the user across cards.
     private val _isCameraPreviewMuted = MutableStateFlow(true)
@@ -292,6 +296,14 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             _calibrationParams.value = loaded
             _savedBaselineParams.value = loaded
         }
+
+        // Restore persistent BEV debug layer filters while keeping master timing logs governed by DebugToggles default
+        DebugToggles.setBevLayerToggles(
+            showRawPoints = appPreferences.bevShowRawPoints,
+            showTracks = appPreferences.bevShowTracks,
+            showClusters = appPreferences.bevShowClusters,
+            showGrid = appPreferences.bevShowGrid
+        )
 
         // Periodic 1-second ticker for multi-sensor rates & battery/CPU telemetry
         viewModelScope.launch(Dispatchers.Default) {
@@ -592,6 +604,30 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     fun setRadarMinSnr(enabled: Boolean) {
         _radarMinSnr.value = enabled
         appPreferences.radarMinSnrFilter = enabled
+    }
+
+    fun setBevShowRawPoints(enabled: Boolean) {
+        DebugToggles.setBevLayerToggles(showRawPoints = enabled)
+        appPreferences.bevShowRawPoints = enabled
+    }
+
+    fun setBevShowTracks(enabled: Boolean) {
+        DebugToggles.setBevLayerToggles(showTracks = enabled)
+        appPreferences.bevShowTracks = enabled
+    }
+
+    fun setBevShowClusters(enabled: Boolean) {
+        DebugToggles.setBevLayerToggles(showClusters = enabled)
+        appPreferences.bevShowClusters = enabled
+    }
+
+    fun setBevShowGrid(enabled: Boolean) {
+        DebugToggles.setBevLayerToggles(showGrid = enabled)
+        appPreferences.bevShowGrid = enabled
+    }
+
+    fun setBenchTimingLogging(enabled: Boolean) {
+        DebugToggles.setBenchTimingLogging(enabled)
     }
 
     fun setCameraPreviewMuted(muted: Boolean) {

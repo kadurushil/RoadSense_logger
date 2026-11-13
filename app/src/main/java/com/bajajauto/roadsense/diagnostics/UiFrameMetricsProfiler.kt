@@ -23,6 +23,8 @@ internal class FrameWindowStats(private val capacity: Int = 1024) {
     private val drawDurationsMs = FloatArray(capacity)
     private val syncDurationsMs = FloatArray(capacity)
     private val gpuDurationsMs = FloatArray(capacity)
+    private val unkDurationsMs = FloatArray(capacity)
+    private val swapDurationsMs = FloatArray(capacity)
     private val sortScratch = FloatArray(capacity)
 
     var frameCount: Int = 0
@@ -36,6 +38,8 @@ internal class FrameWindowStats(private val capacity: Int = 1024) {
         drawMs: Float,
         syncMs: Float,
         gpuMs: Float,
+        unkMs: Float = 0f,
+        swapMs: Float = 0f,
         jankThresholdMs: Double = 16.67
     ) {
         if (frameCount < capacity) {
@@ -44,6 +48,8 @@ internal class FrameWindowStats(private val capacity: Int = 1024) {
             drawDurationsMs[frameCount] = drawMs
             syncDurationsMs[frameCount] = syncMs
             gpuDurationsMs[frameCount] = gpuMs
+            unkDurationsMs[frameCount] = unkMs
+            swapDurationsMs[frameCount] = swapMs
         }
         frameCount++
         if (totalMs > jankThresholdMs) {
@@ -69,13 +75,15 @@ internal class FrameWindowStats(private val capacity: Int = 1024) {
         val layoutP95 = percentile(layoutDurationsMs, sampleLen, p95Idx)
         val syncP95 = percentile(syncDurationsMs, sampleLen, p95Idx)
         val gpuP95 = percentile(gpuDurationsMs, sampleLen, p95Idx)
+        val unkP95 = percentile(unkDurationsMs, sampleLen, p95Idx)
+        val swapP95 = percentile(swapDurationsMs, sampleLen, p95Idx)
 
         val jankPct = (jankCount * 100.0) / frameCount
         val summary = String.format(
             Locale.US,
-            "[WINDOW_5S] frames=%d | jank=%d (%.1f%%) | p50=%.2fms | p95=%.2fms | max=%.2fms | drawP50=%.2fms | drawP95=%.2fms | layoutP95=%.2fms | syncP95=%.2fms | gpuP95=%.2fms",
+            "[WINDOW_5S] frames=%d | jank=%d (%.1f%%) | p50=%.2fms | p95=%.2fms | max=%.2fms | drawP50=%.2fms | drawP95=%.2fms | layoutP95=%.2fms | syncP95=%.2fms | gpuP95=%.2fms | unkP95=%.2fms | swapP95=%.2fms",
             frameCount, jankCount, jankPct, totalP50, totalP95, totalMax,
-            drawP50, drawP95, layoutP95, syncP95, gpuP95
+            drawP50, drawP95, layoutP95, syncP95, gpuP95, unkP95, swapP95
         )
 
         frameCount = 0
@@ -131,6 +139,8 @@ class UiFrameMetricsProfiler {
             val drawMs = frameMetrics.getMetric(FrameMetrics.DRAW_DURATION).coerceAtLeast(0L) / 1_000_000.0
             val syncMs = frameMetrics.getMetric(FrameMetrics.SYNC_DURATION).coerceAtLeast(0L) / 1_000_000.0
             val gpuIssueMs = frameMetrics.getMetric(FrameMetrics.COMMAND_ISSUE_DURATION).coerceAtLeast(0L) / 1_000_000.0
+            val unkDelayMs = frameMetrics.getMetric(FrameMetrics.UNKNOWN_DELAY_DURATION).coerceAtLeast(0L) / 1_000_000.0
+            val swapMs = frameMetrics.getMetric(FrameMetrics.SWAP_BUFFERS_DURATION).coerceAtLeast(0L) / 1_000_000.0
 
             windowStats.record(
                 totalMs = totalMs.toFloat(),
@@ -138,14 +148,16 @@ class UiFrameMetricsProfiler {
                 drawMs = drawMs.toFloat(),
                 syncMs = syncMs.toFloat(),
                 gpuMs = gpuIssueMs.toFloat(),
+                unkMs = unkDelayMs.toFloat(),
+                swapMs = swapMs.toFloat(),
                 jankThresholdMs = JANK_THRESHOLD_MS
             )
 
             if (totalMs > 24.0) {
                 val msg = String.format(
                     Locale.US,
-                    "[JANK_FRAME] total=%.2fms | anim=%.2fms | layout=%.2fms | draw=%.2fms | sync=%.2fms | gpu=%.2fms | input=%.2fms | drops=%d",
-                    totalMs, animMs, layoutMs, drawMs, syncMs, gpuIssueMs, inputMs, dropCountSinceLastInvocation
+                    "[JANK_FRAME] total=%.2fms | anim=%.2fms | layout=%.2fms | draw=%.2fms | sync=%.2fms | gpu=%.2fms | unk=%.2fms | swap=%.2fms | input=%.2fms | drops=%d",
+                    totalMs, animMs, layoutMs, drawMs, syncMs, gpuIssueMs, unkDelayMs, swapMs, inputMs, dropCountSinceLastInvocation
                 )
                 Log.w(TAG, msg)
                 if (DebugToggles.isUiPerfJankToFileActive) {

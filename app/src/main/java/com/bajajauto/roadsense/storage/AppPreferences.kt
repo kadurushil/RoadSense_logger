@@ -20,6 +20,11 @@ class AppPreferences(context: Context) {
         private const val KEY_RADAR_DYNAMIC_ONLY = "radar_dynamic_only"
         private const val KEY_RADAR_MIN_SNR = "radar_min_snr"
 
+        private const val KEY_BEV_SHOW_RAW_POINTS = "bev_show_raw_points"
+        private const val KEY_BEV_SHOW_TRACKS = "bev_show_tracks"
+        private const val KEY_BEV_SHOW_CLUSTERS = "bev_show_clusters"
+        private const val KEY_BEV_SHOW_GRID = "bev_show_grid"
+
         private const val KEY_CAMERA_RES = "camera_resolution"
         private const val KEY_CAMERA_FPS = "camera_fps"
         private const val KEY_CAMERA_LENS_ID = "camera_lens_id"
@@ -47,6 +52,22 @@ class AppPreferences(context: Context) {
     var radarMinSnrFilter: Boolean
         get() = prefs.getBoolean(KEY_RADAR_MIN_SNR, false)
         set(value) = prefs.edit().putBoolean(KEY_RADAR_MIN_SNR, value).apply()
+
+    var bevShowRawPoints: Boolean
+        get() = prefs.getBoolean(KEY_BEV_SHOW_RAW_POINTS, true)
+        set(value) = prefs.edit().putBoolean(KEY_BEV_SHOW_RAW_POINTS, value).apply()
+
+    var bevShowTracks: Boolean
+        get() = prefs.getBoolean(KEY_BEV_SHOW_TRACKS, true)
+        set(value) = prefs.edit().putBoolean(KEY_BEV_SHOW_TRACKS, value).apply()
+
+    var bevShowClusters: Boolean
+        get() = prefs.getBoolean(KEY_BEV_SHOW_CLUSTERS, true)
+        set(value) = prefs.edit().putBoolean(KEY_BEV_SHOW_CLUSTERS, value).apply()
+
+    var bevShowGrid: Boolean
+        get() = prefs.getBoolean(KEY_BEV_SHOW_GRID, true)
+        set(value) = prefs.edit().putBoolean(KEY_BEV_SHOW_GRID, value).apply()
 
     var cameraResolution: CameraResolution
         get() {

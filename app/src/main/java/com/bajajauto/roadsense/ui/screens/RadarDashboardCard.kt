@@ -53,8 +53,10 @@ fun RadarDashboardCard(
     val effectiveConnectionState = connectionState ?: viewModel.connectionState.collectAsState().value
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    val recordingState by viewModel.sessionRecordingState.collectAsState()
-    val isRecording = recordingState is SessionRecordingState.Recording
+    val recordingStateHolder = viewModel.sessionRecordingState.collectAsState()
+    val isRecording by remember {
+        derivedStateOf { recordingStateHolder.value is SessionRecordingState.Recording }
+    }
 
     val radarFrameState = viewModel.latestFrame.collectAsState()
 

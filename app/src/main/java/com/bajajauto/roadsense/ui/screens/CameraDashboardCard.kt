@@ -550,8 +550,6 @@ private fun CameraPipelineStatusHeader(
     onGrant: () -> Unit,
     onToggleMute: () -> Unit
 ) {
-    val sessionFrames by viewModel.cameraSessionFrames.collectAsState()
-
     Card(
         colors = CardDefaults.cardColors(
             containerColor = when (engineState) {
@@ -580,16 +578,20 @@ private fun CameraPipelineStatusHeader(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                Text(
-                    text = when (engineState) {
-                        is CameraEngineState.Closed -> if (!hasCameraPermission) "Permission Required" else "Camera Idle / Muted"
-                        is CameraEngineState.Opening -> "Opening Sensor Hardware..."
-                        is CameraEngineState.Previewing -> "Preview Active (${selectedRes.label} @ ${selectedFps.label})"
-                        is CameraEngineState.Recording -> "● Recording H.264 ($sessionFrames frames)"
-                        is CameraEngineState.Error -> engineState.message
-                    },
-                    style = MaterialTheme.typography.bodySmall
-                )
+                if (engineState is CameraEngineState.Recording) {
+                    CameraRecordingFramesSubtitle(viewModel = viewModel)
+                } else {
+                    Text(
+                        text = when (engineState) {
+                            is CameraEngineState.Closed -> if (!hasCameraPermission) "Permission Required" else "Camera Idle / Muted"
+                            is CameraEngineState.Opening -> "Opening Sensor Hardware..."
+                            is CameraEngineState.Previewing -> "Preview Active (${selectedRes.label} @ ${selectedFps.label})"
+                            is CameraEngineState.Recording -> ""
+                            is CameraEngineState.Error -> engineState.message
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
 
             if (!hasCameraPermission) {
@@ -603,6 +605,15 @@ private fun CameraPipelineStatusHeader(
             }
         }
     }
+}
+
+@Composable
+private fun CameraRecordingFramesSubtitle(viewModel: RadarViewModel) {
+    val sessionFrames by viewModel.cameraSessionFrames.collectAsState()
+    Text(
+        text = "● Recording H.264 ($sessionFrames frames)",
+        style = MaterialTheme.typography.bodySmall
+    )
 }
 
 @Composable

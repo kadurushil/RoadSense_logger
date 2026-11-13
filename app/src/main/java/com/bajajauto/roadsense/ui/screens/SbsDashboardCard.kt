@@ -420,7 +420,6 @@ private fun SbsCameraHudBadges(
     isRecording: Boolean
 ) {
     val cameraFps by viewModel.cameraFps.collectAsState()
-    val sessionFrames by viewModel.cameraSessionFrames.collectAsState()
 
     Row(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -442,21 +441,27 @@ private fun SbsCameraHudBadges(
             )
         }
 
-        // REC Pill if actively recording
+        // REC Pill isolated so 30 Hz frame counter does not recompose sibling FPS badge
         if (isRecording) {
-            Surface(
-                color = MaterialTheme.colorScheme.errorContainer,
-                shape = RoundedCornerShape(4.dp)
-            ) {
-                Text(
-                    text = "● REC (${sessionFrames}f)",
-                    color = MaterialTheme.colorScheme.error,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-            }
+            SbsRecordingFramePill(viewModel = viewModel)
         }
+    }
+}
+
+@Composable
+private fun SbsRecordingFramePill(viewModel: RadarViewModel) {
+    val sessionFrames by viewModel.cameraSessionFrames.collectAsState()
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        shape = RoundedCornerShape(4.dp)
+    ) {
+        Text(
+            text = "● REC (${sessionFrames}f)",
+            color = MaterialTheme.colorScheme.error,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+        )
     }
 }
