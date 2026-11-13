@@ -1,5 +1,6 @@
 package com.bajajauto.roadsense.sync
 
+import android.os.Process
 import com.bajajauto.roadsense.DebugToggles
 import com.bajajauto.roadsense.logging.AppLogger
 import com.bajajauto.roadsense.models.RadarFrame
@@ -8,38 +9,64 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * RadarDisplayPacer:
  * Eliminates USB transport jitter (such as the Silicon Labs CP2105 71ms/28ms bimodal bulk boundary coalescing)
- * by buffering incoming decoded RadarFrames in a bounded 50 ms jitter queue and dispatching them to the UI
+ * by buffering incoming decoded RadarFrames in a bounded low-latency jitter queue and dispatching them to the UI
  * at a rock-solid, constant frame rate (default 20.0 Hz / 50.0 ms period).
  *
- * Problem Resolved:
- * The TI AWR1843BOOST radar emits frames at exactly 20.0 Hz (50.0 ms period). However, due to Full-Speed USB
- * packet coalescing and interrupt scheduling on Android, user-space packets arrive bimodally at alternating
- * 71.8 ms and 28.2 ms intervals. Direct assignment to the UI triggers rapid bursts and freezes (14 FPS <-> 35 FPS).
- *
- * Pacer Solution:
- * 1. Initial 50 ms buffer: Frame 0 primes the queue.
- * 2. Constant 50.0 ms target-time dispatcher ticks every 50 ms, perfectly absorbing the 71ms/28ms jitter.
- * 3. Zero latency accumulation: If thread preemption or GC pauses cause the queue to accumulate > maxQueueDepth
- *    (default 2 frames = 100 ms), older frames are pruned to guarantee display latency never exceeds ~50 ms.
- * 4. Automatic idle sleep: Pauses dispatcher when radar stops transmitting (>500 ms gap).
+ * Architecture:
+ * - Dedicated single-thread executor running at `Process.THREAD_PRIORITY_DISPLAY` (-4) so background
+ *   HTTP/disk/logging work never induces 100+ ms Dispatchers.Default wakeup stalls.
+ * - Low-latency queue bound (`maxQueueDepth = 2` default) with sustained-backlog self-healing: if queue
+ *   remains non-empty across >= 3 consecutive ticks (`> 150 ms` of sustained lag), drops the older head frame
+ *   before emitting the fresher frame so display lag never permanently latches at 100-250 ms.
  */
 class RadarDisplayPacer(
     val frameIntervalMs: Long = 50L,
     val bufferDelayMs: Long = 50L,
-    val maxQueueDepth: Int = 6,
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    val maxQueueDepth: Int = 3,
+    private val scope: CoroutineScope? = null
 ) {
+    companion object {
+        private const val SUSTAINED_BLOAT_TICKS = 4
+        private const val CLOCK_SKEW_CATCHUP_NS = 2_000_000L
+        private const val IDLE_TIMEOUT_MS = 500L
+    }
+
+    private val ownedExecutor: ExecutorService? = if (scope == null) {
+        Executors.newSingleThreadExecutor { runnable ->
+            Thread({
+                try {
+                    Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
+                } catch (_: Throwable) {
+                    // Safe fallback under JVM unit tests
+                }
+                runnable.run()
+            }, "RS-DisplayPacer").apply {
+                isDaemon = true
+                priority = Thread.MAX_PRIORITY
+            }
+        }
+    } else {
+        null
+    }
+
+    private val ownedDispatcher: ExecutorCoroutineDispatcher? =
+        ownedExecutor?.asCoroutineDispatcher()
+
+    private val effectiveScope: CoroutineScope =
+        scope ?: CoroutineScope((ownedDispatcher ?: Dispatchers.Default) + SupervisorJob())
+
     private val queue = ConcurrentLinkedQueue<RadarFrame>()
     private val _latestFrame = MutableStateFlow<RadarFrame?>(null)
     val latestFrame: StateFlow<RadarFrame?> = _latestFrame.asStateFlow()
 
-    @Volatile
-    private var isRunning = AtomicBoolean(false)
+    private val isRunning = AtomicBoolean(false)
     @Volatile
     private var lastEnqueuedMs = 0L
     @Volatile
@@ -48,6 +75,10 @@ class RadarDisplayPacer(
     private var lastEmitNs = 0L
     @Volatile
     private var totalDroppedFrames = 0L
+    @Volatile
+    private var sustainedBacklogTicks = 0
+    @Volatile
+    private var singleFrameLagTicks = 0
     private var pacingJob: Job? = null
 
     /**
@@ -85,19 +116,31 @@ class RadarDisplayPacer(
         lastEnqueueNs = 0L
         lastEmitNs = 0L
         totalDroppedFrames = 0L
+        sustainedBacklogTicks = 0
+        singleFrameLagTicks = 0
     }
 
     fun release() {
         reset()
-        scope.cancel()
+        effectiveScope.cancel()
+        try {
+            ownedDispatcher?.close()
+        } catch (_: Throwable) {}
+        try {
+            ownedExecutor?.shutdownNow()
+        } catch (_: Throwable) {}
     }
 
+    fun getTotalDroppedFrames(): Long = totalDroppedFrames
+
+    fun getBufferedCount(): Int = queue.size
+
     /**
-     * Internal pacing loop: runs at constant 50.0 ms target intervals.
+     * Internal pacing loop: runs at constant 50.0 ms target intervals on RS-DisplayPacer.
      */
     private fun startPacingLoop() {
         pacingJob?.cancel()
-        pacingJob = scope.launch {
+        pacingJob = effectiveScope.launch {
             // Initial buffer delay (50 ms) to build up a 1-frame jitter absorption cushion
             if (bufferDelayMs > 0L) {
                 delay(bufferDelayMs)
@@ -108,62 +151,111 @@ class RadarDisplayPacer(
             while (isActive && isRunning.get()) {
                 // 1. Check for idle timeout (>500 ms without new frames)
                 val nowWall = System.currentTimeMillis()
-                if (queue.isEmpty() && (nowWall - lastEnqueuedMs > 500L)) {
+                if (queue.isEmpty() && (nowWall - lastEnqueuedMs > IDLE_TIMEOUT_MS)) {
                     isRunning.set(false)
+                    sustainedBacklogTicks = 0
+                    singleFrameLagTicks = 0
                     break
                 }
 
-                // 2. Bound queue depth to eliminate latency creep:
-                // If more than maxQueueDepth frames are queued, drop older frames and keep the freshest
-                while (queue.size > maxQueueDepth) {
-                    val dropped = queue.poll()
-                    if (dropped != null) {
-                        totalDroppedFrames++
-                        if (DebugToggles.displayPacerDropWarnings || DebugToggles.isDisplayPacerVerboseActive) {
-                            val droppedSeq = dropped.header.frameNumber
-                            AppLogger.w(
-                                "DisplayPacer",
-                                "[DROP] seq=#$droppedSeq | qDepth=${queue.size} | totalDrops=$totalDroppedFrames"
-                            )
-                        }
-                    }
-                }
+                // 2. Process one tick (overflow pruning + sustained bloat heal + emit)
+                processSingleTick(nextTargetNs)
 
-                // 3. Dequeue and emit the next frame
-                val frameToEmit = queue.poll()
-                val nowNs = System.nanoTime()
-                if (frameToEmit != null) {
-                    val deltaEmitMs = if (lastEmitNs > 0L) (nowNs - lastEmitNs) / 1_000_000.0 else 0.0
-                    lastEmitNs = nowNs
-                    _latestFrame.value = frameToEmit
-                    if (DebugToggles.isDisplayPacerVerboseActive) {
-                        val timerJitterMs = (nowNs - nextTargetNs) / 1_000_000.0
-                        val seq = frameToEmit.header.frameNumber
-                        AppLogger.d(
-                            "DisplayPacer",
-                            "[EMIT] seq=#$seq | deltaEmitMs=${"%.2f".format(deltaEmitMs)} | jitterMs=${
-                                "%.2f".format(timerJitterMs)
-                            } | qDepth=${queue.size} | totalDrops=$totalDroppedFrames"
-                        )
-                    }
-                } else if (DebugToggles.isDisplayPacerVerboseActive) {
-                    val holdSeq = _latestFrame.value?.header?.frameNumber ?: -1L
-                    AppLogger.d("DisplayPacer", "[STARVATION] queue empty at tick | holdSeq=#$holdSeq")
-                }
-
-                // 4. Precise target-time sleep for constant cadence
-                nextTargetNs += frameIntervalMs * 1_000_000L
+                // 3. Precise target-time sleep with soft clock-skew catchup (-2 ms) when 1 cushion frame
+                //    persists across ticks, absorbing 20.03 Hz -> 20.00 Hz crystal drift with 0 dropped frames.
+                val intervalNs = frameIntervalMs * 1_000_000L
+                val skewAdjustNs = if (singleFrameLagTicks >= SUSTAINED_BLOAT_TICKS) CLOCK_SKEW_CATCHUP_NS else 0L
+                nextTargetNs += (intervalNs - skewAdjustNs)
                 val currentNs = System.nanoTime()
                 val sleepNs = nextTargetNs - currentNs
 
                 if (sleepNs > 1_000_000L) {
                     delay(sleepNs / 1_000_000L)
-                } else if (sleepNs < -frameIntervalMs * 1_000_000L) {
-                    // Fell behind more than 1 whole frame: re-anchor target time to now
+                } else if (sleepNs < -intervalNs) {
+                    // Fell behind by more than 1 whole frame: re-anchor cleanly instead of spin-bursting
                     nextTargetNs = System.nanoTime()
                 }
             }
         }
+    }
+
+    private fun processSingleTick(targetNs: Long): RadarFrame? {
+        // 1. Overflow bound: drop oldest frames whenever queue exceeds maxQueueDepth
+        while (queue.size > maxQueueDepth) {
+            val dropped = queue.poll()
+            if (dropped != null) {
+                totalDroppedFrames++
+                if (DebugToggles.displayPacerDropWarnings || DebugToggles.isDisplayPacerVerboseActive) {
+                    val droppedSeq = dropped.header.frameNumber
+                    AppLogger.w(
+                        "DisplayPacer",
+                        "[DROP] seq=#$droppedSeq | qDepth=${queue.size} | totalDrops=$totalDroppedFrames"
+                    )
+                }
+            }
+        }
+
+        // 2. Sustained multi-frame backlog trim: only drop when >= 2 frames remain backed up after emit
+        //    for >= 4 ticks AND >= 3 frames are queued now (leaves healthy 1-frame jitter cushion untouched).
+        if (sustainedBacklogTicks >= SUSTAINED_BLOAT_TICKS && queue.size >= 3) {
+            val bloatDropped = queue.poll()
+            if (bloatDropped != null) {
+                totalDroppedFrames++
+                sustainedBacklogTicks = 0
+                if (DebugToggles.displayPacerDropWarnings || DebugToggles.isDisplayPacerVerboseActive) {
+                    val droppedSeq = bloatDropped.header.frameNumber
+                    AppLogger.w(
+                        "DisplayPacer",
+                        "[BLOAT_TRIM] seq=#$droppedSeq | qDepth=${queue.size} | totalDrops=$totalDroppedFrames"
+                    )
+                }
+            }
+        }
+
+        // 3. Dequeue and emit the next frame
+        val frameToEmit = queue.poll()
+        val nowNs = System.nanoTime()
+        if (frameToEmit != null) {
+            val deltaEmitMs = if (lastEmitNs > 0L) (nowNs - lastEmitNs) / 1_000_000.0 else 0.0
+            lastEmitNs = nowNs
+            _latestFrame.value = frameToEmit
+
+            val remaining = queue.size
+            if (remaining >= 2) {
+                sustainedBacklogTicks++
+                singleFrameLagTicks++
+            } else if (remaining == 1) {
+                sustainedBacklogTicks = 0
+                singleFrameLagTicks++
+            } else {
+                sustainedBacklogTicks = 0
+                singleFrameLagTicks = 0
+            }
+
+            if (DebugToggles.isDisplayPacerVerboseActive) {
+                val timerJitterMs = (nowNs - targetNs) / 1_000_000.0
+                val seq = frameToEmit.header.frameNumber
+                AppLogger.d(
+                    "DisplayPacer",
+                    "[EMIT] seq=#$seq | deltaEmitMs=${"%.2f".format(deltaEmitMs)} | jitterMs=${
+                        "%.2f".format(timerJitterMs)
+                    } | qDepth=$remaining | totalDrops=$totalDroppedFrames"
+                )
+            }
+        } else {
+            sustainedBacklogTicks = 0
+            singleFrameLagTicks = 0
+            if (DebugToggles.isDisplayPacerVerboseActive) {
+                val holdSeq = _latestFrame.value?.header?.frameNumber ?: -1L
+                AppLogger.d("DisplayPacer", "[STARVATION] queue empty at tick | holdSeq=#$holdSeq")
+            }
+        }
+
+        return frameToEmit
+    }
+
+    internal fun enqueueForTesting(frame: RadarFrame) {
+        queue.offer(frame)
     }
 
     /**
@@ -171,16 +263,8 @@ class RadarDisplayPacer(
      */
     fun step(targetFrame: RadarFrame? = null): RadarFrame? {
         if (targetFrame != null) {
-            enqueueFrame(targetFrame)
+            queue.offer(targetFrame)
         }
-        while (queue.size > maxQueueDepth) {
-            queue.poll()
-        }
-        val frame = queue.poll()
-        if (frame != null) {
-            _latestFrame.value = frame
-        }
-        return frame
+        return processSingleTick(System.nanoTime())
     }
 }
-

@@ -209,8 +209,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     val displayPacer = RadarDisplayPacer(
         frameIntervalMs = 50L,
         bufferDelayMs = 50L,
-        maxQueueDepth = 6,
-        scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        maxQueueDepth = 3
     )
     val latestFrame: StateFlow<RadarFrame?> = displayPacer.latestFrame
 

@@ -144,4 +144,83 @@ class RadarDisplayPacerTest {
         pacer.release()
         assertNull("Release must clear latest frame", pacer.latestFrame.value)
     }
+
+    @Test
+    fun testSingleFrameCushionDoesNotCauseFalseDrops() {
+        val pacer = RadarDisplayPacer(maxQueueDepth = 3)
+
+        // Seed 1 cushion frame + 1 frame arriving every tick -> qDepth stays 1, must never drop
+        pacer.enqueueForTesting(createDummyFrame(1L))
+        for (seq in 2L..11L) {
+            val emitted = pacer.step(createDummyFrame(seq))
+            assertEquals(seq - 1L, emitted?.header?.frameNumber)
+            assertEquals(1, pacer.getBufferedCount())
+        }
+        assertEquals("Healthy 1-frame cushion must suffer zero bloat drops", 0L, pacer.getTotalDroppedFrames())
+        pacer.release()
+    }
+
+    @Test
+    fun testSustainedBufferbloatSelfHealsWithoutPermanentLag() {
+        val pacer = RadarDisplayPacer(maxQueueDepth = 3)
+
+        // Seed 3 frames on tick 1 -> emits #1, leaves #2 & #3 buffered (2-frame multi-frame backlog)
+        pacer.enqueueForTesting(createDummyFrame(1L))
+        pacer.enqueueForTesting(createDummyFrame(2L))
+        assertEquals(1L, pacer.step(createDummyFrame(3L))?.header?.frameNumber)
+        assertEquals(2, pacer.getBufferedCount())
+
+        // Sustained 2-frame backlog across ticks 2..4
+        assertEquals(2L, pacer.step(createDummyFrame(4L))?.header?.frameNumber)
+        assertEquals(2, pacer.getBufferedCount())
+
+        assertEquals(3L, pacer.step(createDummyFrame(5L))?.header?.frameNumber)
+        assertEquals(2, pacer.getBufferedCount())
+
+        assertEquals(4L, pacer.step(createDummyFrame(6L))?.header?.frameNumber)
+        assertEquals(2, pacer.getBufferedCount())
+
+        // Tick 5: sustainedBacklogTicks == 4 and queue.size == 3 (#5, #6, #7) -> drops older #5, emits #6, leaves #7 (depth 1)
+        val healed = pacer.step(createDummyFrame(7L))
+        assertEquals("Should skip stale #5 and advance to #6", 6L, healed?.header?.frameNumber)
+        assertEquals("Buffered backlog must shrink from 2 down to 1", 1, pacer.getBufferedCount())
+        assertEquals(1L, pacer.getTotalDroppedFrames())
+
+        pacer.release()
+    }
+
+    @Test
+    fun testHealthyBimodalJitterProducesZeroFalseDrops() {
+        val pacer = RadarDisplayPacer(maxQueueDepth = 2)
+
+        var seq = 1L
+        val emitted = mutableListOf<Long>()
+        repeat(10) {
+            // Burst cycle: 2 frames arrive together before tick -> tick 1 emits first (#1 left in queue), tick 2 drains empty
+            pacer.enqueueForTesting(createDummyFrame(seq++))
+            pacer.step(createDummyFrame(seq++))?.let { emitted.add(it.header.frameNumber) }
+            pacer.step(null)?.let { emitted.add(it.header.frameNumber) }
+        }
+
+        assertEquals("Every bimodal frame 1..20 must emit in order", (1L..20L).toList(), emitted)
+        assertEquals("Zero false drops under bimodal jitter", 0L, pacer.getTotalDroppedFrames())
+        pacer.release()
+    }
+
+    @Test
+    fun testDefaultPacerRunsDedicatedExecutorWithShallowDepth() {
+        val pacer = RadarDisplayPacer()
+        assertEquals(3, pacer.maxQueueDepth)
+
+        for (seq in 1L..6L) {
+            pacer.enqueueFrame(createDummyFrame(seq))
+        }
+
+        Thread.sleep(90L)
+        val emitted = pacer.latestFrame.value?.header?.frameNumber ?: 0L
+        assertTrue("Expected freshest burst frame (>= 4), got $emitted", emitted >= 4L)
+        assertTrue("Buffered count must stay bounded <= 2, got ${pacer.getBufferedCount()}", pacer.getBufferedCount() <= 2)
+        assertTrue(pacer.getTotalDroppedFrames() >= 3L)
+        pacer.release()
+    }
 }

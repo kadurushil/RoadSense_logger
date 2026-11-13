@@ -30,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.diagnostics.UiFrameMetricsProfiler
+import com.bajajauto.roadsense.BuildConfig
 import com.bajajauto.roadsense.logging.AppLogger
 import com.bajajauto.roadsense.recording.SessionRecordingState
 import com.bajajauto.roadsense.ui.components.FullscreenCalibrationStudio
@@ -63,7 +64,10 @@ class MainActivity : ComponentActivity() {
                 android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         )
         AppLogger.initAppLogging(applicationContext)
-        AppLogger.i("MainActivity", "RoadSense started. App run diagnostics logging initialized.")
+        AppLogger.i(
+            "MainActivity",
+            "RoadSense started. Build=v${BuildConfig.VERSION_NAME} (code=${BuildConfig.VERSION_CODE}, type=${BuildConfig.BUILD_TYPE}, commit=${BuildConfig.GIT_SHA}, built=${BuildConfig.BUILD_TIMESTAMP})"
+        )
 
         // Lock screen refresh rate to 60.0 Hz for exact integer harmonic synchronization:
         // Radar 20.0 Hz = exactly 3 VSYNCs (50.0 ms) | Camera 30.0 FPS = exactly 2 VSYNCs (33.3 ms)

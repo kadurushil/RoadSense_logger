@@ -2,6 +2,7 @@ package com.bajajauto.roadsense.logging
 
 import android.os.Process
 import android.util.Log
+import com.bajajauto.roadsense.BuildConfig
 import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
@@ -289,6 +290,7 @@ object AppLogger {
                 writer.write("RoadSense Continuous Diagnostics Flight Recorder\n")
                 writer.write("App Run: app_run_$runStamp\n")
                 writer.write("Started At: $nowStr\n")
+                writer.write("Build: v${BuildConfig.VERSION_NAME} (code=${BuildConfig.VERSION_CODE}, type=${BuildConfig.BUILD_TYPE}, commit=${BuildConfig.GIT_SHA}, built=${BuildConfig.BUILD_TIMESTAMP})\n")
                 writer.write("Package: ${context.packageName}\n")
                 writer.write("Device: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL} (Android ${android.os.Build.VERSION.RELEASE}, API ${android.os.Build.VERSION.SDK_INT})\n")
                 writer.write("Log File: ${logFile.absolutePath}\n")
@@ -419,6 +421,7 @@ object AppLogger {
                 writer.write("RoadSense Session Diagnostic Flight Recorder Log\n")
                 writer.write("Session Directory: ${sessionDir.name}\n")
                 writer.write("Attached At: ${dateFormat.format(Date())}\n")
+                writer.write("App Build: v${BuildConfig.VERSION_NAME} (code=${BuildConfig.VERSION_CODE}, type=${BuildConfig.BUILD_TYPE}, commit=${BuildConfig.GIT_SHA}, built=${BuildConfig.BUILD_TIMESTAMP})\n")
                 writer.write("===========================================================================\n\n")
                 writer.write("--- PRE-SESSION BREADCRUMBS DUMP (App boot to session start) ---\n")
 

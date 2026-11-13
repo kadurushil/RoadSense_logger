@@ -146,6 +146,12 @@ class RadarConnectionManager(private val context: Context) {
 
     private fun connectToDevice(device: UsbDevice) {
         try {
+            // Ensure any previous IO manager/ports are cleanly stopped before re-opening
+            dataIoManager?.stop()
+            dataIoManager = null
+            configIoManager?.stop()
+            configIoManager = null
+
             val driver = UsbSerialProber.getDefaultProber().probeDevice(device)
             if (driver == null || driver.ports.isEmpty()) {
                 _connectionState.value = RadarConnectionState.Error("Invalid USB serial driver or ports")
@@ -194,8 +200,9 @@ class RadarConnectionManager(private val context: Context) {
                 }
             }
 
-            // Setup IO Manager for Data Port
+            // Purge stale pre-connect RX/TX bytes from CP2105 silicon FIFOs before starting async reads
             dataPort?.let { port ->
+                purgeStaleHwBuffers(port, "Data")
                 startDataIoManager(port)
             }
 
@@ -316,12 +323,66 @@ class RadarConnectionManager(private val context: Context) {
         }
     }
 
+    private fun purgeStaleHwBuffers(port: UsbSerialPort, label: String) {
+        var hwPurged = false
+        try {
+            port.purgeHwBuffers(true, true)
+            hwPurged = true
+            com.bajajauto.roadsense.logging.AppLogger.i(
+                TAG,
+                "[CONNECT_PURGE] HW buffer purge on $label port (tx+rx succeeded)"
+            )
+        } catch (e: Exception) {
+            try {
+                port.purgeHwBuffers(false, true)
+                hwPurged = true
+                com.bajajauto.roadsense.logging.AppLogger.i(
+                    TAG,
+                    "[CONNECT_PURGE] HW RX-only purge fallback on $label port (rx succeeded)"
+                )
+            } catch (e2: Exception) {
+                com.bajajauto.roadsense.logging.AppLogger.w(
+                    TAG,
+                    "[CONNECT_PURGE] purgeHwBuffers unsupported on $label port (${e2.message}); running SW RX drain"
+                )
+            }
+        }
+
+        // Software drain for any stale bytes sitting in CP2105/kernel buffers before SerialInputOutputManager starts
+        try {
+            val scratch = ByteArray(2048)
+            var totalDrained = 0
+            val deadlineMs = System.currentTimeMillis() + 20L
+            while (totalDrained < 8192 && System.currentTimeMillis() < deadlineMs) {
+                val n = port.read(scratch, 5)
+                if (n <= 0) break
+                totalDrained += n
+            }
+            com.bajajauto.roadsense.logging.AppLogger.i(
+                TAG,
+                "[CONNECT_PURGE] SW RX drain complete on $label port: drained=${totalDrained} B (hwPurged=$hwPurged)"
+            )
+        } catch (e: Exception) {
+            com.bajajauto.roadsense.logging.AppLogger.w(
+                TAG,
+                "[CONNECT_PURGE] SW RX drain skipped/ended on $label port: ${e.message}"
+            )
+        }
+    }
+
     fun disconnect() {
         try {
             dataIoManager?.stop()
+            dataIoManager = null
             configIoManager?.stop()
-            dataPort?.close()
+            configIoManager = null
+            dataPort?.let {
+                try { it.purgeHwBuffers(true, true) } catch (_: Exception) {}
+                it.close()
+            }
             configPort?.close()
+            dataPort = null
+            configPort = null
             _connectionState.value = RadarConnectionState.Disconnected
         } catch (e: IOException) {
             Log.e(TAG, "Error during disconnect", e)
