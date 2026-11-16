@@ -6,18 +6,34 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
-fun resolveGitRevision(): String = try {
-    val shaProc = ProcessBuilder("git", "rev-parse", "--short", "HEAD").start()
-    val sha = shaProc.inputStream.bufferedReader().readText().trim()
-    val dirtyProc = ProcessBuilder("git", "status", "--porcelain").start()
-    val dirty = dirtyProc.inputStream.bufferedReader().readText().trim().isNotEmpty()
-    when {
-        sha.isEmpty() -> "unknown"
-        dirty -> "$sha-dirty"
-        else -> sha
-    }
+fun runGitCommand(vararg args: String): String = try {
+    val proc = ProcessBuilder("git", *args)
+        .directory(rootDir)
+        .redirectErrorStream(false)
+        .start()
+    val output = proc.inputStream.bufferedReader().readText().trim()
+    if (proc.waitFor() == 0) output else ""
 } catch (_: Exception) {
-    "unknown"
+    ""
+}
+
+fun escapeJavaString(value: String): String = buildString(value.length) {
+    for (ch in value) {
+        when (ch) {
+            '\\' -> append("\\\\")
+            '"' -> append("\\\"")
+            '\n', '\r' -> append(' ')
+            '\t' -> append(' ')
+            else -> append(ch)
+        }
+    }
+}
+
+fun resolveGitRevision(): String {
+    val sha = runGitCommand("rev-parse", "--short", "HEAD")
+    if (sha.isEmpty()) return "unknown"
+    val dirty = runGitCommand("status", "--porcelain").isNotEmpty()
+    return if (dirty) "$sha-dirty" else sha
 }
 
 val isIdeSync = gradle.startParameter.taskNames.any { it.contains("prepareKotlinIdeaImport", ignoreCase = true) } ||
@@ -28,6 +44,15 @@ val buildTimestamp: String = if (isIdeSync) {
     ZonedDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"))
 }
 val gitRevision: String = resolveGitRevision()
+val gitBranch: String = runGitCommand("rev-parse", "--abbrev-ref", "HEAD").ifEmpty { "unknown" }
+val gitCommitCount: String = runGitCommand("rev-list", "--count", "HEAD").ifEmpty { "0" }
+val gitCommitDate: String = runGitCommand("log", "-1", "--format=%cd", "--date=format:%Y-%m-%d %H:%M %Z")
+    .ifEmpty { "unknown" }
+val gitCommitMessage: String = escapeJavaString(
+    runGitCommand("log", "-1", "--format=%s")
+        .ifEmpty { "unknown" }
+        .take(80)
+)
 
 android {
     namespace = "com.bajajauto.roadsense"
@@ -44,6 +69,10 @@ android {
 
         buildConfigField("String", "BUILD_TIMESTAMP", "\"$buildTimestamp\"")
         buildConfigField("String", "GIT_SHA", "\"$gitRevision\"")
+        buildConfigField("String", "GIT_BRANCH", "\"$gitBranch\"")
+        buildConfigField("String", "GIT_COMMIT_COUNT", "\"$gitCommitCount\"")
+        buildConfigField("String", "GIT_COMMIT_DATE", "\"$gitCommitDate\"")
+        buildConfigField("String", "GIT_COMMIT_MESSAGE", "\"$gitCommitMessage\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

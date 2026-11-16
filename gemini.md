@@ -141,6 +141,10 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
 * **Foxglove Ghost Track Fix (Bug #13):** Uses static entity ID `"radar_tracks"` in `foxglove.SceneUpdate` to atomically update 3D tracks per frame.
 * **Embedded Layout Attachments:** Automatically embeds `RoadSense_Cockpit_Layout.json` and `foxglove.layout` directly inside every generated `.mcap` container.
 
+### 5.6 Compose UI & Text Reflow Prevention (Mandatory)
+* **Never Squeeze Sibling Buttons/Badges in `Row`:** In any `Row` containing variable-length status/label text alongside action buttons or badges, ALWAYS give the flexible `Text` `Modifier.weight(1f)` + `maxLines = 1` + `overflow = TextOverflow.Ellipsis` so it cannot starve right-side controls.
+* **Single-Line Buttons, Pills & Badges:** All `Button` / `OutlinedButton` / `TextButton` labels and status pills/badges MUST set `maxLines = 1` and `softWrap = false` so text never breaks mid-word (e.g., `"Cont\ninue"`) on compact ~360dp phone screens.
+
 ---
 
 ## 6. Storage Directory Structure

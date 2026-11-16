@@ -5,6 +5,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -35,6 +38,7 @@ import com.bajajauto.roadsense.logging.AppLogger
 import com.bajajauto.roadsense.recording.SessionRecordingState
 import com.bajajauto.roadsense.ui.components.FullscreenCalibrationStudio
 import com.bajajauto.roadsense.ui.components.FullscreenCameraPreview
+import com.bajajauto.roadsense.ui.components.LaunchBuildOverlay
 import com.bajajauto.roadsense.ui.components.LiveMetricsBar
 import com.bajajauto.roadsense.ui.components.TopSessionHeader
 import com.bajajauto.roadsense.ui.screens.CameraDashboardCard
@@ -66,7 +70,7 @@ class MainActivity : ComponentActivity() {
         AppLogger.initAppLogging(applicationContext)
         AppLogger.i(
             "MainActivity",
-            "RoadSense started. Build=v${BuildConfig.VERSION_NAME} (code=${BuildConfig.VERSION_CODE}, type=${BuildConfig.BUILD_TYPE}, commit=${BuildConfig.GIT_SHA}, built=${BuildConfig.BUILD_TIMESTAMP})"
+            "RoadSense started. Build=v${BuildConfig.VERSION_NAME} (#${BuildConfig.GIT_COMMIT_COUNT}, code=${BuildConfig.VERSION_CODE}, type=${BuildConfig.BUILD_TYPE}, commit=${BuildConfig.GIT_SHA}, branch=${BuildConfig.GIT_BRANCH}, built=${BuildConfig.BUILD_TIMESTAMP})"
         )
 
         // Lock screen refresh rate to 60.0 Hz for exact integer harmonic synchronization:
@@ -137,6 +141,7 @@ fun RoadSenseCockpitScreen(
     val isCalibrationFullScreen by viewModel.isCalibrationFullScreen.collectAsState()
     val isCameraFullScreen by viewModel.isCameraFullScreen.collectAsState()
     var showSyncDialog by remember { mutableStateOf(false) }
+    var showLaunchOverlay by rememberSaveable { mutableStateOf(true) }
 
     val tabs = remember { CockpitTab.values() }
     var currentTabIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -244,6 +249,13 @@ fun RoadSenseCockpitScreen(
                 telemetry = syncTelemetry,
                 onDismissRequest = { showSyncDialog = false }
             )
+        }
+
+        AnimatedVisibility(
+            visible = showLaunchOverlay,
+            exit = fadeOut(animationSpec = tween(durationMillis = 250))
+        ) {
+            LaunchBuildOverlay(onDismiss = { showLaunchOverlay = false })
         }
     }
 }
