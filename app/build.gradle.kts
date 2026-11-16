@@ -20,7 +20,13 @@ fun resolveGitRevision(): String = try {
     "unknown"
 }
 
-val buildTimestamp: String = ZonedDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"))
+val isIdeSync = gradle.startParameter.taskNames.any { it.contains("prepareKotlinIdeaImport", ignoreCase = true) } ||
+    System.getProperty("idea.sync.active") == "true"
+val buildTimestamp: String = if (isIdeSync) {
+    "IDE-SYNC"
+} else {
+    ZonedDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z"))
+}
 val gitRevision: String = resolveGitRevision()
 
 android {

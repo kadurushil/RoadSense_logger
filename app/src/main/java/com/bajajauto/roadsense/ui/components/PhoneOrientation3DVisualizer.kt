@@ -17,7 +17,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -26,7 +28,10 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -114,7 +119,7 @@ fun PhoneOrientation3DVisualizer(
 ) {
     val initialSnap = badgeTelemetry ?: telemetry ?: telemetryProvider?.invoke() ?: ImuTelemetryState()
     val effectiveProvider: () -> ImuTelemetryState = telemetryProvider ?: { telemetry ?: initialSnap }
-    val uiTelemetry = badgeTelemetry ?: telemetry ?: initialSnap
+    val isMonitoring by remember { derivedStateOf { effectiveProvider().isMonitoring } }
 
     // 3D Viewport Orbit Camera Angles (Spherical Coordinates)
     var orbitAzimuthDeg by remember { mutableFloatStateOf(45f) }
@@ -124,27 +129,13 @@ fun PhoneOrientation3DVisualizer(
 
     val isOrtho = abs(orbitAzimuthDeg - 90f) < 0.5f && abs(orbitElevationDeg) < 0.5f
 
-    LaunchedEffect(uiTelemetry.isMonitoring) {
-        if (uiTelemetry.isMonitoring && !isTareActive) {
+    LaunchedEffect(isMonitoring) {
+        if (isMonitoring && !isTareActive) {
             yawTareDeg = effectiveProvider().yawDeg
             isTareActive = true
         }
     }
 
-    // Relative yaw heading with respect to tared Road (+Y) axis
-    val relativeYawDeg = remember(uiTelemetry.yawDeg, yawTareDeg, isTareActive) {
-        if (!isTareActive) uiTelemetry.yawDeg
-        else {
-            var diff = (uiTelemetry.yawDeg - yawTareDeg) % 360f
-            if (diff > 180f) diff -= 360f
-            if (diff < -180f) diff += 360f
-            diff
-        }
-    }
-
-    val isLevel = abs(uiTelemetry.rollDeg) <= 1.2f
-    val isPitchNominal = uiTelemetry.pitchDeg in 2.0f..14.0f
-    val isOptimalAlignment = isLevel && isPitchNominal
     val drawScratch = remember { VisualizerDrawScratch() }
 
     Card(
@@ -185,92 +176,19 @@ fun PhoneOrientation3DVisualizer(
                     )
                 }
 
-                // Level Alignment Badge
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = when {
-                        !uiTelemetry.isMonitoring -> MaterialTheme.colorScheme.surfaceVariant
-                        isOptimalAlignment -> Color(0xFF00E676).copy(alpha = 0.15f)
-                        isLevel -> Color(0xFF00B0FF).copy(alpha = 0.15f)
-                        else -> Color(0xFFFFB300).copy(alpha = 0.15f)
-                    },
-                    border = BorderStroke(
-                        1.dp,
-                        when {
-                            !uiTelemetry.isMonitoring -> Color.Transparent
-                            isOptimalAlignment -> Color(0xFF00E676)
-                            isLevel -> Color(0xFF00B0FF)
-                            else -> Color(0xFFFFB300)
-                        }
-                    )
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .background(
-                                    when {
-                                        !uiTelemetry.isMonitoring -> Color.Gray
-                                        isOptimalAlignment -> Color(0xFF00E676)
-                                        isLevel -> Color(0xFF00B0FF)
-                                        else -> Color(0xFFFFB300)
-                                    },
-                                    CircleShape
-                                )
-                        )
-                        Text(
-                            text = when {
-                                !uiTelemetry.isMonitoring -> "STANDBY"
-                                isOptimalAlignment -> "OPTIMAL MOUNT"
-                                isLevel -> "LEVEL (PITCH OFF)"
-                                else -> "TILTED (ROLL OFF)"
-                            },
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false,
-                            color = when {
-                                !uiTelemetry.isMonitoring -> MaterialTheme.colorScheme.onSurfaceVariant
-                                isOptimalAlignment -> Color(0xFF00E676)
-                                isLevel -> Color(0xFF00B0FF)
-                                else -> Color(0xFFFFB300)
-                            }
-                        )
-                    }
-                }
+                // Isolated badge that only recomposes on discrete alignment state flips
+                AlignmentStatusBadge(telemetryProvider = effectiveProvider)
             }
 
-            // --- 2. Live HUD Value Badges ---
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                AttitudeMetricBox(
-                    label = "CAMERA PITCH",
-                    valueStr = "%+.1f°".format(uiTelemetry.pitchDeg),
-                    hint = if (isPitchNominal) "Windshield OK" else "Adjust Tilt",
-                    color = if (isPitchNominal) Color(0xFF00E676) else Color(0xFFFFB300),
-                    modifier = Modifier.weight(1f)
-                )
-                AttitudeMetricBox(
-                    label = "LATERAL ROLL",
-                    valueStr = "%+.1f°".format(uiTelemetry.rollDeg),
-                    hint = if (isLevel) "Level (<1.2°)" else "Tilt Detected",
-                    color = if (isLevel) Color(0xFF00E676) else Color(0xFFFF1744),
-                    modifier = Modifier.weight(1f)
-                )
-                AttitudeMetricBox(
-                    label = "YAW HEADING",
-                    valueStr = "%+.1f°".format(relativeYawDeg),
-                    hint = if (isTareActive && abs(relativeYawDeg) < 1.0f) "Road Aligned" else "Relative",
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f)
-                )
-            }
+            // --- 2. Live HUD Value Badges (Zero-Recomposition Direct Canvas Strip) ---
+            AttitudeMetricStripCanvas(
+                telemetryProvider = effectiveProvider,
+                yawTareDeg = yawTareDeg,
+                isTareActive = isTareActive,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp)
+            )
 
             // --- 3. Interactive 3D Canvas Stage ---
             Box(
@@ -392,32 +310,149 @@ fun PhoneOrientation3DVisualizer(
     }
 }
 
+private enum class AlignmentBadgeState(val text: String, val color: Color) {
+    STANDBY("STANDBY", Color.Gray),
+    OPTIMAL("OPTIMAL MOUNT", Color(0xFF00E676)),
+    LEVEL("LEVEL (PITCH OFF)", Color(0xFF00B0FF)),
+    TILTED("TILTED (ROLL OFF)", Color(0xFFFFB300))
+}
+
 @Composable
-private fun AttitudeMetricBox(
-    label: String,
-    valueStr: String,
-    hint: String,
-    color: Color,
+private fun AlignmentStatusBadge(
+    telemetryProvider: () -> ImuTelemetryState
+) {
+    val badgeState by remember {
+        derivedStateOf {
+            val t = telemetryProvider()
+            when {
+                !t.isMonitoring -> AlignmentBadgeState.STANDBY
+                abs(t.rollDeg) <= 1.2f && t.pitchDeg in 2.0f..14.0f -> AlignmentBadgeState.OPTIMAL
+                abs(t.rollDeg) <= 1.2f -> AlignmentBadgeState.LEVEL
+                else -> AlignmentBadgeState.TILTED
+            }
+        }
+    }
+
+    val isStandby = badgeState == AlignmentBadgeState.STANDBY
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = if (isStandby) MaterialTheme.colorScheme.surfaceVariant else badgeState.color.copy(alpha = 0.15f),
+        border = BorderStroke(1.dp, if (isStandby) Color.Transparent else badgeState.color)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .background(badgeState.color, CircleShape)
+            )
+            Text(
+                text = badgeState.text,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                softWrap = false,
+                color = if (isStandby) MaterialTheme.colorScheme.onSurfaceVariant else badgeState.color
+            )
+        }
+    }
+}
+
+@Composable
+private fun AttitudeMetricStripCanvas(
+    telemetryProvider: () -> ImuTelemetryState,
+    yawTareDeg: Float,
+    isTareActive: Boolean,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(8.dp),
-        modifier = modifier
+    val densityVal = LocalDensity.current.density
+    val cardBg = MaterialTheme.colorScheme.surfaceVariant
+    val labelArgb = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+    val primaryArgb = MaterialTheme.colorScheme.primary.toArgb()
+
+    val labelPaint = remember(densityVal, labelArgb) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = labelArgb
+            textSize = 9f * densityVal
+            textAlign = Paint.Align.CENTER
+        }
+    }
+    val valuePaint = remember(densityVal) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 15.5f * densityVal
+            isFakeBoldText = true
+            typeface = Typeface.MONOSPACE
+            textAlign = Paint.Align.CENTER
+        }
+    }
+    val hintPaint = remember(densityVal) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 9f * densityVal
+            textAlign = Paint.Align.CENTER
+        }
+    }
+
+    Canvas(
+        modifier = modifier.clearAndSetSemantics {}
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(text = label, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(
-                text = valueStr,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-                color = color
+        val t = telemetryProvider()
+        val gap = 8.dp.toPx()
+        val boxW = (size.width - gap * 2f) / 3f
+        val boxH = size.height
+        val corner = CornerRadius(8.dp.toPx(), 8.dp.toPx())
+
+        val isLevel = abs(t.rollDeg) <= 1.2f
+        val isPitchNominal = t.pitchDeg in 2.0f..14.0f
+        val relYaw = if (!isTareActive) t.yawDeg else {
+            var diff = (t.yawDeg - yawTareDeg) % 360f
+            if (diff > 180f) diff -= 360f
+            if (diff < -180f) diff += 360f
+            diff
+        }
+
+        val greenArgb = android.graphics.Color.rgb(0, 230, 118)
+        val amberArgb = android.graphics.Color.rgb(255, 179, 0)
+        val redArgb = android.graphics.Color.rgb(255, 23, 68)
+
+        val pitchColor = if (isPitchNominal) greenArgb else amberArgb
+        val rollColor = if (isLevel) greenArgb else redArgb
+        val yawColor = primaryArgb
+
+        val labels = arrayOf("CAMERA PITCH", "LATERAL ROLL", "YAW HEADING")
+        val values = arrayOf(
+            String.format(java.util.Locale.US, "%+.1f°", t.pitchDeg),
+            String.format(java.util.Locale.US, "%+.1f°", t.rollDeg),
+            String.format(java.util.Locale.US, "%+.1f°", relYaw)
+        )
+        val hints = arrayOf(
+            if (isPitchNominal) "Windshield OK" else "Adjust Tilt",
+            if (isLevel) "Level (<1.2°)" else "Tilt Detected",
+            if (isTareActive && abs(relYaw) < 1.0f) "Road Aligned" else "Relative"
+        )
+        val colors = intArrayOf(pitchColor, rollColor, yawColor)
+
+        val nc = drawContext.canvas.nativeCanvas
+        val labelY = 14f * densityVal
+        val valueY = 34f * densityVal
+        val hintY = 49f * densityVal
+
+        for (i in 0 until 3) {
+            val left = i * (boxW + gap)
+            val cx = left + boxW * 0.5f
+            drawRoundRect(
+                color = cardBg,
+                topLeft = Offset(left, 0f),
+                size = Size(boxW, boxH),
+                cornerRadius = corner
             )
-            Text(text = hint, fontSize = 9.sp, color = color.copy(alpha = 0.85f))
+            nc.drawText(labels[i], cx, labelY, labelPaint)
+            valuePaint.color = colors[i]
+            nc.drawText(values[i], cx, valueY, valuePaint)
+            hintPaint.color = (colors[i] and 0x00FFFFFF) or (0xD9 shl 24)
+            nc.drawText(hints[i], cx, hintY, hintPaint)
         }
     }
 }

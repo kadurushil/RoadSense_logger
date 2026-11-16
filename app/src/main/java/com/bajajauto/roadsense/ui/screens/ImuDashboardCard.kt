@@ -1,8 +1,11 @@
 package com.bajajauto.roadsense.ui.screens
 
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.hardware.Sensor
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,12 +16,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -30,8 +38,6 @@ import com.bajajauto.roadsense.imu.ImuTelemetryState
 import com.bajajauto.roadsense.imu.SensorCategory
 import com.bajajauto.roadsense.ui.RadarViewModel
 import com.bajajauto.roadsense.ui.components.PhoneOrientation3DVisualizer
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import java.util.Locale
 import kotlin.math.abs
 
@@ -527,20 +533,11 @@ private fun ImuProfilerSubTab(
 private fun ImuTelemetrySubTab(
     viewModel: RadarViewModel
 ) {
-    // Keep State object un-dereferenced here so 30 Hz updates never recompose the scroll container
+    // Keep State un-dereferenced so 30 Hz telemetry flows strictly to Canvas DrawScopes (0 recompositions)
     val telemetryState = viewModel.imuTelemetry.collectAsState()
     val isMonitoring by remember { derivedStateOf { telemetryState.value.isMonitoring } }
-    var throttledTelemetry by remember { mutableStateOf(telemetryState.value) }
-
-    LaunchedEffect(isMonitoring) {
-        throttledTelemetry = telemetryState.value
-        if (isMonitoring) {
-            while (isActive) {
-                delay(100L) // 10 Hz ceiling for numeric text & bar readouts
-                throttledTelemetry = telemetryState.value
-            }
-        }
-    }
+    val telemetryProvider: () -> ImuTelemetryState = remember { { telemetryState.value } }
+    var show3DVisualizer by rememberSaveable { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -553,12 +550,60 @@ private fun ImuTelemetrySubTab(
             isMonitoring = isMonitoring
         )
 
-        PhoneOrientation3DVisualizer(
-            telemetryProvider = { telemetryState.value },
-            badgeTelemetry = throttledTelemetry
-        )
+        // Collapsible 3D Visualizer (collapsed by default to eliminate 3D projection/draw compute)
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { show3DVisualizer = !show3DVisualizer }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ViewInAr,
+                        contentDescription = null,
+                        tint = if (show3DVisualizer) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "3D Attitude Visualizer",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = if (show3DVisualizer) "Expanded — tap to collapse & save compute" else "Collapsed to save compute — tap to expand",
+                            style = MaterialTheme.typography.bodySmall,
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Icon(
+                    imageVector = if (show3DVisualizer) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (show3DVisualizer) "Collapse 3D Visualizer" else "Expand 3D Visualizer",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
 
-        ImuNumericTelemetryCards(telemetry = throttledTelemetry)
+        if (show3DVisualizer) {
+            PhoneOrientation3DVisualizer(
+                telemetryProvider = telemetryProvider
+            )
+        }
+
+        ImuNumericTelemetryCards(telemetryProvider = telemetryProvider)
     }
 }
 
@@ -586,7 +631,7 @@ private fun ImuMonitoringHeaderCard(
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    text = if (isMonitoring) "Streaming at %.1f Hz (30Hz 3D / 10Hz Text)".format(imuHz) else "Monitoring Stopped",
+                    text = if (isMonitoring) "Streaming at %.1f Hz (Zero-Recomp Canvas)".format(imuHz) else "Monitoring Stopped",
                     style = MaterialTheme.typography.bodySmall,
                     color = if (isMonitoring) Color(0xFF00E676) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -603,7 +648,7 @@ private fun ImuMonitoringHeaderCard(
 }
 
 @Composable
-private fun ImuNumericTelemetryCards(telemetry: ImuTelemetryState) {
+private fun ImuNumericTelemetryCards(telemetryProvider: () -> ImuTelemetryState) {
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -619,49 +664,45 @@ private fun ImuNumericTelemetryCards(telemetry: ImuTelemetryState) {
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "Raw Accel (with 1g)",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(
-                        text = "|a| = %.2f m/s²".format(telemetry.rawAccel[3]),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                        color = MaterialTheme.colorScheme.primary
+                    ImuMagnitudeCanvas(
+                        prefix = "|a| = ",
+                        valueProvider = { telemetryProvider().rawAccel[3] },
+                        textColor = MaterialTheme.colorScheme.primary
                     )
                 }
-                AxisBarRow(label = "X (Lateral)", value = telemetry.rawAccel[0], maxRange = 20f)
-                AxisBarRow(label = "Y (Longitudinal)", value = telemetry.rawAccel[1], maxRange = 20f)
-                AxisBarRow(label = "Z (Vertical)", value = telemetry.rawAccel[2], maxRange = 20f)
+                AxisBarRow(label = "X (Lateral)", valueProvider = { telemetryProvider().rawAccel[0] }, maxRange = 20f)
+                AxisBarRow(label = "Y (Longitudinal)", valueProvider = { telemetryProvider().rawAccel[1] }, maxRange = 20f)
+                AxisBarRow(label = "Z (Vertical)", valueProvider = { telemetryProvider().rawAccel[2] }, maxRange = 20f)
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "Linear Accel (without g)",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(
-                        text = "|a_lin| = %.2f m/s²".format(telemetry.linearAccel[3]),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 12.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                        color = Color(0xFF00E676)
+                    ImuMagnitudeCanvas(
+                        prefix = "|a_lin| = ",
+                        valueProvider = { telemetryProvider().linearAccel[3] },
+                        textColor = Color(0xFF00E676)
                     )
                 }
-                AxisBarRow(label = "X (Cornering)", value = telemetry.linearAccel[0], maxRange = 10f)
-                AxisBarRow(label = "Y (Brake / Gas)", value = telemetry.linearAccel[1], maxRange = 10f)
-                AxisBarRow(label = "Z (Bump / Dip)", value = telemetry.linearAccel[2], maxRange = 10f)
+                AxisBarRow(label = "X (Cornering)", valueProvider = { telemetryProvider().linearAccel[0] }, maxRange = 10f)
+                AxisBarRow(label = "Y (Brake / Gas)", valueProvider = { telemetryProvider().linearAccel[1] }, maxRange = 10f)
+                AxisBarRow(label = "Z (Bump / Dip)", valueProvider = { telemetryProvider().linearAccel[2] }, maxRange = 10f)
             }
         }
 
@@ -682,9 +723,9 @@ private fun ImuNumericTelemetryCards(telemetry: ImuTelemetryState) {
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
-                AxisBarRow(label = "Roll Rate (ωx)", value = telemetry.gyroRates[0], unit = "°/s", maxRange = 100f)
-                AxisBarRow(label = "Pitch Rate (ωy)", value = telemetry.gyroRates[1], unit = "°/s", maxRange = 100f)
-                AxisBarRow(label = "Yaw Rate (ωz)", value = telemetry.gyroRates[2], unit = "°/s", maxRange = 100f)
+                AxisBarRow(label = "Roll Rate (ωx)", valueProvider = { telemetryProvider().gyroRates[0] }, unit = "°/s", maxRange = 100f)
+                AxisBarRow(label = "Pitch Rate (ωy)", valueProvider = { telemetryProvider().gyroRates[1] }, unit = "°/s", maxRange = 100f)
+                AxisBarRow(label = "Yaw Rate (ωz)", valueProvider = { telemetryProvider().gyroRates[2] }, unit = "°/s", maxRange = 100f)
 
                 HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
@@ -693,29 +734,66 @@ private fun ImuNumericTelemetryCards(telemetry: ImuTelemetryState) {
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    AttitudeGauge(label = "PITCH (Grade)", angleDeg = telemetry.pitchDeg)
-                    AttitudeGauge(label = "ROLL (Bank)", angleDeg = telemetry.rollDeg)
-                    AttitudeGauge(label = "YAW (Relative)", angleDeg = telemetry.yawDeg)
-                }
+                AttitudeGaugeRowCanvas(
+                    telemetryProvider = telemetryProvider,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                )
             }
         }
     }
 }
 
 @Composable
+private fun ImuMagnitudeCanvas(
+    prefix: String,
+    valueProvider: () -> Float,
+    textColor: Color
+) {
+    val densityVal = LocalDensity.current.density
+    val argb = textColor.toArgb()
+    val paint = remember(densityVal, argb) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = argb
+            textSize = 12f * densityVal
+            typeface = Typeface.MONOSPACE
+            textAlign = Paint.Align.RIGHT
+        }
+    }
+    Canvas(
+        modifier = Modifier
+            .width(145.dp)
+            .height(16.dp)
+            .clearAndSetSemantics {}
+    ) {
+        val text = String.format(Locale.US, "%s%.2f m/s²", prefix, valueProvider())
+        drawContext.canvas.nativeCanvas.drawText(text, size.width, 12.5f * densityVal, paint)
+    }
+}
+
+@Composable
 private fun AxisBarRow(
     label: String,
-    value: Float,
+    valueProvider: () -> Float,
     unit: String = "m/s²",
     maxRange: Float = 20f
 ) {
-    val fraction = (abs(value) / maxRange).coerceIn(0f, 1f)
-    val barColor = if (value >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+    val densityVal = LocalDensity.current.density
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val errorColor = MaterialTheme.colorScheme.error
     val trackColor = MaterialTheme.colorScheme.surfaceVariant
+    val valueArgb = MaterialTheme.colorScheme.onSurface.toArgb()
+
+    val valuePaint = remember(densityVal, valueArgb) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = valueArgb
+            textSize = 11f * densityVal
+            typeface = Typeface.MONOSPACE
+            textAlign = Paint.Align.RIGHT
+        }
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -732,46 +810,93 @@ private fun AxisBarRow(
         Canvas(
             modifier = Modifier
                 .weight(1f)
-                .height(10.dp)
-                .clip(RoundedCornerShape(2.dp))
-                .background(trackColor)
+                .height(14.dp)
         ) {
+            val value = valueProvider()
+            val fraction = (abs(value) / maxRange).coerceIn(0f, 1f)
+            val textColW = 85f * densityVal
+            val barW = (size.width - textColW).coerceAtLeast(10f)
+            val barH = 10f * densityVal
+            val barTop = (size.height - barH) * 0.5f
+            val corner = CornerRadius(2f * densityVal, 2f * densityVal)
+
+            drawRoundRect(
+                color = trackColor,
+                topLeft = Offset(0f, barTop),
+                size = Size(barW, barH),
+                cornerRadius = corner
+            )
             if (fraction > 0f) {
                 drawRoundRect(
-                    color = barColor,
-                    size = Size(size.width * fraction, size.height),
-                    cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
+                    color = if (value >= 0f) primaryColor else errorColor,
+                    topLeft = Offset(0f, barTop),
+                    size = Size(barW * fraction, barH),
+                    cornerRadius = corner
                 )
             }
+            val text = String.format(Locale.US, "%+5.2f %s", value, unit)
+            drawContext.canvas.nativeCanvas.drawText(
+                text,
+                size.width,
+                barTop + barH * 0.85f,
+                valuePaint
+            )
         }
-        Text(
-            text = "%+5.2f %s".format(value, unit),
-            fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp,
-            maxLines = 1,
-            softWrap = false,
-            modifier = Modifier.width(85.dp),
-            textAlign = androidx.compose.ui.text.style.TextAlign.End
-        )
     }
 }
 
 @Composable
-private fun AttitudeGauge(label: String, angleDeg: Float) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(6.dp))
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .clearAndSetSemantics {}
-    ) {
-        Text(text = label, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(
-            text = "%+.1f°".format(angleDeg),
-            fontSize = 16.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = FontFamily.Monospace,
-            color = if (abs(angleDeg) > 15f) Color(0xFFFFB300) else MaterialTheme.colorScheme.primary
-        )
+private fun AttitudeGaugeRowCanvas(
+    telemetryProvider: () -> ImuTelemetryState,
+    modifier: Modifier = Modifier
+) {
+    val densityVal = LocalDensity.current.density
+    val cardBg = MaterialTheme.colorScheme.surfaceVariant
+    val labelArgb = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
+    val primaryArgb = MaterialTheme.colorScheme.primary.toArgb()
+    val warnArgb = android.graphics.Color.rgb(255, 179, 0)
+
+    val labelPaint = remember(densityVal, labelArgb) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = labelArgb
+            textSize = 9f * densityVal
+            textAlign = Paint.Align.CENTER
+        }
+    }
+    val anglePaint = remember(densityVal) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 15.5f * densityVal
+            isFakeBoldText = true
+            typeface = Typeface.MONOSPACE
+            textAlign = Paint.Align.CENTER
+        }
+    }
+
+    Canvas(modifier = modifier.clearAndSetSemantics {}) {
+        val t = telemetryProvider()
+        val gap = 8.dp.toPx()
+        val boxW = (size.width - gap * 2f) / 3f
+        val boxH = size.height
+        val corner = CornerRadius(6.dp.toPx(), 6.dp.toPx())
+
+        val labels = arrayOf("PITCH (Grade)", "ROLL (Bank)", "YAW (Relative)")
+        val angles = floatArrayOf(t.pitchDeg, t.rollDeg, t.yawDeg)
+        val nc = drawContext.canvas.nativeCanvas
+        val labelY = 16f * densityVal
+        val valueY = 38f * densityVal
+
+        for (i in 0 until 3) {
+            val left = i * (boxW + gap)
+            val cx = left + boxW * 0.5f
+            drawRoundRect(
+                color = cardBg,
+                topLeft = Offset(left, 0f),
+                size = Size(boxW, boxH),
+                cornerRadius = corner
+            )
+            nc.drawText(labels[i], cx, labelY, labelPaint)
+            anglePaint.color = if (abs(angles[i]) > 15f) warnArgb else primaryArgb
+            nc.drawText(String.format(Locale.US, "%+.1f°", angles[i]), cx, valueY, anglePaint)
+        }
     }
 }
