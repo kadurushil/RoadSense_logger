@@ -92,6 +92,7 @@ data class LiveMetricsSnapshot(
     val isSyncActive: Boolean = false
 )
 
+@androidx.compose.runtime.Stable
 class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     private val appPreferences = com.bajajauto.roadsense.storage.AppPreferences(application)
@@ -312,6 +313,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             var lastCpuTimeMs = android.os.Process.getElapsedCpuTime()
             var lastWallTimeMs = SystemClock.elapsedRealtime()
             val numCores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+            var tickCount = 0
+            var cpuTempSupported = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N
 
             while (isActive) {
                 delay(1000)
@@ -340,38 +343,45 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                 lastCpuTimeMs = curCpuTimeMs
                 lastWallTimeMs = curWallTimeMs
 
-                // 2. Battery telemetry
+                // 2. Battery telemetry (poll every 10s to avoid sticky-broadcast Binder IPC every 1s)
                 var batPct = _batteryPct.value
                 var batTemp = _batteryTempC.value
-                try {
-                    val bIntent = application.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
-                    if (bIntent != null) {
-                        val level = bIntent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
-                        val scale = bIntent.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)
-                        if (level >= 0 && scale > 0) {
-                            batPct = (level * 100 / scale.toFloat()).toInt()
-                            if (_batteryPct.value != batPct) _batteryPct.value = batPct
+                if (tickCount % 10 == 0) {
+                    try {
+                        val bIntent = application.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+                        if (bIntent != null) {
+                            val level = bIntent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
+                            val scale = bIntent.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, -1)
+                            if (level >= 0 && scale > 0) {
+                                batPct = (level * 100 / scale.toFloat()).toInt()
+                                if (_batteryPct.value != batPct) _batteryPct.value = batPct
+                            }
+                            val tempTenths = bIntent.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0)
+                            if (tempTenths > 0) {
+                                batTemp = tempTenths / 10.0f
+                                if (_batteryTempC.value != batTemp) _batteryTempC.value = batTemp
+                            }
                         }
-                        val tempTenths = bIntent.getIntExtra(android.os.BatteryManager.EXTRA_TEMPERATURE, 0)
-                        if (tempTenths > 0) {
-                            batTemp = tempTenths / 10.0f
-                            if (_batteryTempC.value != batTemp) _batteryTempC.value = batTemp
-                        }
-                    }
-                } catch (_: Exception) {}
+                    } catch (_: Exception) {}
+                }
 
-                // 3. Hardware CPU temperature (if permitted by OEM device policy)
+                // 3. Hardware CPU temperature (cache unsupported OEMs after first SecurityException)
                 var cTemp = _cpuTempC.value
-                try {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
+                if (cpuTempSupported) {
+                    try {
                         val hpm = application.getSystemService(android.content.Context.HARDWARE_PROPERTIES_SERVICE) as? android.os.HardwarePropertiesManager
                         val temps = hpm?.getDeviceTemperatures(android.os.HardwarePropertiesManager.DEVICE_TEMPERATURE_CPU, android.os.HardwarePropertiesManager.TEMPERATURE_CURRENT)
                         if (temps != null && temps.isNotEmpty() && temps[0] > 0f && temps[0] < 120f) {
                             cTemp = temps[0]
                             if (_cpuTempC.value != cTemp) _cpuTempC.value = cTemp
+                        } else {
+                            cpuTempSupported = false
                         }
-                    }
-                } catch (_: Exception) {}
+                    } catch (_: SecurityException) {
+                        cpuTempSupported = false
+                    } catch (_: Exception) {}
+                }
+                tickCount++
 
                 val fix = gnssLocationManager.latestFix.value
                 val sync = syncAssociator.liveSyncTelemetry.value

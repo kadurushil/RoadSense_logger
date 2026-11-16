@@ -204,40 +204,28 @@ fun RoadSenseCockpitScreen(
                     viewModel = viewModel
                 )
 
-                // Keep-Alive Placement-Gated Tab Host:
-                // All 7 tabs are composed and measured once at launch and retained in hardware RenderNodes.
-                // Switching tabs reads `currentTabIndex` strictly inside the placement phase (`0 ms` recomposition, `0 ms` measure).
+                // Single-Tab Composition Host:
+                // Only the active tab is mounted in the Composition tree at any time, eliminating
+                // fullscreen-exit multi-tab invalidation storms and off-screen RenderNode overhead.
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
                 ) {
-                    KeepAliveTabSlot(visibleProvider = { currentTabIndex == CockpitTab.RADAR.ordinal }) {
-                        RadarDashboardCard(viewModel = viewModel)
-                    }
-                    KeepAliveTabSlot(visibleProvider = { currentTabIndex == CockpitTab.GNSS.ordinal }) {
-                        GnssDashboardCard(viewModel = viewModel)
-                    }
-                    KeepAliveTabSlot(visibleProvider = { currentTabIndex == CockpitTab.IMU.ordinal }) {
-                        ImuDashboardCard(viewModel = viewModel)
-                    }
-                    KeepAliveTabSlot(visibleProvider = { currentTabIndex == CockpitTab.CAMERA.ordinal }) {
-                        CameraDashboardCard(
+                    when (CockpitTab.entries[currentTabIndex]) {
+                        CockpitTab.RADAR -> RadarDashboardCard(viewModel = viewModel)
+                        CockpitTab.GNSS -> GnssDashboardCard(viewModel = viewModel)
+                        CockpitTab.IMU -> ImuDashboardCard(viewModel = viewModel)
+                        CockpitTab.CAMERA -> CameraDashboardCard(
                             viewModel = viewModel,
                             isCurrentTabProvider = { currentTabIndex == CockpitTab.CAMERA.ordinal }
                         )
-                    }
-                    KeepAliveTabSlot(visibleProvider = { currentTabIndex == CockpitTab.CANEDGE.ordinal }) {
-                        CanedgeDashboardCard(viewModel = viewModel)
-                    }
-                    KeepAliveTabSlot(visibleProvider = { currentTabIndex == CockpitTab.SBS.ordinal }) {
-                        SbsDashboardCard(
+                        CockpitTab.CANEDGE -> CanedgeDashboardCard(viewModel = viewModel)
+                        CockpitTab.SBS -> SbsDashboardCard(
                             viewModel = viewModel,
                             isCurrentTabProvider = { currentTabIndex == CockpitTab.SBS.ordinal }
                         )
-                    }
-                    KeepAliveTabSlot(visibleProvider = { currentTabIndex == CockpitTab.SESSION.ordinal }) {
-                        SessionDeckCard(viewModel = viewModel)
+                        CockpitTab.SESSION -> SessionDeckCard(viewModel = viewModel)
                     }
                 }
             }
@@ -256,27 +244,6 @@ fun RoadSenseCockpitScreen(
             exit = fadeOut(animationSpec = tween(durationMillis = 250))
         ) {
             LaunchBuildOverlay(onDismiss = { showLaunchOverlay = false })
-        }
-    }
-}
-
-@Composable
-private fun KeepAliveTabSlot(
-    visibleProvider: () -> Boolean,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
-) {
-    Layout(
-        content = content,
-        modifier = modifier
-            .fillMaxSize()
-            .graphicsLayer()
-    ) { measurables, constraints ->
-        val placeables = measurables.map { it.measure(constraints) }
-        layout(constraints.maxWidth, constraints.maxHeight) {
-            if (visibleProvider()) {
-                placeables.forEach { it.placeRelative(0, 0) }
-            }
         }
     }
 }

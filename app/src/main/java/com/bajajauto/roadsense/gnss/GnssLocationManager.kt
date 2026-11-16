@@ -57,7 +57,9 @@ class GnssLocationManager(private val context: Context) {
             val fix = mapToGnssFix(location)
             _latestFix.value = fix
             _totalFixes.value += 1
-            _gnssState.value = GnssState.Active(fix = fix, totalFixes = _totalFixes.value)
+            if (_gnssState.value !is GnssState.Active) {
+                _gnssState.value = GnssState.Active(fix = fix, totalFixes = _totalFixes.value)
+            }
 
             // Direct non-blocking callback to listeners (e.g. Session Recorder)
             for (listener in fixListeners) {

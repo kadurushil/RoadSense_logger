@@ -92,7 +92,6 @@ private fun GnssSwitchCard(
     totalFixesOverride: Long?,
     onToggle: (Boolean) -> Unit
 ) {
-    val activeTotalFixes = totalFixesOverride ?: viewModel.totalGnssFixes.collectAsState().value
     Card(
         shape = RoundedCornerShape(2.dp),
         colors = CardDefaults.cardColors(
@@ -118,14 +117,10 @@ private fun GnssSwitchCard(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
-                Text(
-                    text = when (activeGnssState) {
-                        is GnssState.Disabled -> "Provider Offline"
-                        is GnssState.Searching -> "Acquiring Satellites..."
-                        is GnssState.Active -> "Locked: $activeTotalFixes total fixes logged"
-                        is GnssState.Error -> activeGnssState.message
-                    },
-                    style = MaterialTheme.typography.bodySmall
+                GnssStatusSubtitle(
+                    viewModel = viewModel,
+                    activeGnssState = activeGnssState,
+                    totalFixesOverride = totalFixesOverride
                 )
             }
 
@@ -135,6 +130,27 @@ private fun GnssSwitchCard(
             )
         }
     }
+}
+
+@Composable
+private fun GnssStatusSubtitle(
+    viewModel: RadarViewModel,
+    activeGnssState: GnssState,
+    totalFixesOverride: Long?
+) {
+    val text = when (activeGnssState) {
+        is GnssState.Disabled -> "Provider Offline"
+        is GnssState.Searching -> "Acquiring Satellites..."
+        is GnssState.Active -> {
+            val totalFixes = totalFixesOverride ?: viewModel.totalGnssFixes.collectAsState().value
+            "Locked: $totalFixes total fixes logged"
+        }
+        is GnssState.Error -> activeGnssState.message
+    }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall
+    )
 }
 
 @Composable
