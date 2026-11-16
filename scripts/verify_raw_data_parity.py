@@ -42,6 +42,15 @@ from typing import List, Tuple, Dict, Any, Optional
 TI_MAGIC = b'\x02\x01\x04\x03\x06\x05\x08\x07'
 FRAME_MAGIC = b'ROAD'
 MDF4_MAGIC = b'MDF     '
+MDF4_UNFIN_MAGIC = b'UnFinMF '
+
+# Standard TI AWR1843 / RoadSense TLV identifiers (matching RadarTlvDecoder.kt)
+TLV_TYPE_NAMES = {
+    1: "DETECTED_POINTS",
+    2: "RANGE_PROFILE",
+    3: "TRACKS",
+    7: "SIDE_INFO",
+}
 
 # Terminal ANSI colors
 if sys.platform == "win32":
@@ -353,6 +362,7 @@ def verify_can_parity(session_dir: str) -> Dict[str, Any]:
         "status": "SKIP (No CAN data)",
         "mf4_files": 0,
         "valid_mdf4_headers": 0,
+        "unfinalized_mdf4_headers": 0,
         "total_bytes": 0
     }
 
@@ -367,14 +377,25 @@ def verify_can_parity(session_dir: str) -> Dict[str, Any]:
         res["total_bytes"] += sz
         if sz >= 8:
             with open(p, "rb") as f:
-                if f.read(8) == MDF4_MAGIC:
+                hdr = f.read(8)
+                if hdr == MDF4_MAGIC:
                     res["valid_mdf4_headers"] += 1
+                elif hdr == MDF4_UNFIN_MAGIC:
+                    res["unfinalized_mdf4_headers"] += 1
 
     if res["mf4_files"] > 0:
-        if res["valid_mdf4_headers"] == res["mf4_files"]:
-            res["status"] = f"PASS ({res['mf4_files']} valid MDF4 files, {res['total_bytes'] / (1024*1024):.2f} MB)"
+        recognized = res["valid_mdf4_headers"] + res["unfinalized_mdf4_headers"]
+        mb = res["total_bytes"] / (1024 * 1024)
+        if recognized == res["mf4_files"]:
+            if res["unfinalized_mdf4_headers"] == 0:
+                res["status"] = f"PASS ({res['mf4_files']} valid MDF4 files, {mb:.2f} MB)"
+            else:
+                res["status"] = (
+                    f"PASS ({res['valid_mdf4_headers']} finalized + "
+                    f"{res['unfinalized_mdf4_headers']} UnFinMF active cyclic split MF4 files, {mb:.2f} MB)"
+                )
         else:
-            res["status"] = f"WARN ({res['valid_mdf4_headers']}/{res['mf4_files']} valid MDF4 headers)"
+            res["status"] = f"WARN ({recognized}/{res['mf4_files']} recognized MDF4/UnFinMF headers)"
 
     return res
 

@@ -1,8 +1,34 @@
+import argparse
+import glob
 import os
 import struct
 import sys
 
-SESSION_DIR = r"C:\Users\rakadu1.AHEAD\AndroidStudioProjects\RoadSense\logs\session_20261105_125830"
+
+def resolve_session_dir(arg_path=None):
+    if arg_path:
+        if os.path.isdir(arg_path):
+            return arg_path
+        candidate = os.path.join("logs", arg_path)
+        if os.path.isdir(candidate):
+            return candidate
+        print(f"Session directory not found: {arg_path}")
+        sys.exit(1)
+
+    sessions = sorted(glob.glob(os.path.join("logs", "session_*")), reverse=True)
+    for s in sessions:
+        if os.path.isdir(s):
+            return s
+    print("No session_* folders found under logs/. Pass a session directory path explicitly.")
+    sys.exit(1)
+
+
+_parser = argparse.ArgumentParser(description="Analyze inter-frame timing from radar raw/framed binaries")
+_parser.add_argument("session", nargs="?", help="Session folder path or name under logs/ (defaults to latest)")
+_args, _ = _parser.parse_known_args()
+
+SESSION_DIR = resolve_session_dir(_args.session)
+print(f"Analyzing session: {SESSION_DIR}")
 RADAR_FRAMES_BIN = os.path.join(SESSION_DIR, "radar", "radar_frames.bin")
 RADAR_RAW_BIN = os.path.join(SESSION_DIR, "radar", "radar_raw_stream.bin")
 SESSION_TIMELINE = os.path.join(SESSION_DIR, "session_timeline.csv")

@@ -171,7 +171,7 @@ def analyze_log_content(text: str, refresh_rate_hz: float = 90.0):
     print_stats("Canvas Draw Interval", ovl_deltas)
     print_stats("Draw Execution Duration", ovl_durs)
 
-    # 5. VSYNC Frame Analysis (90 Hz Grid)
+    # 5. VSYNC Frame Analysis (default 60 Hz locked display grid)
     vsync_ms = 1000.0 / refresh_rate_hz
     print(f"\n[6] VSYNC CADENCE ALIGNMENT ({refresh_rate_hz:.0f} Hz Grid):")
     if bev_deltas:
@@ -205,8 +205,8 @@ def analyze_log_content(text: str, refresh_rate_hz: float = 90.0):
         print(f"[!] ROOT CAUSE IDENTIFIED: Pacer queue depth (maxQueueDepth={drops[0]['qDepth']}) is too shallow!")
         print(f"    {len(drops)} radar frames were dropped, cutting the effective frame rate and causing visible skips.")
     if timer_jitters and (max(map(abs, timer_jitters)) > 15.0):
-        print(f"[!] MAIN THREAD CONTENTION IDENTIFIED: Timer wakeup jitter reached {max(map(abs, timer_jitters)):.1f} ms!")
-        print(f"    The pacer was stalled by UI measurement/layout on Dispatchers.Main.")
+        print(f"[!] THREAD CONTENTION IDENTIFIED: Timer wakeup jitter reached {max(map(abs, timer_jitters)):.1f} ms!")
+        print(f"    Stalled by RS-DisplayPacer / worker thread contention.")
     if not drops and (not timer_jitters or max(map(abs, timer_jitters)) <= 15.0):
         print("[+] PACER FUNCTIONING NORMALLY. Check VSYNC distribution for beat frequency judder.")
     print("=" * 80)
@@ -215,7 +215,7 @@ def main():
     parser = argparse.ArgumentParser(description="Analyze RoadSense Display Pacer logs")
     parser.add_argument("--file", "-f", help="Path to exported log file (session_debug.log or logcat.txt)")
     parser.add_argument("--adb", action="store_true", help="Dump logcat directly from connected ADB device")
-    parser.add_argument("--refresh-rate", type=float, default=90.0, help="Display refresh rate in Hz (default: 90.0)")
+    parser.add_argument("--refresh-rate", type=float, default=60.0, help="Display refresh rate in Hz (default: 60.0)")
     args = parser.parse_args()
 
     if args.file:
