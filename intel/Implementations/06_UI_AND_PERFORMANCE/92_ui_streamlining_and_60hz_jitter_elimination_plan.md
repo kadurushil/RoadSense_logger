@@ -1,6 +1,6 @@
 # Implementation Plan: UI Streamlining, 60 Hz Display Locking & Jitter Elimination
 
-> **Document:** `intel/Implementations/ui_streamlining_and_60hz_jitter_elimination_plan.md`  
+> **Document:** `intel/Implementations/06_UI_AND_PERFORMANCE/92_ui_streamlining_and_60hz_jitter_elimination_plan.md`  
 > **Target:** RoadSense Android Application  
 > **Target Hardware:** Samsung Galaxy M32 (Exynos 9611 / 90 Hz AMOLED Display)  
 > **Status:** Updated with User Feedback — Ready for Implementation  

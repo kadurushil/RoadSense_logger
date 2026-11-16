@@ -3,7 +3,7 @@
 > **Author:** Antigravity (AI Assistant)  
 > **Date:** September 2026  
 > **Status:** Fully Implemented & Verified  
-> **Related Plan:** [`intel/Implementations/plan_hardware_accelerated_video_pipeline.md`](plan_hardware_accelerated_video_pipeline.md)
+> **Related Plan:** [`intel/Implementations/02_CAMERA_AND_CALIBRATION/16_plan_hardware_accelerated_video_pipeline.md`](plan_hardware_accelerated_video_pipeline.md)
 
 ---
 

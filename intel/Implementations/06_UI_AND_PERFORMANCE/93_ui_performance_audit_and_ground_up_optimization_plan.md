@@ -3,7 +3,7 @@
 > [!WARNING]
 > **Execution Outcome — Checkpointed (Unsuccessful On-Device):**  
 > Phases 1–4 below (`@Immutable` + `StableList`, `LazyColumn` virtualization across all dashboard tabs, `RoundedCornerShape(2.dp)` flattening, plus APK output parity and detached `SurfaceTexture(false)` camera pre-warming) were implemented and verified via `./gradlew testDebugUnitTest` and `./gradlew assembleDebug`.  
-> However, user testing after syncing and installing from Android Studio confirmed **no improvement in UI scrolling/navigation lag when camera preview is inactive**. See [`walkthrough_ui_optimization_and_virtualization.md`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/intel/Implementations/walkthrough_ui_optimization_and_virtualization.md) for the full checkpoint summary prior to pivoting to a drastically new UI architecture.
+> However, user testing after syncing and installing from Android Studio confirmed **no improvement in UI scrolling/navigation lag when camera preview is inactive**. See [`walkthrough_ui_optimization_and_virtualization.md`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/intel/Implementations/06_UI_AND_PERFORMANCE/94_walkthrough_ui_optimization_and_virtualization.md) for the full checkpoint summary prior to pivoting to a drastically new UI architecture.
 
 ## 1. Goal Description
 The primary functional purpose of RoadSense in-flight is high-fidelity sensor logging and the Camera Fullscreen Viewfinder with perspective radar lollipops. All dashboard cards, status indicators, and menus serve visual and diagnostic purposes and must not compromise system responsiveness.

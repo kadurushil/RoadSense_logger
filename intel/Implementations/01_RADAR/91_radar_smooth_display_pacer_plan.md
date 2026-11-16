@@ -84,5 +84,5 @@ flowchart TD
    * Verify bimodal input arrivals [0ms, 71ms, 99ms, 170ms, 198ms] output at [50ms, 100ms, 150ms, 200ms, 250ms].
    * Verify queue bounding and starvation recovery.
 5. **Mirror Design Artifacts:**
-   * Copy plan to `intel/Implementations/radar_smooth_display_pacer_plan.md`.
+   * Copy plan to `intel/Implementations/01_RADAR/91_radar_smooth_display_pacer_plan.md`.
 

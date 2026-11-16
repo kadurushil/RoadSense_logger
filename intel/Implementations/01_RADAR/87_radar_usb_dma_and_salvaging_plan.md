@@ -108,5 +108,5 @@ flowchart TD
 ---
 
 ## 5. Artifact Mirroring
-This document is mirrored to `intel/Implementations/radar_usb_dma_and_salvaging_plan.md` in accordance with Workspace Rule 6.
+This document is mirrored to `intel/Implementations/01_RADAR/87_radar_usb_dma_and_salvaging_plan.md` in accordance with Workspace Rule 6.
 

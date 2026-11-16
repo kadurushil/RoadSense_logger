@@ -65,7 +65,7 @@ The following documentation and context files are complete, verified, and will b
 3. **`GEMINI.md`:** Updated context file inventory and references.
 4. **`intel/debugging_and_troubleshooting_knowledge_base.md`:** Added **Bug #29** post-mortem and **Core Engineering Rule #29**.
 5. **`intel/trace_forensic_analysis_sbs_camera_load.md`:** Deep-dive forensic report on the 62.24 MB SBS trace.
-6. **`intel/Implementations/radar_android_scheduling_and_priority_hardening_plan.md`:** The architectural blueprint for Tier 3 implementation.
+6. **`intel/Implementations/01_RADAR/78_radar_android_scheduling_and_priority_hardening_plan.md`:** The architectural blueprint for Tier 3 implementation.
 7. **`scripts/pull_and_analyze_trace.py`:** Standalone Python tool to extract and query Perfetto traces via ADB.
 
 ---

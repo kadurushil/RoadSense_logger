@@ -1,7 +1,7 @@
 # Hardware Sensor & Camera Capabilities Audit: Samsung Galaxy M30s (SM-M305F)
 
 > **Document Name:** `DEVICE_SENSOR_AND_CAMERA_CAPABILITIES.md`  
-> **Location:** `intel/Implementations/Sensors/DEVICE_SENSOR_AND_CAMERA_CAPABILITIES.md`  
+> **Location:** `intel/Implementations/08_HANDOVER_AND_DOCS/07_DEVICE_SENSOR_AND_CAMERA_CAPABILITIES.md`  
 > **Extraction Method:** Live Hardware Query via ADB (`dumpsys sensorservice`, `dumpsys media.camera`, `getprop`)  
 > **Device Profile:** Samsung Galaxy M30s / M21 family (`SM-M305F` / `m30lte` / Exynos 7904/9611)  
 > **Operating System:** Android 10 (API level 29)  

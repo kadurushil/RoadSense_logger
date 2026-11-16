@@ -1,7 +1,7 @@
 # Walkthrough: RoadSense Web Dashboard & Script Automation Hub
 
 > **Artifact Name:** `walkthrough.md`  
-> **Workspace Mirror:** `intel/Implementations/walkthrough_roadsense_gui_dashboard.md`  
+> **Workspace Mirror:** `intel/Implementations/05_MCAP_AND_TOOLING/17_walkthrough_roadsense_gui_dashboard.md`  
 > **Date:** 2026-09-28  
 > **Branch:** `feature/3125000-baud`  
 

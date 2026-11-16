@@ -1,7 +1,7 @@
 # Walkthrough: IMU Subsystem Integration & Empirical Rate Discovery
 
 > **Document Name:** `walkthrough.md`  
-> **Location:** `intel/Implementations/Sensors/walkthrough.md`  
+> **Location:** `intel/Implementations/08_HANDOVER_AND_DOCS/09_walkthrough.md`  
 > **Subsystem:** Inertial Measurement Unit (IMU) Subsystem (Phase 1)  
 > **Target Hardware:** Samsung Galaxy M30s (`SM-M305F`) / Exynos 7904/9611 (Android 10)  
 > **Status:** Fully Implemented, Tested, & Verified  

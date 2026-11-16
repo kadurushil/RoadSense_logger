@@ -1,7 +1,7 @@
 # RoadSense Multithreading Safeguards & Raw Data Parity Review & Implementation Plan
 
 > **Document Name:** `multithreading_and_data_parity_audit_plan.md`  
-> **Workspace Path:** `intel/Implementations/multithreading_and_data_parity_audit_plan.md`  
+> **Workspace Path:** `intel/Implementations/01_RADAR/76_multithreading_and_data_parity_audit_plan.md`  
 > **Date:** 2026-11-02  
 > **Target Branch:** `validation`  
 

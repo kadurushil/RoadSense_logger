@@ -121,4 +121,4 @@ docs/handover/
 1. Inspect markdown files in `docs/handover/` for technical accuracy, formatting, and markdown link integrity.
 2. Open `docs/handover/interactive_architecture_map.html` in Microsoft Edge / Chrome to verify styling, responsiveness, interactivity, and node inspection.
 3. Open `docs/handover/interactive_multithreading_explorer.html` in Microsoft Edge / Chrome to test thread simulation, timeline rendering, and priority visualization.
-4. Verify workspace mirroring into `intel/Implementations/RoadSense_Handover_Documentation_Plan.md` as required by Rule 6.
+4. Verify workspace mirroring into `intel/Implementations/08_HANDOVER_AND_DOCS/11_RoadSense_Handover_Documentation_Plan.md` as required by Rule 6.

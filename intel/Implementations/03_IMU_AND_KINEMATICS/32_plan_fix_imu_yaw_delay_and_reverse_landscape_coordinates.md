@@ -5,7 +5,7 @@ Resolve two critical issues observed during physical device testing of the IMU L
 1. **Yaw Lag & Overshoot on Flat Surface:** When rotating the phone flat on a table, yaw exhibited delay, overshoot, and drift correction.
 2. **Inverted/Swapped Angles in Vehicle Mount (+75° Pitch, +90.7° Roll):** When mounted in reverse landscape (`Surface.ROTATION_270`), pitch and roll showed non-physical values ($+75^\circ$ and $+90.7^\circ$) due to an axis mismatch in `remapCoordinateSystem`.
 
-This plan establishes a mathematically rigorous, closed-form orientation pipeline based on [`intel/Sensor fusion basics.md`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/intel/Sensor%20fusion%20basics.md) and [`intel/Implementations/Sensors/RADAR_PITCH_CALIBRATION_VIA_IMU.md`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/intel/Implementations/Sensors/RADAR_PITCH_CALIBRATION_VIA_IMU.md).
+This plan establishes a mathematically rigorous, closed-form orientation pipeline based on [`intel/Sensor fusion basics.md`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/intel/Sensor%20fusion%20basics.md) and [`intel/Implementations/03_IMU_AND_KINEMATICS/10_RADAR_PITCH_CALIBRATION_VIA_IMU.md`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/intel/Implementations/03_IMU_AND_KINEMATICS/10_RADAR_PITCH_CALIBRATION_VIA_IMU.md).
 
 ---
 

@@ -1,7 +1,7 @@
 # Theoretical Formulation: Automated Radar-Camera Pitch Calibration & Dynamic Stabilization via IMU
 
 > **Document Name:** `RADAR_PITCH_CALIBRATION_VIA_IMU.md`  
-> **Workspace Location:** `intel/Implementations/Sensors/RADAR_PITCH_CALIBRATION_VIA_IMU.md`  
+> **Workspace Location:** `intel/Implementations/03_IMU_AND_KINEMATICS/10_RADAR_PITCH_CALIBRATION_VIA_IMU.md`  
 > **Subsystem:** Radar-Camera Sensor Fusion & Calibration Engine  
 > **Related Implementations:** [`SpatialProjectionEngine.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/fusion/engine/SpatialProjectionEngine.kt), [`ImuManager.kt`](file:///C:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/imu/ImuManager.kt)  
 > **Status:** Architecture & Theoretical Blueprint for Future Implementation  

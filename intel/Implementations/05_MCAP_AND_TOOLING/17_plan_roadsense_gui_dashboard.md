@@ -1,7 +1,7 @@
 # RoadSense Web Dashboard & Visual Script Runner (Approach 2)
 
 > **Plan Name:** `plan_roadsense_gui_dashboard.md`  
-> **Workspace Mirror:** `intel/Implementations/plan_roadsense_gui_dashboard.md`  
+> **Workspace Mirror:** `intel/Implementations/05_MCAP_AND_TOOLING/17_plan_roadsense_gui_dashboard.md`  
 > **Status:** Revised per User Feedback (Approach 2 Selected) — Ready for Approval  
 > **Author:** Antigravity AI  
 

@@ -125,7 +125,7 @@ Create the dedicated master orchestration CLI script that coordinates both healt
 #### [MODIFY] `intel/debugging_and_troubleshooting_knowledge_base.md`
 - Document Rule 22: *Unified Multi-Tier Diagnostic Pipeline Pattern* (combining subsystem layer validation with cross-stream temporal synchronization in a single idempotent runner).
 
-#### [MODIFY] `intel/Implementations/walkthrough_interactive_sync_audit_and_refactoring.md`
+#### [MODIFY] `intel/Implementations/04_GNSS_AND_SYNC/44_walkthrough_interactive_sync_audit_and_refactoring.md`
 - Document the new unified runner, CLI flags, skip-processed caching mechanics, and Web GUI integration.
 
 ---

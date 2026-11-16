@@ -3,7 +3,7 @@
 > **Plan Name:** `radar_high_speed_zero_loss_acquisition_plan`  
 > **Status:** Pending User Review & Approval  
 > **Target Subsystems:** USB Serial Acquisition, Thread Scheduling, `RadarPacketAssembler`, In-Memory Queuing  
-> **Artifact Path:** `intel/Implementations/radar_high_speed_zero_loss_acquisition_plan.md`  
+> **Artifact Path:** `intel/Implementations/01_RADAR/75_radar_high_speed_zero_loss_acquisition_plan.md`  
 
 ---
 

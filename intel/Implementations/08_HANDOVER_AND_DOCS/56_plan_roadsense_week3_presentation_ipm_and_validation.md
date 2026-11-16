@@ -92,4 +92,4 @@ node intel/presentations/generate_roadsense_week3_deck.js
   - Glossary of terms and bulletproof anticipated Q&A.
 
 ### Workspace Document Mirroring
-* In accordance with Rule 6, mirror this plan directly into `intel/Implementations/plan_roadsense_week3_presentation_ipm_and_validation.md`.
+* In accordance with Rule 6, mirror this plan directly into `intel/Implementations/08_HANDOVER_AND_DOCS/56_plan_roadsense_week3_presentation_ipm_and_validation.md`.

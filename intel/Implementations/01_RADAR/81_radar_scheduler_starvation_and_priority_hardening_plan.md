@@ -1,7 +1,7 @@
 # Implementation Plan: Radar Scheduler Starvation, Priority Hardening & UI Decoupling (Bug #29)
 
 > **Document Name:** `radar_scheduler_starvation_and_priority_hardening_plan.md`  
-> **Workspace Path:** `intel/Implementations/radar_scheduler_starvation_and_priority_hardening_plan.md`  
+> **Workspace Path:** `intel/Implementations/01_RADAR/81_radar_scheduler_starvation_and_priority_hardening_plan.md`  
 > **Artifact Path:** `brain/e885dd06-497c-4975-9a0a-d91b0be7bc5b/radar_scheduler_starvation_and_priority_hardening_plan.md`  
 > **Target Subsystem:** Android USB Serial Acquisition, Thread Scheduling, Packet Assembler & Jetpack Compose UI  
 > **Target Hardware:** Samsung Galaxy M20 (Exynos 7904: 2x Cortex-A73 @ 1.8 GHz, 6x Cortex-A53 @ 1.6 GHz, Android 10) + TI AWR1843BOOST (CP2105 USB-UART @ 3.125 Mbps)  

@@ -170,7 +170,7 @@ flowchart TD
 
 ## 8. Relevant Files & Workspaces
 
-* **Implementation Plan:** [`intel/Implementations/radar_android_scheduling_and_priority_hardening_plan.md`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/intel/Implementations/radar_android_scheduling_and_priority_hardening_plan.md)
+* **Implementation Plan:** [`intel/Implementations/01_RADAR/78_radar_android_scheduling_and_priority_hardening_plan.md`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/intel/Implementations/01_RADAR/78_radar_android_scheduling_and_priority_hardening_plan.md)
 * **Detailed Trace Forensic Analysis:** [`intel/trace_forensic_analysis_sbs_camera_load.md`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/intel/trace_forensic_analysis_sbs_camera_load.md)
 * **Bug Knowledge Base Entry:** [`intel/debugging_and_troubleshooting_knowledge_base.md`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/intel/debugging_and_troubleshooting_knowledge_base.md#bug-29-high-density-radar-track-collapse-under-camera2compose-ui-concurrency-via-exynos-7904-scheduler-starvation-518-ms-preemption--cp2105-baud-clock-inaccuracy--40-error) (Bug #29 & Rule #29)
 * **Core Code Files to Modify:**

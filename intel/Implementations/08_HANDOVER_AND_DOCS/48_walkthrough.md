@@ -1,7 +1,7 @@
 # Walkthrough: Multithreading Safeguards, Thread Health Telemetry & Cross-Sensor Raw Data Parity
 
 > **Document Name:** `walkthrough.md`  
-> **Workspace Path:** `intel/Implementations/walkthrough.md`  
+> **Workspace Path:** `intel/Implementations/08_HANDOVER_AND_DOCS/48_walkthrough.md`  
 > **Date:** 2026-11-02  
 > **Target Branch:** `validation`  
 

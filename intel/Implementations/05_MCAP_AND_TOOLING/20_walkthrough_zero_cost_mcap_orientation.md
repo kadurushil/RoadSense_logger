@@ -4,7 +4,7 @@
 > **Date:** September 2026  
 > **Status:** Fully Implemented & Verified  
 > **Related Reference:** [`intel/Sensor fusion basics.md`](../Sensor%20fusion%20basics.md)  
-> **Related Plan:** [`intel/Implementations/plan_zero_cost_mcap_orientation_and_android_alignment.md`](plan_zero_cost_mcap_orientation_and_android_alignment.md)
+> **Related Plan:** [`intel/Implementations/05_MCAP_AND_TOOLING/20_plan_zero_cost_mcap_orientation_and_android_alignment.md`](plan_zero_cost_mcap_orientation_and_android_alignment.md)
 
 ---
 

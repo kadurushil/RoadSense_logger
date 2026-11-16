@@ -1,7 +1,7 @@
 # Implementation Plan: IMU Subsystem Integration & Empirical Rate Discovery
 
 > **Document Name:** `imu_sensor_implementation_plan.md`  
-> **Workspace Location:** `intel/Implementations/Sensors/imu_sensor_implementation_plan.md`  
+> **Workspace Location:** `intel/Implementations/03_IMU_AND_KINEMATICS/06_imu_sensor_implementation_plan.md`  
 > **Subsystem:** Inertial Measurement Unit (IMU) Subsystem  
 > **Hardware Target:** Samsung Galaxy M30s (`SM-M305F` / Exynos 7904/9611) — Verified via ADB Audit  
 > **Status:** Proposed for User Review  
