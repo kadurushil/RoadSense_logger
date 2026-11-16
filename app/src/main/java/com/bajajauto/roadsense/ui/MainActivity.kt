@@ -331,7 +331,7 @@ private fun CockpitTabNavigationBar(
             )
         }
 
-        TabRow(
+        PrimaryTabRow(
             selectedTabIndex = currentTabIndex,
             containerColor = MaterialTheme.colorScheme.surface,
             contentColor = MaterialTheme.colorScheme.primary,
