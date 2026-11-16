@@ -34,7 +34,7 @@ class ImuManager(private val context: Context) {
     companion object {
         private const val TAG = "ImuManager"
         private const val JITTER_WINDOW_SIZE = 128
-        private const val UI_UPDATE_INTERVAL_NS = 40_000_000L // 40 ms = 25 Hz
+        private const val UI_UPDATE_INTERVAL_NS = 33_333_333L // 33.3 ms = 30 Hz ceiling for UI telemetry
         private const val STATS_UPDATE_INTERVAL_NS = 200_000_000L // 200 ms = 5 Hz
         const val DEFAULT_SAMPLING_DELAY_US = SensorManager.SENSOR_DELAY_FASTEST // 0 µs: Hardware FIFO fastest raw rate without HAL decimation filter
     }

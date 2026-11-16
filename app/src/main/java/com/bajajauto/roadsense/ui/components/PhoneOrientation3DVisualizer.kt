@@ -50,20 +50,72 @@ private data class SortedFace(
     val avgDepth: Float
 )
 
+private val VIZ_GROUND_GRID_COLOR = Color(0xFF00E5FF).copy(alpha = 0.12f)
+private val VIZ_GROUND_GRID_BORDER = Color(0xFF00E5FF).copy(alpha = 0.35f)
+private val VIZ_RING_COLOR = Color(0xFF00E5FF).copy(alpha = 0.15f)
+private val VIZ_FWD_ARROW_COLOR = Color(0xFF00E676).copy(alpha = 0.7f)
+private val VIZ_PLUMB_COLOR = Color(0xFFFFB300).copy(alpha = 0.5f)
+private val VIZ_SHADOW_COLOR = Color.Black.copy(alpha = 0.45f)
+private val VIZ_SHADOW_DOT_COLOR = Color(0xFFFFB300).copy(alpha = 0.8f)
+private val VIZ_SCREEN_FILL_COLOR = Color(0xFF0284C7).copy(alpha = 0.25f)
+private val VIZ_SCREEN_STROKE_COLOR = Color(0xFF38BDF8).copy(alpha = 0.6f)
+private val VIZ_RAY_COLOR = Color(0xFF00E676).copy(alpha = 0.85f)
+
+private val VIZ_RING_STROKE = Stroke(width = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
+private val VIZ_PLUMB_DASH = PathEffect.dashPathEffect(floatArrayOf(5f, 5f))
+private val VIZ_FACE_BORDER_STROKE = Stroke(width = 1.5f)
+private val VIZ_INNER_SCREEN_STROKE = Stroke(width = 1f)
+
+private val VIZ_FACES = listOf(
+    FaceDef("Screen (Driver)", listOf(4, 5, 6, 7), Color(0xFF0F172A), Color(0xFF00E5FF)),
+    FaceDef("Chassis (Windshield)", listOf(0, 3, 2, 1), Color(0xFF1E293B), Color(0xFF475569)),
+    FaceDef("Top Rim", listOf(3, 2, 6, 7), Color(0xFF334155), Color(0xFF64748B)),
+    FaceDef("Bottom Rim", listOf(0, 1, 5, 4), Color(0xFF334155), Color(0xFF64748B)),
+    FaceDef("Right Rim", listOf(1, 2, 6, 5), Color(0xFF283548), Color(0xFF64748B)),
+    FaceDef("Left Rim", listOf(0, 3, 7, 4), Color(0xFF283548), Color(0xFF64748B))
+)
+
+private class VisualizerDrawScratch {
+    val rotMat = FloatArray(9)
+    val worldCorners = Array(8) { FloatArray(3) }
+    val projectedCorners = arrayOfNulls<ProjectedPoint>(8)
+    val ringPath = Path()
+    val facePath = Path()
+    val innerPath = Path()
+    val labelPaint = Paint().apply {
+        color = android.graphics.Color.argb(200, 148, 163, 184)
+        textSize = 24f
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
+        isAntiAlias = true
+    }
+    val orthoPaint = Paint().apply {
+        color = android.graphics.Color.argb(230, 0, 230, 118)
+        textSize = 26f
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        isAntiAlias = true
+    }
+}
+
 /**
  * 3D Phone Orientation Visualizer:
  * Renders a real-time, interactive 3D model of the smartphone in space hovering above
  * the reference level ground plane beneath the vehicle.
  *
  * Driven by Android's Sensor.TYPE_GAME_ROTATION_VECTOR (magnet-free, gravitationally leveled).
- * Enables visual inspection of physical windshield pitch, lateral roll, camera boresight ray,
- * and ground plane drop-shadow plumb bob.
+ * Supports draw-phase [telemetryProvider] so 30 Hz attitude updates only redraw the Canvas
+ * while numeric badges update at a lower cadence via [badgeTelemetry].
  */
 @Composable
 fun PhoneOrientation3DVisualizer(
-    telemetry: ImuTelemetryState,
+    telemetry: ImuTelemetryState? = null,
+    telemetryProvider: (() -> ImuTelemetryState)? = null,
+    badgeTelemetry: ImuTelemetryState? = null,
     modifier: Modifier = Modifier
 ) {
+    val initialSnap = badgeTelemetry ?: telemetry ?: telemetryProvider?.invoke() ?: ImuTelemetryState()
+    val effectiveProvider: () -> ImuTelemetryState = telemetryProvider ?: { telemetry ?: initialSnap }
+    val uiTelemetry = badgeTelemetry ?: telemetry ?: initialSnap
+
     // 3D Viewport Orbit Camera Angles (Spherical Coordinates)
     var orbitAzimuthDeg by remember { mutableFloatStateOf(45f) }
     var orbitElevationDeg by remember { mutableFloatStateOf(28f) }
@@ -72,27 +124,28 @@ fun PhoneOrientation3DVisualizer(
 
     val isOrtho = abs(orbitAzimuthDeg - 90f) < 0.5f && abs(orbitElevationDeg) < 0.5f
 
-    LaunchedEffect(telemetry.isMonitoring) {
-        if (telemetry.isMonitoring && !isTareActive) {
-            yawTareDeg = telemetry.yawDeg
+    LaunchedEffect(uiTelemetry.isMonitoring) {
+        if (uiTelemetry.isMonitoring && !isTareActive) {
+            yawTareDeg = effectiveProvider().yawDeg
             isTareActive = true
         }
     }
 
     // Relative yaw heading with respect to tared Road (+Y) axis
-    val relativeYawDeg = remember(telemetry.yawDeg, yawTareDeg, isTareActive) {
-        if (!isTareActive) telemetry.yawDeg
+    val relativeYawDeg = remember(uiTelemetry.yawDeg, yawTareDeg, isTareActive) {
+        if (!isTareActive) uiTelemetry.yawDeg
         else {
-            var diff = (telemetry.yawDeg - yawTareDeg) % 360f
+            var diff = (uiTelemetry.yawDeg - yawTareDeg) % 360f
             if (diff > 180f) diff -= 360f
             if (diff < -180f) diff += 360f
             diff
         }
     }
 
-    val isLevel = abs(telemetry.rollDeg) <= 1.2f
-    val isPitchNominal = telemetry.pitchDeg in 2.0f..14.0f
+    val isLevel = abs(uiTelemetry.rollDeg) <= 1.2f
+    val isPitchNominal = uiTelemetry.pitchDeg in 2.0f..14.0f
     val isOptimalAlignment = isLevel && isPitchNominal
+    val drawScratch = remember { VisualizerDrawScratch() }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -136,7 +189,7 @@ fun PhoneOrientation3DVisualizer(
                 Surface(
                     shape = RoundedCornerShape(16.dp),
                     color = when {
-                        !telemetry.isMonitoring -> MaterialTheme.colorScheme.surfaceVariant
+                        !uiTelemetry.isMonitoring -> MaterialTheme.colorScheme.surfaceVariant
                         isOptimalAlignment -> Color(0xFF00E676).copy(alpha = 0.15f)
                         isLevel -> Color(0xFF00B0FF).copy(alpha = 0.15f)
                         else -> Color(0xFFFFB300).copy(alpha = 0.15f)
@@ -144,7 +197,7 @@ fun PhoneOrientation3DVisualizer(
                     border = BorderStroke(
                         1.dp,
                         when {
-                            !telemetry.isMonitoring -> Color.Transparent
+                            !uiTelemetry.isMonitoring -> Color.Transparent
                             isOptimalAlignment -> Color(0xFF00E676)
                             isLevel -> Color(0xFF00B0FF)
                             else -> Color(0xFFFFB300)
@@ -161,7 +214,7 @@ fun PhoneOrientation3DVisualizer(
                                 .size(7.dp)
                                 .background(
                                     when {
-                                        !telemetry.isMonitoring -> Color.Gray
+                                        !uiTelemetry.isMonitoring -> Color.Gray
                                         isOptimalAlignment -> Color(0xFF00E676)
                                         isLevel -> Color(0xFF00B0FF)
                                         else -> Color(0xFFFFB300)
@@ -171,7 +224,7 @@ fun PhoneOrientation3DVisualizer(
                         )
                         Text(
                             text = when {
-                                !telemetry.isMonitoring -> "STANDBY"
+                                !uiTelemetry.isMonitoring -> "STANDBY"
                                 isOptimalAlignment -> "OPTIMAL MOUNT"
                                 isLevel -> "LEVEL (PITCH OFF)"
                                 else -> "TILTED (ROLL OFF)"
@@ -181,7 +234,7 @@ fun PhoneOrientation3DVisualizer(
                             maxLines = 1,
                             softWrap = false,
                             color = when {
-                                !telemetry.isMonitoring -> MaterialTheme.colorScheme.onSurfaceVariant
+                                !uiTelemetry.isMonitoring -> MaterialTheme.colorScheme.onSurfaceVariant
                                 isOptimalAlignment -> Color(0xFF00E676)
                                 isLevel -> Color(0xFF00B0FF)
                                 else -> Color(0xFFFFB300)
@@ -198,14 +251,14 @@ fun PhoneOrientation3DVisualizer(
             ) {
                 AttitudeMetricBox(
                     label = "CAMERA PITCH",
-                    valueStr = "%+.1f°".format(telemetry.pitchDeg),
+                    valueStr = "%+.1f°".format(uiTelemetry.pitchDeg),
                     hint = if (isPitchNominal) "Windshield OK" else "Adjust Tilt",
                     color = if (isPitchNominal) Color(0xFF00E676) else Color(0xFFFFB300),
                     modifier = Modifier.weight(1f)
                 )
                 AttitudeMetricBox(
                     label = "LATERAL ROLL",
-                    valueStr = "%+.1f°".format(telemetry.rollDeg),
+                    valueStr = "%+.1f°".format(uiTelemetry.rollDeg),
                     hint = if (isLevel) "Level (<1.2°)" else "Tilt Detected",
                     color = if (isLevel) Color(0xFF00E676) else Color(0xFFFF1744),
                     modifier = Modifier.weight(1f)
@@ -236,7 +289,8 @@ fun PhoneOrientation3DVisualizer(
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     draw3DScene(
-                        telemetry = telemetry,
+                        telemetry = effectiveProvider(),
+                        scratch = drawScratch,
                         orbitAzimuthDeg = orbitAzimuthDeg,
                         orbitElevationDeg = orbitElevationDeg,
                         yawTareDeg = if (isTareActive) yawTareDeg else 0f,
@@ -275,7 +329,7 @@ fun PhoneOrientation3DVisualizer(
                                     orbitAzimuthDeg = 90f
                                     orbitElevationDeg = 0f
                                     if (!isTareActive) {
-                                        yawTareDeg = telemetry.yawDeg
+                                        yawTareDeg = effectiveProvider().yawDeg
                                         isTareActive = true
                                     }
                                 }
@@ -305,7 +359,7 @@ fun PhoneOrientation3DVisualizer(
                             onClick = {
                                 orbitAzimuthDeg = 45f
                                 orbitElevationDeg = 28f
-                                yawTareDeg = telemetry.yawDeg
+                                yawTareDeg = effectiveProvider().yawDeg
                                 isTareActive = true
                             },
                             modifier = Modifier
@@ -393,6 +447,7 @@ private fun LegendItem(label: String, color: Color) {
  */
 private fun DrawScope.draw3DScene(
     telemetry: ImuTelemetryState,
+    scratch: VisualizerDrawScratch,
     orbitAzimuthDeg: Float,
     orbitElevationDeg: Float,
     yawTareDeg: Float = 0f,
@@ -457,8 +512,8 @@ private fun DrawScope.draw3DScene(
     }
 
     // --- 2. Render Reference Level Ground Plane (Z = 0) ---
-    val groundGridColor = Color(0xFF00E5FF).copy(alpha = 0.12f)
-    val groundGridBorder = Color(0xFF00E5FF).copy(alpha = 0.35f)
+    val groundGridColor = VIZ_GROUND_GRID_COLOR
+    val groundGridBorder = VIZ_GROUND_GRID_BORDER
     val gridExtent = 2.4f
     val gridStep = 0.6f
 
@@ -494,14 +549,17 @@ private fun DrawScope.draw3DScene(
     }
 
     // Concentric Range Rings on Ground Plane
-    listOf(0.8f, 1.6f, 2.4f).forEach { radius ->
-        val ringPath = Path()
+    val ringRadii = floatArrayOf(0.8f, 1.6f, 2.4f)
+    for (rIdx in ringRadii.indices) {
+        val radius = ringRadii[rIdx]
+        val ringPath = scratch.ringPath
+        ringPath.reset()
         var firstPoint = true
         for (i in 0..36) {
             val angle = Math.toRadians((i * 10).toDouble()).toFloat()
-            val rx = radius * cos(angle)
-            val ry = radius * sin(angle)
-            val proj = project(rx, ry, 0f)
+            val rxRing = radius * cos(angle)
+            val ryRing = radius * sin(angle)
+            val proj = project(rxRing, ryRing, 0f)
             if (proj != null) {
                 if (firstPoint) {
                     ringPath.moveTo(proj.u, proj.v)
@@ -513,8 +571,8 @@ private fun DrawScope.draw3DScene(
         }
         drawPath(
             path = ringPath,
-            color = Color(0xFF00E5FF).copy(alpha = 0.15f),
-            style = Stroke(width = 1f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f)))
+            color = VIZ_RING_COLOR,
+            style = VIZ_RING_STROKE
         )
     }
 
@@ -523,7 +581,7 @@ private fun DrawScope.draw3DScene(
     val fwdEnd = project(0f, 2.2f, 0f)
     if (fwdStart != null && fwdEnd != null) {
         drawLine(
-            color = Color(0xFF00E676).copy(alpha = 0.7f),
+            color = VIZ_FWD_ARROW_COLOR,
             start = Offset(fwdStart.u, fwdStart.v),
             end = Offset(fwdEnd.u, fwdEnd.v),
             strokeWidth = 2.5f,
@@ -539,7 +597,7 @@ private fun DrawScope.draw3DScene(
     val c = cos(yawTareRad)
     val s = sin(yawTareRad)
 
-    val R = FloatArray(9)
+    val R = scratch.rotMat
     // Rotate world frame around Z by yawTareRad so phone boresight at tare points along +Y
     R[0] = c * telemetry.rotationMatrix[0] - s * telemetry.rotationMatrix[3]
     R[1] = c * telemetry.rotationMatrix[1] - s * telemetry.rotationMatrix[4]
@@ -559,95 +617,81 @@ private fun DrawScope.draw3DScene(
     val ph = 1.48f / 2f  // Half-length along phone body (Y)
     val pt = 0.10f / 2f  // Half-thickness (Z)
 
-    // Local 8 corners in native phone body frame:
-    val localCorners = arrayOf(
-        floatArrayOf(-pw, -ph, -pt), // 0: Left-Bottom-Back
-        floatArrayOf( pw, -ph, -pt), // 1: Right-Bottom-Back
-        floatArrayOf( pw,  ph, -pt), // 2: Right-Top-Back
-        floatArrayOf(-pw,  ph, -pt), // 3: Left-Top-Back
-        floatArrayOf(-pw, -ph,  pt), // 4: Left-Bottom-Front (Screen)
-        floatArrayOf( pw, -ph,  pt), // 5: Right-Bottom-Front (Screen)
-        floatArrayOf( pw,  ph,  pt), // 6: Right-Top-Front (Screen)
-        floatArrayOf(-pw,  ph,  pt)  // 7: Left-Top-Front (Screen)
-    )
-
-    // Transform local corners to world: W = R * P + [0, 0, hoverZ]
-    val worldCorners = localCorners.map { c ->
-        val wx = R[0] * c[0] + R[1] * c[1] + R[2] * c[2]
-        val wy = R[3] * c[0] + R[4] * c[1] + R[5] * c[2]
-        val wz = R[6] * c[0] + R[7] * c[1] + R[8] * c[2] + hoverZ
-        floatArrayOf(wx, wy, wz)
+    val worldCorners = scratch.worldCorners
+    // 0: (-pw,-ph,-pt), 1: (pw,-ph,-pt), 2: (pw,ph,-pt), 3: (-pw,ph,-pt),
+    // 4: (-pw,-ph,pt),  5: (pw,-ph,pt),  6: (pw,ph,pt),  7: (-pw,ph,pt)
+    for (idx in 0 until 8) {
+        val lx = if (idx == 1 || idx == 2 || idx == 5 || idx == 6) pw else -pw
+        val ly = if (idx == 2 || idx == 3 || idx == 6 || idx == 7) ph else -ph
+        val lz = if (idx >= 4) pt else -pt
+        val dst = worldCorners[idx]
+        dst[0] = R[0] * lx + R[1] * ly + R[2] * lz
+        dst[1] = R[3] * lx + R[4] * ly + R[5] * lz
+        dst[2] = R[6] * lx + R[7] * ly + R[8] * lz + hoverZ
     }
 
-    // Phone Center in World
-    val phoneCenterWorld = floatArrayOf(
-        0f,
-        0f,
-        hoverZ
-    )
-
     // --- 4. Plumb Bob & Projected Drop Shadow ---
-    val centerProj = project(phoneCenterWorld[0], phoneCenterWorld[1], phoneCenterWorld[2])
-    val groundShadowProj = project(phoneCenterWorld[0], phoneCenterWorld[1], 0f)
+    val centerProj = project(0f, 0f, hoverZ)
+    val groundShadowProj = project(0f, 0f, 0f)
 
     if (centerProj != null && groundShadowProj != null) {
         // Vertical plumb line
         drawLine(
-            color = Color(0xFFFFB300).copy(alpha = 0.5f),
+            color = VIZ_PLUMB_COLOR,
             start = Offset(centerProj.u, centerProj.v),
             end = Offset(groundShadowProj.u, groundShadowProj.v),
             strokeWidth = 1.5f,
-            pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f))
+            pathEffect = VIZ_PLUMB_DASH
         )
 
         // Drop shadow disc on ground plane
         drawCircle(
-            color = Color.Black.copy(alpha = 0.45f),
+            color = VIZ_SHADOW_COLOR,
             radius = 22f,
             center = Offset(groundShadowProj.u, groundShadowProj.v)
         )
         drawCircle(
-            color = Color(0xFFFFB300).copy(alpha = 0.8f),
+            color = VIZ_SHADOW_DOT_COLOR,
             radius = 3.5f,
             center = Offset(groundShadowProj.u, groundShadowProj.v)
         )
     }
 
     // --- 5. Depth Sort & Render Phone Cuboid Faces ---
-    val faces = listOf(
-        FaceDef("Screen (Driver)", listOf(4, 5, 6, 7), Color(0xFF0F172A), Color(0xFF00E5FF)),
-        FaceDef("Chassis (Windshield)", listOf(0, 3, 2, 1), Color(0xFF1E293B), Color(0xFF475569)),
-        FaceDef("Top Rim", listOf(3, 2, 6, 7), Color(0xFF334155), Color(0xFF64748B)),
-        FaceDef("Bottom Rim", listOf(0, 1, 5, 4), Color(0xFF334155), Color(0xFF64748B)),
-        FaceDef("Right Rim", listOf(1, 2, 6, 5), Color(0xFF283548), Color(0xFF64748B)),
-        FaceDef("Left Rim", listOf(0, 3, 7, 4), Color(0xFF283548), Color(0xFF64748B))
-    )
-
-    // Project all 8 corners
-    val projectedCorners = worldCorners.map { c -> project(c[0], c[1], c[2]) }
+    val projectedCorners = scratch.projectedCorners
+    for (i in 0 until 8) {
+        val wc = worldCorners[i]
+        projectedCorners[i] = project(wc[0], wc[1], wc[2])
+    }
 
     // Sort faces from back to front (Painter's algorithm)
-    val sortedFaces = faces.mapNotNull { face ->
-        val validProjs = face.indices.mapNotNull { projectedCorners[it] }
-        if (validProjs.size == 4) {
-            val avgDepth = validProjs.map { it.depth }.average().toFloat()
-            SortedFace(face, validProjs, avgDepth)
+    val sortedFaces = VIZ_FACES.mapNotNull { face ->
+        val p0 = projectedCorners[face.indices[0]]
+        val p1 = projectedCorners[face.indices[1]]
+        val p2 = projectedCorners[face.indices[2]]
+        val p3 = projectedCorners[face.indices[3]]
+        if (p0 != null && p1 != null && p2 != null && p3 != null) {
+            val avgDepth = (p0.depth + p1.depth + p2.depth + p3.depth) * 0.25f
+            SortedFace(face, listOf(p0, p1, p2, p3), avgDepth)
         } else null
     }.sortedByDescending { it.avgDepth }
 
+    val facePath = scratch.facePath
+    val innerPath = scratch.innerPath
     sortedFaces.forEach { sortedFace ->
         val face = sortedFace.face
         val projs = sortedFace.points
-        val path = Path().apply {
-            moveTo(projs[0].u, projs[0].v)
-            projs.drop(1).forEach { lineTo(it.u, it.v) }
-            close()
-        }
+        facePath.reset()
+        facePath.moveTo(projs[0].u, projs[0].v)
+        facePath.lineTo(projs[1].u, projs[1].v)
+        facePath.lineTo(projs[2].u, projs[2].v)
+        facePath.lineTo(projs[3].u, projs[3].v)
+        facePath.close()
 
         // Draw solid face
-        drawPath(path = path, color = face.baseColor, style = Fill)
+        drawPath(path = facePath, color = face.baseColor, style = Fill)
         // Draw chamfer border
-        drawPath(path = path, color = face.borderColor, style = Stroke(width = 1.5f))
+        drawPath(path = facePath, color = face.borderColor, style = VIZ_FACE_BORDER_STROKE)
 
         // If screen face, draw inner luminous display grid
         if (face.name.startsWith("Screen")) {
@@ -661,15 +705,14 @@ private fun DrawScope.draw3DScene(
             val ip2 = p2 + (p0 - p2) * inset
             val ip3 = p3 + (p1 - p3) * inset
 
-            val innerPath = Path().apply {
-                moveTo(ip0.x, ip0.y)
-                lineTo(ip1.x, ip1.y)
-                lineTo(ip2.x, ip2.y)
-                lineTo(ip3.x, ip3.y)
-                close()
-            }
-            drawPath(path = innerPath, color = Color(0xFF0284C7).copy(alpha = 0.25f), style = Fill)
-            drawPath(path = innerPath, color = Color(0xFF38BDF8).copy(alpha = 0.6f), style = Stroke(width = 1f))
+            innerPath.reset()
+            innerPath.moveTo(ip0.x, ip0.y)
+            innerPath.lineTo(ip1.x, ip1.y)
+            innerPath.lineTo(ip2.x, ip2.y)
+            innerPath.lineTo(ip3.x, ip3.y)
+            innerPath.close()
+            drawPath(path = innerPath, color = VIZ_SCREEN_FILL_COLOR, style = Fill)
+            drawPath(path = innerPath, color = VIZ_SCREEN_STROKE_COLOR, style = VIZ_INNER_SCREEN_STROKE)
         }
     }
 
@@ -711,7 +754,7 @@ private fun DrawScope.draw3DScene(
 
         // Draw Boresight Beam
         drawLine(
-            color = Color(0xFF00E676).copy(alpha = 0.85f),
+            color = VIZ_RAY_COLOR,
             start = Offset(lensProj.u, lensProj.v),
             end = Offset(rayEndProj.u, rayEndProj.v),
             strokeWidth = 2.5f,
@@ -728,23 +771,11 @@ private fun DrawScope.draw3DScene(
 
     // --- 7. Native HUD Canvas Text Labels ---
     drawContext.canvas.nativeCanvas.apply {
-        val paint = Paint().apply {
-            color = android.graphics.Color.argb(200, 148, 163, 184)
-            textSize = 24f
-            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL)
-            isAntiAlias = true
-        }
         if (fwdEnd != null) {
-            drawText("ROAD (+Y)", fwdEnd.u - 40f, fwdEnd.v - 10f, paint)
+            drawText("ROAD (+Y)", fwdEnd.u - 40f, fwdEnd.v - 10f, scratch.labelPaint)
         }
         if (isOrtho) {
-            val orthoPaint = Paint().apply {
-                color = android.graphics.Color.argb(230, 0, 230, 118)
-                textSize = 26f
-                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-                isAntiAlias = true
-            }
-            drawText("SIDE PITCH: %+.1f°".format(telemetry.pitchDeg), 20f, canvasH - 20f, orthoPaint)
+            drawText("SIDE PITCH: %+.1f°".format(telemetry.pitchDeg), 20f, canvasH - 20f, scratch.orthoPaint)
         }
     }
 }

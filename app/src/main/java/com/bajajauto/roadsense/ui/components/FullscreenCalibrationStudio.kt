@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
@@ -82,20 +83,23 @@ fun FullscreenCalibrationStudio(
     val savedBaseline by viewModel.savedBaselineParams.collectAsState()
     val activeIntrinsics by viewModel.activeIntrinsics.collectAsState()
     val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
-    val imuTelemetry by viewModel.imuTelemetry.collectAsState()
     val isLiveImuHorizonEnabled by viewModel.isLiveImuHorizonEnabled.collectAsState()
     val radarFrameState = viewModel.latestFrame.collectAsState()
 
-    // Dynamically synthesize active display parameters when Live IMU Horizon Follow is active
-    val activeDisplayParams = remember(calibrationParams, imuTelemetry, isLiveImuHorizonEnabled) {
-        if (isLiveImuHorizonEnabled) {
-            calibrationParams.copy(
-                pitchDeg = imuTelemetry.pitchDeg,
-                rollDeg = imuTelemetry.rollDeg,
-                nudgePitchDeg = 0f
-            )
-        } else {
-            calibrationParams
+    // Pure functional provider: dynamically evaluates active display parameters at draw time
+    // without triggering recomposition of FullscreenCalibrationStudio root when IMU updates at 30 Hz
+    val activeDisplayParamsProvider = remember(calibrationParams, isLiveImuHorizonEnabled) {
+        {
+            if (isLiveImuHorizonEnabled) {
+                val imu = viewModel.imuTelemetry.value
+                calibrationParams.copy(
+                    pitchDeg = imu.pitchDeg,
+                    rollDeg = imu.rollDeg,
+                    nudgePitchDeg = 0f
+                )
+            } else {
+                calibrationParams
+            }
         }
     }
 
@@ -206,268 +210,32 @@ fun FullscreenCalibrationStudio(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // 2. Reverse-Camera Style Ground Guidelines, Distance Ladder & Horizon Line
+            // 2. Reverse-Camera Style Ground Guidelines, Distance Ladder & Horizon Line (Isolated Leaf)
             if ((showHorizonLine || showGuideLines) && activeIntrinsics != null) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val w = size.width.toInt()
-                    val h = size.height.toInt()
-                    val guides = SpatialProjectionEngine.calculateGroundGuideLines(
-                        params = activeDisplayParams,
-                        intrinsics = activeIntrinsics!!,
-                        viewWidth = w,
-                        viewHeight = h
-                    )
-
-                    // Ground Wheel Tracks & Centerline
-                    if (showGuideLines) {
-                        // Left Wheel Track
-                        if (guides.leftTrack.size >= 2) {
-                            val pathL = Path().apply {
-                                moveTo(guides.leftTrack[0].xPx, guides.leftTrack[0].yPx)
-                                for (i in 1 until guides.leftTrack.size) {
-                                    lineTo(guides.leftTrack[i].xPx, guides.leftTrack[i].yPx)
-                                }
-                            }
-                            drawPath(
-                                path = pathL,
-                                color = Color(0xFF00E5FF).copy(alpha = 0.55f),
-                                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
-                            )
-                        }
-
-                        // Right Wheel Track
-                        if (guides.rightTrack.size >= 2) {
-                            val pathR = Path().apply {
-                                moveTo(guides.rightTrack[0].xPx, guides.rightTrack[0].yPx)
-                                for (i in 1 until guides.rightTrack.size) {
-                                    lineTo(guides.rightTrack[i].xPx, guides.rightTrack[i].yPx)
-                                }
-                            }
-                            drawPath(
-                                path = pathR,
-                                color = Color(0xFF00E5FF).copy(alpha = 0.55f),
-                                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
-                            )
-                        }
-
-                        // Centerline (Forward Boresight Track)
-                        if (guides.centerline.size >= 2) {
-                            val pathC = Path().apply {
-                                moveTo(guides.centerline[0].xPx, guides.centerline[0].yPx)
-                                for (i in 1 until guides.centerline.size) {
-                                    lineTo(guides.centerline[i].xPx, guides.centerline[i].yPx)
-                                }
-                            }
-                            drawPath(
-                                path = pathC,
-                                color = Color.White.copy(alpha = 0.45f),
-                                style = Stroke(
-                                    width = 1.5.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 15f), 0f)
-                                )
-                            )
-                        }
-
-                        // Ground Distance Ladder Rungs
-                        for (rung in guides.rungs) {
-                            val rungColor = when {
-                                rung.isTarget -> Color(0xFFFFD54F) // Gold Target
-                                rung.distanceM <= 3.5f -> Color(0xFFFF5252) // Red 3m
-                                rung.distanceM <= 6.0f -> Color(0xFFFFB74D) // Amber 5m
-                                rung.distanceM <= 16.0f -> Color(0xFF69F0AE) // Green 10m/15m
-                                else -> Color(0xFF40C4FF).copy(alpha = 0.6f) // Cyan 20m/30m
-                            }
-                            val baseStrokeW = 2.dp.toPx()
-
-                            // 1. Full transverse distance bar (consistent perspective ladder width)
-                            drawLine(
-                                color = if (rung.isTarget) rungColor.copy(alpha = 0.65f) else rungColor,
-                                start = Offset(rung.leftPt.xPx, rung.leftPt.yPx),
-                                end = Offset(rung.rightPt.xPx, rung.rightPt.yPx),
-                                strokeWidth = baseStrokeW,
-                                cap = StrokeCap.Round
-                            )
-
-                            // 2. Outer end notch ticks (ladder rails perspective alignment)
-                            val outerTickLen = 8f * density
-                            drawLine(
-                                color = rungColor,
-                                start = Offset(rung.leftPt.xPx, rung.leftPt.yPx - outerTickLen),
-                                end = Offset(rung.leftPt.xPx, rung.leftPt.yPx + outerTickLen),
-                                strokeWidth = baseStrokeW,
-                                cap = StrokeCap.Round
-                            )
-                            drawLine(
-                                color = rungColor,
-                                start = Offset(rung.rightPt.xPx, rung.rightPt.yPx - outerTickLen),
-                                end = Offset(rung.rightPt.xPx, rung.rightPt.yPx + outerTickLen),
-                                strokeWidth = baseStrokeW,
-                                cap = StrokeCap.Round
-                            )
-
-                            // 3. If Target: Draw inner vehicle caliper markings (1.3m car width)
-                            if (rung.isTarget && rung.targetLeftPt != null && rung.targetRightPt != null) {
-                                val tL = rung.targetLeftPt
-                                val tR = rung.targetRightPt
-
-                                // Bold highlighted car width contact bar
-                                drawLine(
-                                    color = Color(0xFFFFD54F),
-                                    start = Offset(tL.xPx, tL.yPx),
-                                    end = Offset(tR.xPx, tR.yPx),
-                                    strokeWidth = 3.5.dp.toPx(),
-                                    cap = StrokeCap.Round
-                                )
-
-                                // Vertical caliper brackets at car width boundaries [ ... ]
-                                val caliperLen = 14f * density
-                                val cornerTick = 6f * density
-
-                                // Left caliper bracket [
-                                drawLine(
-                                    color = Color(0xFFFFD54F),
-                                    start = Offset(tL.xPx, tL.yPx - caliperLen),
-                                    end = Offset(tL.xPx, tL.yPx + caliperLen),
-                                    strokeWidth = 3.dp.toPx(),
-                                    cap = StrokeCap.Round
-                                )
-                                drawLine(
-                                    color = Color(0xFFFFD54F),
-                                    start = Offset(tL.xPx, tL.yPx - caliperLen),
-                                    end = Offset(tL.xPx + cornerTick, tL.yPx - caliperLen),
-                                    strokeWidth = 2.dp.toPx(),
-                                    cap = StrokeCap.Round
-                                )
-                                drawLine(
-                                    color = Color(0xFFFFD54F),
-                                    start = Offset(tL.xPx, tL.yPx + caliperLen),
-                                    end = Offset(tL.xPx + cornerTick, tL.yPx + caliperLen),
-                                    strokeWidth = 2.dp.toPx(),
-                                    cap = StrokeCap.Round
-                                )
-
-                                // Right caliper bracket ]
-                                drawLine(
-                                    color = Color(0xFFFFD54F),
-                                    start = Offset(tR.xPx, tR.yPx - caliperLen),
-                                    end = Offset(tR.xPx, tR.yPx + caliperLen),
-                                    strokeWidth = 3.dp.toPx(),
-                                    cap = StrokeCap.Round
-                                )
-                                drawLine(
-                                    color = Color(0xFFFFD54F),
-                                    start = Offset(tR.xPx, tR.yPx - caliperLen),
-                                    end = Offset(tR.xPx - cornerTick, tR.yPx - caliperLen),
-                                    strokeWidth = 2.dp.toPx(),
-                                    cap = StrokeCap.Round
-                                )
-                                drawLine(
-                                    color = Color(0xFFFFD54F),
-                                    start = Offset(tR.xPx, tR.yPx + caliperLen),
-                                    end = Offset(tR.xPx - cornerTick, tR.yPx + caliperLen),
-                                    strokeWidth = 2.dp.toPx(),
-                                    cap = StrokeCap.Round
-                                )
-
-                                // Center boresight notch (crosshair tick on vehicle center badge)
-                                val midX = (tL.xPx + tR.xPx) / 2f
-                                val midY = (tL.yPx + tR.yPx) / 2f
-                                drawLine(
-                                    color = Color(0xFFFFD54F),
-                                    start = Offset(midX, midY - 10f * density),
-                                    end = Offset(midX, midY + 10f * density),
-                                    strokeWidth = 2.5.dp.toPx(),
-                                    cap = StrokeCap.Round
-                                )
-
-                                // Centered car width label below caliper brackets & yellow target line
-                                val carLabel = "${String.format(java.util.Locale.US, "%.1fm CAR", activeDisplayParams.targetWidthM)}"
-                                val carTextPaint = Paint().apply {
-                                    color = android.graphics.Color.YELLOW
-                                    textSize = 10f * density
-                                    isFakeBoldText = true
-                                    typeface = Typeface.MONOSPACE
-                                    textAlign = android.graphics.Paint.Align.CENTER
-                                    setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
-                                }
-                                drawContext.canvas.nativeCanvas.drawText(
-                                    carLabel,
-                                    midX,
-                                    midY + caliperLen + 4f * density + carTextPaint.textSize,
-                                    carTextPaint
-                                )
-                            }
-
-                            // 4. Outer Distance Text Label (Right Side of Ladder)
-                            val text = rung.label
-                            val textPaint = Paint().apply {
-                                color = if (rung.isTarget) android.graphics.Color.YELLOW else android.graphics.Color.WHITE
-                                textSize = (if (rung.isTarget) 12f else 10f) * density
-                                isFakeBoldText = true
-                                typeface = Typeface.MONOSPACE
-                                setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
-                            }
-                            val labelX = rung.rightPt.xPx + 10f * density
-                            val labelY = rung.rightPt.yPx + (textPaint.textSize / 3f)
-                            drawContext.canvas.nativeCanvas.drawText(text, labelX, labelY, textPaint)
-                        }
-                    }
-
-                    // 3. Artificial Horizon Line
-                    if (showHorizonLine) {
-                        val horizon = guides.horizonLine
-                        drawLine(
-                            color = Color.Cyan.copy(alpha = 0.75f),
-                            start = Offset(horizon.first.xPx, horizon.first.yPx),
-                            end = Offset(horizon.second.xPx, horizon.second.yPx),
-                            strokeWidth = 2.dp.toPx(),
-                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(25f, 15f), 0f)
-                        )
-
-                        // Center Boresight Horizon Crosshair
-                        val hCenterX = w / 2f
-                        val hCenterY = (horizon.first.yPx + horizon.second.yPx) / 2f
-                        drawLine(
-                            color = Color.Cyan,
-                            start = Offset(hCenterX - 20.dp.toPx(), hCenterY),
-                            end = Offset(hCenterX + 20.dp.toPx(), hCenterY),
-                            strokeWidth = 2.5.dp.toPx()
-                        )
-                        drawLine(
-                            color = Color.Cyan,
-                            start = Offset(hCenterX, hCenterY - 10.dp.toPx()),
-                            end = Offset(hCenterX, hCenterY + 10.dp.toPx()),
-                            strokeWidth = 2.5.dp.toPx()
-                        )
-
-                        // Horizon Pitch & Roll Text Badge
-                        val hPaint = Paint().apply {
-                            color = android.graphics.Color.CYAN
-                            textSize = 10f * density
-                            isFakeBoldText = true
-                            typeface = Typeface.MONOSPACE
-                            setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
-                        }
-                        val hText = "HORIZON (θ: ${String.format(Locale.US, "%.1f°", activeDisplayParams.effectivePitchDeg)}, ϕ: ${String.format(Locale.US, "%.1f°", activeDisplayParams.rollDeg)})"
-                        drawContext.canvas.nativeCanvas.drawText(hText, hCenterX - 110f * density, hCenterY - 14f, hPaint)
-                    }
-                }
+                CalibrationGuidesOverlay(
+                    activeDisplayParamsProvider = activeDisplayParamsProvider,
+                    activeIntrinsics = activeIntrinsics!!,
+                    showGuideLines = showGuideLines,
+                    showHorizonLine = showHorizonLine,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
 
             // 3. Live or Simulated Radar Detections Overlay (Decoupled Draw-Phase)
             ViewfinderRadarOverlay(
                 radarFrameProducer = {
                     if (showSimulatedPoints) {
+                        val p = activeDisplayParamsProvider()
                         SimulatedRadarDataProvider.getFrame(
                             frameIndex = simFrameIndex,
-                            targetDist = activeDisplayParams.targetDistanceM,
-                            targetWidth = activeDisplayParams.targetWidthM
+                            targetDist = p.targetDistanceM,
+                            targetWidth = p.targetWidthM
                         )
                     } else {
                         radarFrameState.value
                     }
                 },
-                calibrationParams = activeDisplayParams,
+                calibrationParamsProvider = activeDisplayParamsProvider,
                 intrinsics = activeIntrinsics,
                 viewWidth = studioWidth,
                 viewHeight = studioHeight,
@@ -532,59 +300,11 @@ fun FullscreenCalibrationStudio(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 // Center: IMU Assistant Cluster (Level Pill, Pitch Quality, Live IMU, Sync Pitch)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Feature B: Digital Spirit Level Pill
-                    DigitalClampLevelPill(
-                        rollDeg = imuTelemetry.rollDeg,
-                        onClick = { viewModel.updateExtrinsics(rollDeg = imuTelemetry.rollDeg) }
-                    )
-
-                    // Feature D: Pitch Quality Badge
-                    PitchQualityBadge(
-                        quality = activeDisplayParams.pitchQuality,
-                        pitchDeg = activeDisplayParams.effectivePitchDeg
-                    )
-
-                    // Feature C: Live IMU Follow Toggle
-                    FilterChip(
-                        selected = isLiveImuHorizonEnabled,
-                        onClick = { viewModel.toggleLiveImuHorizon() },
-                        label = {
-                            Text(
-                                if (isLiveImuHorizonEnabled) "Live IMU ●" else "Live IMU",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        },
-                        modifier = Modifier.height(28.dp),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = Color(0xFF00E5FF).copy(alpha = 0.35f),
-                            selectedLabelColor = Color(0xFF00E5FF)
-                        )
-                    )
-
-                    // Feature A: One-Tap Sync Pitch Button
-                    OutlinedButton(
-                        onClick = { viewModel.syncPitchFromImu() },
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier.height(28.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = Color(0xFF64B5F6)
-                        )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Sync,
-                            contentDescription = "Sync Pitch from IMU",
-                            modifier = Modifier.size(13.dp)
-                        )
-                        Spacer(modifier = Modifier.width(3.dp))
-                        Text("Sync Pitch", fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
+                CalibrationImuAssistantCluster(
+                    viewModel = viewModel,
+                    isLiveImuHorizonEnabled = isLiveImuHorizonEnabled,
+                    calibrationParams = calibrationParams
+                )
 
                 Spacer(modifier = Modifier.width(8.dp))
 
@@ -699,27 +419,11 @@ fun FullscreenCalibrationStudio(
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 // Pitch badge (θ_cam)
-                Column(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { viewModel.resetPitchToZero() }
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = "θ_cam",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Gray
-                    )
-                    Text(
-                        text = String.format(Locale.US, "%+.1f°", activeDisplayParams.effectivePitchDeg),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        color = Color(0xFF64B5F6)
-                    )
-                }
+                CalibrationPitchBadge(
+                    viewModel = viewModel,
+                    isLiveImuHorizonEnabled = isLiveImuHorizonEnabled,
+                    calibrationParams = calibrationParams
+                )
 
                 // Vertical Pitch Nudges ▲ and ▼
                 OutlinedButton(
@@ -797,7 +501,7 @@ fun FullscreenCalibrationStudio(
                         color = Color.Gray
                     )
                     Text(
-                        text = String.format(Locale.US, "%+.1f°", activeDisplayParams.effectiveYawDeg),
+                        text = String.format(Locale.US, "%+.1f°", calibrationParams.effectiveYawDeg),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
@@ -1264,6 +968,402 @@ fun PitchQualityBadge(
             fontWeight = FontWeight.Bold,
             color = textCol,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+        )
+    }
+}
+
+/**
+ * Isolated leaf Canvas for ground guidelines, distance ladder, and artificial horizon.
+ * Reads [activeDisplayParamsProvider] strictly inside DrawScope to eliminate parent recomposition.
+ * Paints and path effects are pre-allocated outside the draw loop.
+ */
+@Composable
+private fun CalibrationGuidesOverlay(
+    activeDisplayParamsProvider: () -> CalibrationParameters,
+    activeIntrinsics: CameraIntrinsics,
+    showGuideLines: Boolean,
+    showHorizonLine: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val densityVal = LocalDensity.current.density
+    val horizonDashEffect = remember { PathEffect.dashPathEffect(floatArrayOf(25f, 15f), 0f) }
+    val centerlineDashEffect = remember { PathEffect.dashPathEffect(floatArrayOf(15f, 15f), 0f) }
+
+    val carTextPaint = remember(densityVal) {
+        Paint().apply {
+            color = android.graphics.Color.YELLOW
+            textSize = 10f * densityVal
+            isFakeBoldText = true
+            typeface = Typeface.MONOSPACE
+            textAlign = Paint.Align.CENTER
+            setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
+        }
+    }
+
+    val rungTargetTextPaint = remember(densityVal) {
+        Paint().apply {
+            color = android.graphics.Color.YELLOW
+            textSize = 12f * densityVal
+            isFakeBoldText = true
+            typeface = Typeface.MONOSPACE
+            setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
+        }
+    }
+
+    val rungNormalTextPaint = remember(densityVal) {
+        Paint().apply {
+            color = android.graphics.Color.WHITE
+            textSize = 10f * densityVal
+            isFakeBoldText = true
+            typeface = Typeface.MONOSPACE
+            setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
+        }
+    }
+
+    val horizonPaint = remember(densityVal) {
+        Paint().apply {
+            color = android.graphics.Color.CYAN
+            textSize = 10f * densityVal
+            isFakeBoldText = true
+            typeface = Typeface.MONOSPACE
+            setShadowLayer(4f, 1f, 1f, android.graphics.Color.BLACK)
+        }
+    }
+
+    val reusablePathL = remember { Path() }
+    val reusablePathR = remember { Path() }
+    val reusablePathC = remember { Path() }
+
+    Canvas(modifier = modifier) {
+        val w = size.width.toInt()
+        val h = size.height.toInt()
+        val activeParams = activeDisplayParamsProvider()
+        val guides = SpatialProjectionEngine.calculateGroundGuideLines(
+            params = activeParams,
+            intrinsics = activeIntrinsics,
+            viewWidth = w,
+            viewHeight = h
+        )
+
+        // Ground Wheel Tracks & Centerline
+        if (showGuideLines) {
+            // Left Wheel Track
+            if (guides.leftTrack.size >= 2) {
+                reusablePathL.reset()
+                reusablePathL.moveTo(guides.leftTrack[0].xPx, guides.leftTrack[0].yPx)
+                for (i in 1 until guides.leftTrack.size) {
+                    reusablePathL.lineTo(guides.leftTrack[i].xPx, guides.leftTrack[i].yPx)
+                }
+                drawPath(
+                    path = reusablePathL,
+                    color = Color(0xFF00E5FF).copy(alpha = 0.55f),
+                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+
+            // Right Wheel Track
+            if (guides.rightTrack.size >= 2) {
+                reusablePathR.reset()
+                reusablePathR.moveTo(guides.rightTrack[0].xPx, guides.rightTrack[0].yPx)
+                for (i in 1 until guides.rightTrack.size) {
+                    reusablePathR.lineTo(guides.rightTrack[i].xPx, guides.rightTrack[i].yPx)
+                }
+                drawPath(
+                    path = reusablePathR,
+                    color = Color(0xFF00E5FF).copy(alpha = 0.55f),
+                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                )
+            }
+
+            // Centerline (Forward Boresight Track)
+            if (guides.centerline.size >= 2) {
+                reusablePathC.reset()
+                reusablePathC.moveTo(guides.centerline[0].xPx, guides.centerline[0].yPx)
+                for (i in 1 until guides.centerline.size) {
+                    reusablePathC.lineTo(guides.centerline[i].xPx, guides.centerline[i].yPx)
+                }
+                drawPath(
+                    path = reusablePathC,
+                    color = Color.White.copy(alpha = 0.45f),
+                    style = Stroke(
+                        width = 1.5.dp.toPx(),
+                        pathEffect = centerlineDashEffect
+                    )
+                )
+            }
+
+            // Ground Distance Ladder Rungs
+            for (rung in guides.rungs) {
+                val rungColor = when {
+                    rung.isTarget -> Color(0xFFFFD54F) // Gold Target
+                    rung.distanceM <= 3.5f -> Color(0xFFFF5252) // Red 3m
+                    rung.distanceM <= 6.0f -> Color(0xFFFFB74D) // Amber 5m
+                    rung.distanceM <= 16.0f -> Color(0xFF69F0AE) // Green 10m/15m
+                    else -> Color(0xFF40C4FF).copy(alpha = 0.6f) // Cyan 20m/30m
+                }
+                val baseStrokeW = 2.dp.toPx()
+
+                // 1. Full transverse distance bar
+                drawLine(
+                    color = if (rung.isTarget) rungColor.copy(alpha = 0.65f) else rungColor,
+                    start = Offset(rung.leftPt.xPx, rung.leftPt.yPx),
+                    end = Offset(rung.rightPt.xPx, rung.rightPt.yPx),
+                    strokeWidth = baseStrokeW,
+                    cap = StrokeCap.Round
+                )
+
+                // 2. Outer end notch ticks
+                val outerTickLen = 8f * densityVal
+                drawLine(
+                    color = rungColor,
+                    start = Offset(rung.leftPt.xPx, rung.leftPt.yPx - outerTickLen),
+                    end = Offset(rung.leftPt.xPx, rung.leftPt.yPx + outerTickLen),
+                    strokeWidth = baseStrokeW,
+                    cap = StrokeCap.Round
+                )
+                drawLine(
+                    color = rungColor,
+                    start = Offset(rung.rightPt.xPx, rung.rightPt.yPx - outerTickLen),
+                    end = Offset(rung.rightPt.xPx, rung.rightPt.yPx + outerTickLen),
+                    strokeWidth = baseStrokeW,
+                    cap = StrokeCap.Round
+                )
+
+                // 3. If Target: Draw inner vehicle caliper markings (1.3m car width)
+                if (rung.isTarget && rung.targetLeftPt != null && rung.targetRightPt != null) {
+                    val tL = rung.targetLeftPt
+                    val tR = rung.targetRightPt
+
+                    drawLine(
+                        color = Color(0xFFFFD54F),
+                        start = Offset(tL.xPx, tL.yPx),
+                        end = Offset(tR.xPx, tR.yPx),
+                        strokeWidth = 3.5.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+
+                    val caliperLen = 14f * densityVal
+                    val cornerTick = 6f * densityVal
+
+                    // Left caliper bracket [
+                    drawLine(
+                        color = Color(0xFFFFD54F),
+                        start = Offset(tL.xPx, tL.yPx - caliperLen),
+                        end = Offset(tL.xPx, tL.yPx + caliperLen),
+                        strokeWidth = 3.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                    drawLine(
+                        color = Color(0xFFFFD54F),
+                        start = Offset(tL.xPx, tL.yPx - caliperLen),
+                        end = Offset(tL.xPx + cornerTick, tL.yPx - caliperLen),
+                        strokeWidth = 2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                    drawLine(
+                        color = Color(0xFFFFD54F),
+                        start = Offset(tL.xPx, tL.yPx + caliperLen),
+                        end = Offset(tL.xPx + cornerTick, tL.yPx + caliperLen),
+                        strokeWidth = 2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+
+                    // Right caliper bracket ]
+                    drawLine(
+                        color = Color(0xFFFFD54F),
+                        start = Offset(tR.xPx, tR.yPx - caliperLen),
+                        end = Offset(tR.xPx, tR.yPx + caliperLen),
+                        strokeWidth = 3.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                    drawLine(
+                        color = Color(0xFFFFD54F),
+                        start = Offset(tR.xPx, tR.yPx - caliperLen),
+                        end = Offset(tR.xPx - cornerTick, tR.yPx - caliperLen),
+                        strokeWidth = 2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+                    drawLine(
+                        color = Color(0xFFFFD54F),
+                        start = Offset(tR.xPx, tR.yPx + caliperLen),
+                        end = Offset(tR.xPx - cornerTick, tR.yPx + caliperLen),
+                        strokeWidth = 2.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+
+                    // Center boresight notch
+                    val midX = (tL.xPx + tR.xPx) / 2f
+                    val midY = (tL.yPx + tR.yPx) / 2f
+                    drawLine(
+                        color = Color(0xFFFFD54F),
+                        start = Offset(midX, midY - 10f * densityVal),
+                        end = Offset(midX, midY + 10f * densityVal),
+                        strokeWidth = 2.5.dp.toPx(),
+                        cap = StrokeCap.Round
+                    )
+
+                    val carLabel = "${String.format(Locale.US, "%.1fm CAR", activeParams.targetWidthM)}"
+                    drawContext.canvas.nativeCanvas.drawText(
+                        carLabel,
+                        midX,
+                        midY + caliperLen + 4f * densityVal + carTextPaint.textSize,
+                        carTextPaint
+                    )
+                }
+
+                // 4. Outer Distance Text Label
+                val text = rung.label
+                val textPaint = if (rung.isTarget) rungTargetTextPaint else rungNormalTextPaint
+                val labelX = rung.rightPt.xPx + 10f * densityVal
+                val labelY = rung.rightPt.yPx + (textPaint.textSize / 3f)
+                drawContext.canvas.nativeCanvas.drawText(text, labelX, labelY, textPaint)
+            }
+        }
+
+        // 3. Artificial Horizon Line
+        if (showHorizonLine) {
+            val horizon = guides.horizonLine
+            drawLine(
+                color = Color.Cyan.copy(alpha = 0.75f),
+                start = Offset(horizon.first.xPx, horizon.first.yPx),
+                end = Offset(horizon.second.xPx, horizon.second.yPx),
+                strokeWidth = 2.dp.toPx(),
+                pathEffect = horizonDashEffect
+            )
+
+            // Center Boresight Horizon Crosshair
+            val hCenterX = w / 2f
+            val hCenterY = (horizon.first.yPx + horizon.second.yPx) / 2f
+            drawLine(
+                color = Color.Cyan,
+                start = Offset(hCenterX - 20.dp.toPx(), hCenterY),
+                end = Offset(hCenterX + 20.dp.toPx(), hCenterY),
+                strokeWidth = 2.5.dp.toPx()
+            )
+            drawLine(
+                color = Color.Cyan,
+                start = Offset(hCenterX, hCenterY - 10.dp.toPx()),
+                end = Offset(hCenterX, hCenterY + 10.dp.toPx()),
+                strokeWidth = 2.5.dp.toPx()
+            )
+
+            // Horizon Pitch & Roll Text Badge
+            val hText = "HORIZON (θ: ${String.format(Locale.US, "%.1f°", activeParams.effectivePitchDeg)}, ϕ: ${String.format(Locale.US, "%.1f°", activeParams.rollDeg)})"
+            drawContext.canvas.nativeCanvas.drawText(hText, hCenterX - 110f * densityVal, hCenterY - 14f, horizonPaint)
+        }
+    }
+}
+
+/**
+ * Isolated leaf composable for the top bar IMU assistant tools.
+ * Isolates high-rate roll/pitch updates so [FullscreenCalibrationStudio] root never recomposes.
+ */
+@Composable
+private fun CalibrationImuAssistantCluster(
+    viewModel: RadarViewModel,
+    isLiveImuHorizonEnabled: Boolean,
+    calibrationParams: CalibrationParameters
+) {
+    val imuTelemetry by viewModel.imuTelemetry.collectAsState()
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Digital Spirit Level Pill
+        DigitalClampLevelPill(
+            rollDeg = imuTelemetry.rollDeg,
+            onClick = { viewModel.updateExtrinsics(rollDeg = imuTelemetry.rollDeg) }
+        )
+
+        // Pitch Quality Badge
+        val currentPitch = if (isLiveImuHorizonEnabled) imuTelemetry.pitchDeg else calibrationParams.effectivePitchDeg
+        val pitchQuality = if (isLiveImuHorizonEnabled) {
+            when {
+                currentPitch < 0.0f -> PitchQuality.FACING_UP
+                currentPitch < 3.0f -> PitchQuality.TOO_SHALLOW
+                currentPitch > 12.0f -> PitchQuality.TOO_STEEP
+                else -> PitchQuality.OPTIMAL
+            }
+        } else {
+            calibrationParams.pitchQuality
+        }
+
+        PitchQualityBadge(
+            quality = pitchQuality,
+            pitchDeg = currentPitch
+        )
+
+        // Live IMU Follow Toggle
+        FilterChip(
+            selected = isLiveImuHorizonEnabled,
+            onClick = { viewModel.toggleLiveImuHorizon() },
+            label = {
+                Text(
+                    if (isLiveImuHorizonEnabled) "Live IMU ●" else "Live IMU",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            modifier = Modifier.height(28.dp),
+            colors = FilterChipDefaults.filterChipColors(
+                selectedContainerColor = Color(0xFF00E5FF).copy(alpha = 0.35f),
+                selectedLabelColor = Color(0xFF00E5FF)
+            )
+        )
+
+        // One-Tap Sync Pitch Button
+        OutlinedButton(
+            onClick = { viewModel.syncPitchFromImu() },
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+            modifier = Modifier.height(28.dp),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = Color(0xFF64B5F6)
+            )
+        ) {
+            Icon(
+                imageVector = Icons.Default.Sync,
+                contentDescription = "Sync Pitch from IMU",
+                modifier = Modifier.size(13.dp)
+            )
+            Spacer(modifier = Modifier.width(3.dp))
+            Text("Sync Pitch", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/**
+ * Isolated leaf badge for live camera pitch indicator.
+ */
+@Composable
+private fun CalibrationPitchBadge(
+    viewModel: RadarViewModel,
+    isLiveImuHorizonEnabled: Boolean,
+    calibrationParams: CalibrationParameters
+) {
+    val imuTelemetry by viewModel.imuTelemetry.collectAsState()
+    val displayPitch = if (isLiveImuHorizonEnabled) imuTelemetry.pitchDeg else calibrationParams.effectivePitchDeg
+
+    Column(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickable { viewModel.resetPitchToZero() }
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "θ_cam",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.Gray
+        )
+        Text(
+            text = String.format(Locale.US, "%+.1f°", displayPitch),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.Monospace,
+            color = Color(0xFF64B5F6)
         )
     }
 }

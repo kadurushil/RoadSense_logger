@@ -1,6 +1,7 @@
 package com.bajajauto.roadsense.ui.screens
 
 import android.hardware.Sensor
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -14,6 +15,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
@@ -22,9 +26,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.imu.ImuRatePreset
 import com.bajajauto.roadsense.imu.ImuSensorCapability
+import com.bajajauto.roadsense.imu.ImuTelemetryState
 import com.bajajauto.roadsense.imu.SensorCategory
 import com.bajajauto.roadsense.ui.RadarViewModel
 import com.bajajauto.roadsense.ui.components.PhoneOrientation3DVisualizer
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import java.util.Locale
 import kotlin.math.abs
 
@@ -520,8 +527,20 @@ private fun ImuProfilerSubTab(
 private fun ImuTelemetrySubTab(
     viewModel: RadarViewModel
 ) {
-    val telemetry by viewModel.imuTelemetry.collectAsState()
-    val imuHz by viewModel.imuHz.collectAsState()
+    // Keep State object un-dereferenced here so 30 Hz updates never recompose the scroll container
+    val telemetryState = viewModel.imuTelemetry.collectAsState()
+    val isMonitoring by remember { derivedStateOf { telemetryState.value.isMonitoring } }
+    var throttledTelemetry by remember { mutableStateOf(telemetryState.value) }
+
+    LaunchedEffect(isMonitoring) {
+        throttledTelemetry = telemetryState.value
+        if (isMonitoring) {
+            while (isActive) {
+                delay(100L) // 10 Hz ceiling for numeric text & bar readouts
+                throttledTelemetry = telemetryState.value
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -529,41 +548,63 @@ private fun ImuTelemetrySubTab(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.clearAndSetSemantics {}) {
-                    Text(
-                        text = "Multi-Sensor Live Stream",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = if (telemetry.isMonitoring) "Streaming at %.1f Hz (Throttled 25Hz UI)".format(imuHz) else "Monitoring Stopped",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (telemetry.isMonitoring) Color(0xFF00E676) else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+        ImuMonitoringHeaderCard(
+            viewModel = viewModel,
+            isMonitoring = isMonitoring
+        )
 
-                Switch(
-                    checked = telemetry.isMonitoring,
-                    onCheckedChange = { enable ->
-                        if (enable) viewModel.startImuMonitoring() else viewModel.stopImuMonitoring()
-                    }
+        PhoneOrientation3DVisualizer(
+            telemetryProvider = { telemetryState.value },
+            badgeTelemetry = throttledTelemetry
+        )
+
+        ImuNumericTelemetryCards(telemetry = throttledTelemetry)
+    }
+}
+
+@Composable
+private fun ImuMonitoringHeaderCard(
+    viewModel: RadarViewModel,
+    isMonitoring: Boolean
+) {
+    val imuHz by viewModel.imuHz.collectAsState()
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.clearAndSetSemantics {}) {
+                Text(
+                    text = "Multi-Sensor Live Stream",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = if (isMonitoring) "Streaming at %.1f Hz (30Hz 3D / 10Hz Text)".format(imuHz) else "Monitoring Stopped",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isMonitoring) Color(0xFF00E676) else MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
+
+            Switch(
+                checked = isMonitoring,
+                onCheckedChange = { enable ->
+                    if (enable) viewModel.startImuMonitoring() else viewModel.stopImuMonitoring()
+                }
+            )
         }
+    }
+}
 
-        PhoneOrientation3DVisualizer(telemetry = telemetry)
-
+@Composable
+private fun ImuNumericTelemetryCards(telemetry: ImuTelemetryState) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             modifier = Modifier
@@ -589,6 +630,8 @@ private fun ImuTelemetrySubTab(
                         text = "|a| = %.2f m/s²".format(telemetry.rawAccel[3]),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
+                        maxLines = 1,
+                        softWrap = false,
                         color = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -611,6 +654,8 @@ private fun ImuTelemetrySubTab(
                         text = "|a_lin| = %.2f m/s²".format(telemetry.linearAccel[3]),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
+                        maxLines = 1,
+                        softWrap = false,
                         color = Color(0xFF00E676)
                     )
                 }
@@ -669,33 +714,42 @@ private fun AxisBarRow(
     maxRange: Float = 20f
 ) {
     val fraction = (abs(value) / maxRange).coerceIn(0f, 1f)
+    val barColor = if (value >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+    val trackColor = MaterialTheme.colorScheme.surfaceVariant
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clearAndSetSemantics {},
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = label, fontSize = 11.sp, modifier = Modifier.width(110.dp))
-        Box(
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.width(110.dp)
+        )
+        Canvas(
             modifier = Modifier
                 .weight(1f)
                 .height(10.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(2.dp))
+                .clip(RoundedCornerShape(2.dp))
+                .background(trackColor)
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(fraction)
-                    .background(
-                        if (value >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                        RoundedCornerShape(2.dp)
-                    )
-            )
+            if (fraction > 0f) {
+                drawRoundRect(
+                    color = barColor,
+                    size = Size(size.width * fraction, size.height),
+                    cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
+                )
+            }
         }
         Text(
             text = "%+5.2f %s".format(value, unit),
             fontFamily = FontFamily.Monospace,
             fontSize = 11.sp,
+            maxLines = 1,
+            softWrap = false,
             modifier = Modifier.width(85.dp),
             textAlign = androidx.compose.ui.text.style.TextAlign.End
         )

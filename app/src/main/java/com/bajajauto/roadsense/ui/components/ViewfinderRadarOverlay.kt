@@ -73,7 +73,8 @@ private class OverlayDrawTimingState {
 fun ViewfinderRadarOverlay(
     radarFrame: RadarFrame? = null,
     radarFrameProducer: (() -> RadarFrame?)? = null,
-    calibrationParams: CalibrationParameters,
+    calibrationParams: CalibrationParameters? = null,
+    calibrationParamsProvider: (() -> CalibrationParameters)? = null,
     intrinsics: CameraIntrinsics?,
     viewWidth: Int,
     viewHeight: Int,
@@ -82,6 +83,7 @@ fun ViewfinderRadarOverlay(
     modifier: Modifier = Modifier
 ) {
     if (intrinsics == null || viewWidth <= 0 || viewHeight <= 0) return
+    val effectiveCalibParams = calibrationParamsProvider?.invoke() ?: calibrationParams ?: return
 
     val debugState by DebugToggles.state.collectAsState()
     val effectiveHudMode = hudOverlayMode ?: debugState.hudOverlayMode
@@ -136,7 +138,8 @@ fun ViewfinderRadarOverlay(
         val h = size.height.toInt()
         if (w <= 0 || h <= 0) return@Canvas
 
-        val geomChanged = projectionCache.lastCalibration != calibrationParams ||
+        val calib = calibrationParamsProvider?.invoke() ?: effectiveCalibParams
+        val geomChanged = projectionCache.lastCalibration != calib ||
             projectionCache.lastIntrinsics != intrinsics ||
             projectionCache.lastWidth != w ||
             projectionCache.lastHeight != h
@@ -148,7 +151,7 @@ fun ViewfinderRadarOverlay(
                 projectionCache.cachedRangeOverlay!!
             } else {
                 SpatialProjectionEngine.calculateRadarRangeOverlay(
-                    params = calibrationParams,
+                    params = calib,
                     intrinsics = intrinsics,
                     viewWidth = w,
                     viewHeight = h,
@@ -224,7 +227,7 @@ fun ViewfinderRadarOverlay(
             } else {
                 SpatialProjectionEngine.calculateRadarLollipops(
                     radarFrame = activeFrame,
-                    params = calibrationParams,
+                    params = calib,
                     intrinsics = intrinsics,
                     viewWidth = w,
                     viewHeight = h,
@@ -457,7 +460,7 @@ fun ViewfinderRadarOverlay(
         }
 
         if (geomChanged) {
-            projectionCache.lastCalibration = calibrationParams
+            projectionCache.lastCalibration = calib
             projectionCache.lastIntrinsics = intrinsics
             projectionCache.lastWidth = w
             projectionCache.lastHeight = h
