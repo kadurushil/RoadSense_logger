@@ -336,21 +336,23 @@ private fun SbsCameraFeedPane(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Viewfinder Surface Box
+            // Viewfinder Surface Box (no RoundedCornerShape clip to avoid offscreen FBO stencil pass)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF090B10)),
                 contentAlignment = Alignment.Center
             ) {
                 if (shouldRenderPreview) {
-                    val cameraAspect = 16f / 9f
+                    val isLandscape = displayRotation == android.view.Surface.ROTATION_90 || displayRotation == android.view.Surface.ROTATION_270
+                    val cameraAspect = if (isLandscape) {
+                        selectedRes.width.toFloat() / selectedRes.height.toFloat()
+                    } else {
+                        selectedRes.height.toFloat() / selectedRes.width.toFloat()
+                    }
                     Box(
-                        modifier = Modifier
-                            .aspectRatio(cameraAspect)
-                            .clip(RoundedCornerShape(8.dp)),
+                        modifier = Modifier.aspectRatio(cameraAspect),
                         contentAlignment = Alignment.Center
                     ) {
                         AndroidView(

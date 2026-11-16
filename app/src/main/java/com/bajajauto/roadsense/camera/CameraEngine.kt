@@ -106,7 +106,7 @@ class CameraEngine(private val context: Context) {
     val isOisSupported: StateFlow<Boolean> = _isOisSupported.asStateFlow()
 
     // Autonomous Dual-Zone Road Auto-Exposure State
-    private val _roadAeMode = MutableStateFlow(RoadAeMode.AUTO_ROAD)
+    private val _roadAeMode = MutableStateFlow(RoadAeMode.FULL_MATRIX)
     val roadAeMode: StateFlow<RoadAeMode> = _roadAeMode.asStateFlow()
 
     private val _roadAeState = MutableStateFlow(RoadAeState.BALANCED)
@@ -949,6 +949,12 @@ class CameraEngine(private val context: Context) {
      * (vs 4 Hz in preview-only mode) to minimize GPU/SurfaceTexture bus contention under 30 FPS HAL limit.
      */
     private fun startLuminanceAnalyzer() {
+        luminanceAnalysisJob?.cancel()
+        luminanceAnalysisJob = null
+    }
+
+    @Suppress("unused")
+    private fun startLuminanceAnalyzerLegacyDisabled() {
         luminanceAnalysisJob?.cancel()
         luminanceAnalysisJob = engineScope.launch {
             while (isActive) {

@@ -132,21 +132,19 @@ fun CameraDashboardCard(
                 .padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Left Pane: Large Live Viewfinder
+            // Left Pane: Large Live Viewfinder (no RoundedCornerShape clip to avoid offscreen FBO stencil pass)
             Box(
                 modifier = Modifier
                     .weight(0.55f)
                     .fillMaxHeight()
-                    .clip(RoundedCornerShape(12.dp))
                     .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
                 if (shouldRenderPreview) {
-                    val cameraAspect = 16f / 9f
+                    val cameraAspect = selectedRes.width.toFloat() / selectedRes.height.toFloat()
                     Box(
                         modifier = Modifier
                             .aspectRatio(cameraAspect)
-                            .clip(RoundedCornerShape(12.dp))
                             .pointerInput(shouldRenderPreview) {
                                 if (shouldRenderPreview) {
                                     detectTapGestures { offset ->
@@ -370,8 +368,9 @@ fun CameraDashboardCard(
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f)
+                        .height(420.dp)
+                        .aspectRatio(selectedRes.height.toFloat() / selectedRes.width.toFloat())
+                        .align(Alignment.CenterHorizontally)
                         .pointerInput(shouldRenderPreview) {
                             if (shouldRenderPreview) {
                                 detectTapGestures { offset ->
@@ -441,9 +440,7 @@ fun CameraDashboardCard(
                                     }
                                 }
                             },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(12.dp))
+                            modifier = Modifier.fillMaxSize()
                         )
                         if (isAfAeLocked) {
                             TapFocusReticleOverlay(tapPoint = tapPoint)

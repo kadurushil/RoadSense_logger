@@ -77,6 +77,13 @@ fun FullscreenCameraPreview(
     var previewHeight by remember { mutableIntStateOf(1080) }
     var showNudgeBar by remember { mutableStateOf(true) }
 
+    val isLandscape = displayRotation == android.view.Surface.ROTATION_90 || displayRotation == android.view.Surface.ROTATION_270
+    val cameraAspect = if (isLandscape) {
+        selectedRes.width.toFloat() / selectedRes.height.toFloat()
+    } else {
+        selectedRes.height.toFloat() / selectedRes.width.toFloat()
+    }
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -142,13 +149,13 @@ fun FullscreenCameraPreview(
                     }
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.aspectRatio(cameraAspect)
         )
 
         // 2. Tap-to-Focus Layer
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .aspectRatio(cameraAspect)
                 .pointerInput(Unit) {
                     detectTapGestures { offset ->
                         val normX = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
@@ -160,7 +167,9 @@ fun FullscreenCameraPreview(
 
         // 3. AF/AE Focus Lock Reticle
         if (isAfAeLocked) {
-            TapFocusReticleOverlay(tapPoint = tapPoint)
+            Box(modifier = Modifier.aspectRatio(cameraAspect)) {
+                TapFocusReticleOverlay(tapPoint = tapPoint)
+            }
         }
 
         // 4. Radar HUD Overlay (Point Cloud, Tracks, Range Arcs - Isolated 20 Hz draw scope)
@@ -172,7 +181,7 @@ fun FullscreenCameraPreview(
                 previewWidth = previewWidth,
                 previewHeight = previewHeight,
                 isRadarArcsEnabled = isRadarArcsEnabled,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.aspectRatio(cameraAspect)
             )
         }
 

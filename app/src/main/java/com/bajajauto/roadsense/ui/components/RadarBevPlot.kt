@@ -229,7 +229,6 @@ fun RadarBevPlot(
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(if (isLandscape) Modifier.weight(1f) else Modifier.height(280.dp))
-                    .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF090B10))
             )
 
