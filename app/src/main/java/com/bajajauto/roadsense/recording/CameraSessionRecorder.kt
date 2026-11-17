@@ -3,6 +3,7 @@ package com.bajajauto.roadsense.recording
 import android.os.Process
 import android.util.Log
 import com.bajajauto.roadsense.camera.CameraFrameMetadata
+import com.bajajauto.roadsense.DebugToggles
 import com.bajajauto.roadsense.camera.CameraResolution
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -42,13 +43,15 @@ class CameraSessionRecorder(
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread({
-            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
-            val tid = Process.myTid()
-            val osPriority = Process.getThreadPriority(tid)
-            AppLogger.i(TAG, "CameraSessionRecorder-Worker started (TID=$tid, OS Priority=$osPriority, TargetPriority=${Process.THREAD_PRIORITY_URGENT_DISPLAY})")
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            if (DebugToggles.isDiskWriterPriorityLogsActive) {
+                val tid = Process.myTid()
+                val osPriority = Process.getThreadPriority(tid)
+                AppLogger.i(TAG, "CameraSessionRecorder-Worker started (TID=$tid, OS=$osPriority, Target=${Process.THREAD_PRIORITY_BACKGROUND}, Java=${Thread.currentThread().priority})")
+            }
             runnable.run()
         }, "CameraSessionRecorder-Worker").apply {
-            priority = Thread.MAX_PRIORITY - 1
+            priority = Thread.NORM_PRIORITY
         }
     }
 
@@ -65,10 +68,10 @@ class CameraSessionRecorder(
     private var isFirstVideoFrame = true
 
     private var activeSession: SessionInfo? = null
-    private var csvWriter: BufferedWriter? = null
     private var videoFile: File? = null
     private var currentResolution: String = "720p"
     private val keyframeWriter = SyncKeyframeWriter()
+    private val timelineSummarySb = StringBuilder(160)
 
     /**
      * Prepares camera recording within the active session folder.
@@ -82,19 +85,11 @@ class CameraSessionRecorder(
 
         try {
             val cameraDir = File(sessionInfo.sessionDir, CAMERA_DIR_NAME).apply { mkdirs() }
-            val csvFile = File(cameraDir, CAMERA_CSV_NAME)
             val vFile = File(cameraDir, CAMERA_VIDEO_NAME)
-
-            val writer = BufferedWriter(FileWriter(csvFile, true), BUFFER_SIZE)
-            if (csvFile.length() == 0L) {
-                writer.write(CameraFrameMetadata.CSV_HEADER)
-                writer.flush()
-            }
 
             keyframeWriter.start(sessionInfo.syncDir)
 
             activeSession = sessionInfo
-            csvWriter = writer
             videoFile = vFile
             currentResolution = resolution.label
             totalFramesCounter.set(0L)
@@ -103,7 +98,7 @@ class CameraSessionRecorder(
             isRecordingActive = true
             _isRecording.value = true
 
-            Log.i(TAG, "Started Camera metadata recording to ${csvFile.absolutePath}")
+            Log.i(TAG, "Started Camera metadata recording (timeline-indexed, skipped redundant camera_frames.csv) -> ${vFile.absolutePath}")
             return vFile
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start camera session recorder", e)
@@ -141,34 +136,39 @@ class CameraSessionRecorder(
                     keyframeWriter.writeKeyframe(keyframe)
                 }
 
-                csvWriter?.let { writer ->
-                    writer.write(frame.toCsvRow())
-                    val count = totalFramesCounter.incrementAndGet()
-                    activeSession?.totalCameraFrames = count
-                    if (count % UI_EMIT_FRAME_INTERVAL == 0L) {
-                        _framesRecorded.value = count
-                    }
-
-                    val imuDeltaStr = if (keyframe != null && keyframe.imuSequenceId >= 0L) {
-                        "imu_dt=${String.format(Locale.US, "%.2f", keyframe.deltaCamImuMs)}ms;imu_seq=${keyframe.imuSequenceId};"
-                    } else ""
-                    val radDeltaStr = if (keyframe != null && keyframe.isRadarActive) {
-                        "rad_dt=${String.format(Locale.US, "%.2f", keyframe.deltaCamRadarMs)}ms;rad_seq=${keyframe.radarFrameNumber};"
-                    } else ""
-                    val gradeStr = if (keyframe != null) "grade=${keyframe.syncGrade};" else ""
-                    val summaryStr = "res=$currentResolution;exp=${frame.exposureTimeNs}ns;iso=${frame.iso};$imuDeltaStr$radDeltaStr$gradeStr".trimEnd(';')
-
-                    sessionManager?.recordTimelineEvent(
-                        elapsedRealtimeNs = frame.shutterTimestampNs,
-                        sensor = "CAMERA",
-                        event = "FRAME",
-                        sequenceId = frame.frameNumber,
-                        relativePath = "camera/$CAMERA_VIDEO_NAME",
-                        summary = summaryStr
-                    )
+                val count = totalFramesCounter.incrementAndGet()
+                activeSession?.totalCameraFrames = count
+                if (count % UI_EMIT_FRAME_INTERVAL == 0L) {
+                    _framesRecorded.value = count
                 }
-            } catch (e: IOException) {
-                Log.e(TAG, "Error writing camera frame to CSV", e)
+
+                val sb = timelineSummarySb
+                sb.setLength(0)
+                sb.append("res=").append(currentResolution)
+                    .append(";exp=").append(frame.exposureTimeNs).append("ns")
+                    .append(";iso=").append(frame.iso)
+                if (keyframe != null) {
+                    if (keyframe.imuSequenceId >= 0L) {
+                        val imuDtHundredths = Math.round(keyframe.deltaCamImuMs * 100f) / 100f
+                        sb.append(";imu_dt=").append(imuDtHundredths).append("ms;imu_seq=").append(keyframe.imuSequenceId)
+                    }
+                    if (keyframe.isRadarActive) {
+                        val radDtHundredths = Math.round(keyframe.deltaCamRadarMs * 100f) / 100f
+                        sb.append(";rad_dt=").append(radDtHundredths).append("ms;rad_seq=").append(keyframe.radarFrameNumber)
+                    }
+                    sb.append(";grade=").append(keyframe.syncGrade)
+                }
+
+                sessionManager?.recordTimelineEvent(
+                    elapsedRealtimeNs = frame.shutterTimestampNs,
+                    sensor = "CAMERA",
+                    event = "FRAME",
+                    sequenceId = frame.frameNumber,
+                    relativePath = "camera/$CAMERA_VIDEO_NAME",
+                    summary = sb.toString()
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error logging camera frame", e)
             }
         }
     }
@@ -186,17 +186,9 @@ class CameraSessionRecorder(
         keyframeWriter.stop()
 
         executor.execute {
-            try {
-                csvWriter?.flush()
-                csvWriter?.close()
-                Log.i(TAG, "Stopped Camera frame recording. Total frames logged: $total")
-            } catch (e: IOException) {
-                Log.e(TAG, "Error closing camera CSV writer", e)
-            } finally {
-                csvWriter = null
-                activeSession = null
-                videoFile = null
-            }
+            Log.i(TAG, "Stopped Camera frame recording. Total frames logged: $total")
+            activeSession = null
+            videoFile = null
         }
 
         return total

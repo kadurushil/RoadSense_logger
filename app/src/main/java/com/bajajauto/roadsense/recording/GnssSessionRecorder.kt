@@ -2,6 +2,8 @@ package com.bajajauto.roadsense.recording
 
 import android.os.Process
 import android.util.Log
+import com.bajajauto.roadsense.DebugToggles
+import com.bajajauto.roadsense.logging.AppLogger
 import com.bajajauto.roadsense.gnss.GnssFix
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,13 +36,15 @@ class GnssSessionRecorder(
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread({
-            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
-            val tid = Process.myTid()
-            val osPriority = Process.getThreadPriority(tid)
-            Log.i(TAG, "GnssSessionRecorder-Worker started (TID=$tid, OS Priority=$osPriority, TargetPriority=${Process.THREAD_PRIORITY_URGENT_DISPLAY})")
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            if (DebugToggles.isDiskWriterPriorityLogsActive) {
+                val tid = Process.myTid()
+                val osPriority = Process.getThreadPriority(tid)
+                AppLogger.i(TAG, "GnssSessionRecorder-Worker started (TID=$tid, OS=$osPriority, Target=${Process.THREAD_PRIORITY_BACKGROUND}, Java=${Thread.currentThread().priority})")
+            }
             runnable.run()
         }, "GnssSessionRecorder-Worker").apply {
-            priority = Thread.MAX_PRIORITY - 1
+            priority = Thread.NORM_PRIORITY
         }
     }
 

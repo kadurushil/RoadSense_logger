@@ -424,22 +424,38 @@ def sync_sessions_from_device(adb_path, local_logs_dir):
         return False
 
 def load_camera_frames_csv(csv_path):
-    """Parses camera_frames.csv returning list of frames with nanosecond monotonic timestamps."""
+    """Parses camera_frames.csv (or falls back to session_timeline.csv) returning list of frames with nanosecond monotonic timestamps."""
     frames = []
-    if not os.path.isfile(csv_path):
+    if os.path.isfile(csv_path):
+        try:
+            import csv
+            with open(csv_path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    frames.append({
+                        "frame_number": int(row["frame_number"]),
+                        "mono_ns": int(row["shutter_monotonic_ns"]),
+                        "utc_ms": int(row["utc_time_ms"]) if "utc_time_ms" in row else 0
+                    })
+        except Exception as e:
+            print(f"    [!] Error reading camera_frames.csv: {e}")
         return frames
-    try:
-        import csv
-        with open(csv_path, "r", encoding="utf-8") as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                frames.append({
-                    "frame_number": int(row["frame_number"]),
-                    "mono_ns": int(row["shutter_monotonic_ns"]),
-                    "utc_ms": int(row["utc_time_ms"]) if "utc_time_ms" in row else 0
-                })
-    except Exception as e:
-        print(f"    [!] Error reading camera_frames.csv: {e}")
+
+    timeline_csv = os.path.join(os.path.dirname(os.path.dirname(csv_path)), "session_timeline.csv")
+    if os.path.isfile(timeline_csv):
+        try:
+            import csv
+            with open(timeline_csv, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row.get("sensor") == "CAMERA" and row.get("event") == "FRAME":
+                        frames.append({
+                            "frame_number": int(row["sequence_id"]),
+                            "mono_ns": int(row["elapsed_realtime_ns"]),
+                            "utc_ms": 0
+                        })
+        except Exception as e:
+            print(f"    [!] Error reading camera frames from session_timeline.csv: {e}")
     return frames
 
 def load_gnss_fixes_csv(csv_path):

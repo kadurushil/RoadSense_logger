@@ -128,32 +128,43 @@ def audit_session(sess_dir, quiet=False, save_json=True):
     print(f"\n[2/8] CAMERA (H.264 VIDEO & FRAME METADATA):")
     cam_mp4 = os.path.join(sess_dir, "camera", "camera_video.mp4")
     cam_csv = os.path.join(sess_dir, "camera", "camera_frames.csv")
+    timeline_csv = os.path.join(sess_dir, "session_timeline.csv")
     status_cam = "FAIL (Missing)"
-    if os.path.exists(cam_mp4) and os.path.exists(cam_csv):
-        mp4_sz = os.path.getsize(cam_mp4)
+    cam_ts_list = []
+    if os.path.exists(cam_csv):
         with open(cam_csv, "r", encoding="utf-8") as f:
-            cam_rows = list(csv.reader(f))[1:]
-        if cam_rows:
-            first_ts = int(cam_rows[0][1])
-            last_ts = int(cam_rows[-1][1])
+            for r in list(csv.reader(f))[1:]:
+                if len(r) >= 2:
+                    cam_ts_list.append(int(r[1]))
+    elif os.path.exists(timeline_csv):
+        with open(timeline_csv, "r", encoding="utf-8") as f:
+            for r in list(csv.reader(f))[1:]:
+                if len(r) >= 3 and r[1] == "CAMERA" and r[2] == "FRAME":
+                    cam_ts_list.append(int(r[0]))
+
+    if os.path.exists(cam_mp4) and (os.path.exists(cam_csv) or os.path.exists(timeline_csv)):
+        mp4_sz = os.path.getsize(cam_mp4)
+        if cam_ts_list:
+            first_ts = cam_ts_list[0]
+            last_ts = cam_ts_list[-1]
             cam_dur = (last_ts - first_ts) / 1e9 if last_ts > first_ts else 0.001
-            avg_fps = len(cam_rows) / cam_dur
+            avg_fps = len(cam_ts_list) / cam_dur
             drops = 0
-            for i in range(1, len(cam_rows)):
-                dt_ms = (int(cam_rows[i][1]) - int(cam_rows[i-1][1])) / 1e6
+            for i in range(1, len(cam_ts_list)):
+                dt_ms = (cam_ts_list[i] - cam_ts_list[i-1]) / 1e6
                 if dt_ms > 50.0:
                     drops += 1
-            drop_pct = (drops / len(cam_rows)) * 100.0 if cam_rows else 0
+            drop_pct = (drops / len(cam_ts_list)) * 100.0
             print(f"  Video Container:  {mp4_sz:,} bytes ({mp4_sz/(1024*1024):.2f} MB)")
-            print(f"  Total Frames:     {len(cam_rows):,} frames recorded")
+            print(f"  Total Frames:     {len(cam_ts_list):,} frames recorded")
             print(f"  Effective Rate:   {avg_fps:.2f} FPS (Nominal 30 FPS)")
             print(f"  Frame Drops (>50ms): {drops} occurrences ({drop_pct:.2f}%)")
             status_cam = 'PASS (Healthy)' if drop_pct < 1.0 else 'WARN (Elevated Drops)'
         else:
-            print("  camera_frames.csv is empty!")
+            print("  No camera frame timestamps found in camera_frames.csv or session_timeline.csv!")
             status_cam = "FAIL (Empty)"
     else:
-        print(f"  Camera files missing (MP4 exists: {os.path.exists(cam_mp4)}, CSV exists: {os.path.exists(cam_csv)})")
+        print(f"  Camera files missing (MP4 exists: {os.path.exists(cam_mp4)}, CSV/Timeline exists: {os.path.exists(cam_csv) or os.path.exists(timeline_csv)})")
     
     print(f"  Status:           {colorize_status(status_cam)}")
     scorecard["Camera"] = status_cam

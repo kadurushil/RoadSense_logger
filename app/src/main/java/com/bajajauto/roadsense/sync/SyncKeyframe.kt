@@ -74,54 +74,41 @@ data class SyncKeyframe(
 ) {
 
     fun toCsvRow(): String {
-        return String.format(
-            Locale.US,
-            "%d,%d,%s,%d,%d,%d,%d,%d,%d,%d,%d,%.3f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.5f,%.3f,%.3f,%.3f,%s,%d,%d,%d,%.3f,%d,%d,%d,%s,%d,%.7f,%.7f,%.2f,%.2f,%.1f,%.2f\n",
-            keyframeId,
-            wallTimeMs,
-            syncGrade,
-            cameraFrameNumber,
-            cameraShutterMonoNs,
-            cameraExposureTimeNs,
-            cameraIso,
-            imuSequenceId,
-            imuMonoNs,
-            imuDeliveryNs,
-            deltaCamImuNs,
-            deltaCamImuMs,
-            accelX,
-            accelY,
-            accelZ,
-            linAccelX,
-            linAccelY,
-            linAccelZ,
-            gyroX,
-            gyroY,
-            gyroZ,
-            quatW,
-            quatX,
-            quatY,
-            quatZ,
-            pitchDeg,
-            rollDeg,
-            yawDeg,
-            if (isRadarActive) "CONNECTED" else "DISCONNECTED",
-            radarFrameNumber,
-            radarHostMonoNs,
-            deltaCamRadarNs,
-            deltaCamRadarMs,
-            radarNumDetectedObj,
-            radarNumTLVs,
-            radarSubFrameNumber,
-            if (hasGnssFix) "FIX" else "NO_FIX",
-            gnssUtcTimeMs,
-            gnssLatitude,
-            gnssLongitude,
-            gnssAltitudeMeters,
-            gnssSpeedMps,
-            gnssBearingDegrees,
-            gnssAccuracyMeters
-        )
+        val sb = StringBuilder(384)
+        sb.append(keyframeId).append(',')
+            .append(wallTimeMs).append(',')
+            .append(syncGrade).append(',')
+            .append(cameraFrameNumber).append(',')
+            .append(cameraShutterMonoNs).append(',')
+            .append(cameraExposureTimeNs).append(',')
+            .append(cameraIso).append(',')
+            .append(imuSequenceId).append(',')
+            .append(imuMonoNs).append(',')
+            .append(imuDeliveryNs).append(',')
+            .append(deltaCamImuNs).append(',')
+            .append(deltaCamImuMs).append(',')
+            .append(accelX).append(',').append(accelY).append(',').append(accelZ).append(',')
+            .append(linAccelX).append(',').append(linAccelY).append(',').append(linAccelZ).append(',')
+            .append(gyroX).append(',').append(gyroY).append(',').append(gyroZ).append(',')
+            .append(quatW).append(',').append(quatX).append(',').append(quatY).append(',').append(quatZ).append(',')
+            .append(pitchDeg).append(',').append(rollDeg).append(',').append(yawDeg).append(',')
+            .append(if (isRadarActive) "CONNECTED" else "DISCONNECTED").append(',')
+            .append(radarFrameNumber).append(',')
+            .append(radarHostMonoNs).append(',')
+            .append(deltaCamRadarNs).append(',')
+            .append(deltaCamRadarMs).append(',')
+            .append(radarNumDetectedObj).append(',')
+            .append(radarNumTLVs).append(',')
+            .append(radarSubFrameNumber).append(',')
+            .append(if (hasGnssFix) "FIX" else "NO_FIX").append(',')
+            .append(gnssUtcTimeMs).append(',')
+            .append(gnssLatitude).append(',')
+            .append(gnssLongitude).append(',')
+            .append(gnssAltitudeMeters).append(',')
+            .append(gnssSpeedMps).append(',')
+            .append(gnssBearingDegrees).append(',')
+            .append(gnssAccuracyMeters).append('\n')
+        return sb.toString()
     }
 
     companion object {

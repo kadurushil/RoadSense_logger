@@ -25,6 +25,7 @@ data class DebugToggleSnapshot(
     val displayPacerDropWarnings: Boolean = true,
     val canvasTimingLogs: Boolean = true,
     val uiPerfFrameJankToFileLogs: Boolean = false,
+    val diskWriterPriorityLogs: Boolean = true,
     val bevShowRawPoints: Boolean = true,
     val bevShowTracks: Boolean = true,
     val bevShowClusters: Boolean = true,
@@ -68,6 +69,10 @@ object DebugToggles {
     var uiPerfFrameJankToFileLogs: Boolean = false
         private set
 
+    @Volatile
+    var diskWriterPriorityLogs: Boolean = true
+        private set
+
     // --- BEV / Viewfinder Bench Isolation Toggles ---
 
     @Volatile
@@ -105,6 +110,10 @@ object DebugToggles {
     val isUiPerfJankToFileActive: Boolean
         get() = masterDebugEnabled && uiPerfFrameJankToFileLogs
 
+    /** True when disk-writer worker OS/Java thread priority verification logs should emit to `session_debug.log`. */
+    val isDiskWriterPriorityLogsActive: Boolean
+        get() = masterDebugEnabled && diskWriterPriorityLogs
+
     fun setMasterDebugEnabled(enabled: Boolean) {
         masterDebugEnabled = enabled
         publishState()
@@ -127,6 +136,11 @@ object DebugToggles {
 
     fun setUiPerfFrameJankToFileLogs(enabled: Boolean) {
         uiPerfFrameJankToFileLogs = enabled
+        publishState()
+    }
+
+    fun setDiskWriterPriorityLogs(enabled: Boolean) {
+        diskWriterPriorityLogs = enabled
         publishState()
     }
 
@@ -162,6 +176,7 @@ object DebugToggles {
         displayPacerDropWarnings = true
         canvasTimingLogs = true
         uiPerfFrameJankToFileLogs = false
+        diskWriterPriorityLogs = true
         bevShowRawPoints = true
         bevShowTracks = true
         bevShowClusters = true
@@ -177,6 +192,7 @@ object DebugToggles {
             displayPacerDropWarnings = displayPacerDropWarnings,
             canvasTimingLogs = canvasTimingLogs,
             uiPerfFrameJankToFileLogs = uiPerfFrameJankToFileLogs,
+            diskWriterPriorityLogs = diskWriterPriorityLogs,
             bevShowRawPoints = bevShowRawPoints,
             bevShowTracks = bevShowTracks,
             bevShowClusters = bevShowClusters,

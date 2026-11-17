@@ -2,6 +2,7 @@ package com.bajajauto.roadsense.recording
 
 import android.content.Context
 import android.os.Process
+import com.bajajauto.roadsense.DebugToggles
 import android.os.SystemClock
 import android.util.Log
 import com.bajajauto.roadsense.models.RawRadarPacket
@@ -44,13 +45,15 @@ class RadarSessionRecorder(
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread({
-            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
-            val tid = Process.myTid()
-            val osPriority = Process.getThreadPriority(tid)
-            AppLogger.i(TAG, "RadarSessionRecorder-Worker started (TID=$tid, OS Priority=$osPriority, TargetPriority=${Process.THREAD_PRIORITY_URGENT_DISPLAY})")
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            if (DebugToggles.isDiskWriterPriorityLogsActive) {
+                val tid = Process.myTid()
+                val osPriority = Process.getThreadPriority(tid)
+                AppLogger.i(TAG, "RadarSessionRecorder-Worker started (TID=$tid, OS=$osPriority, Target=${Process.THREAD_PRIORITY_BACKGROUND}, Java=${Thread.currentThread().priority})")
+            }
             runnable.run()
         }, "RadarSessionRecorder-Worker").apply {
-            priority = Thread.MAX_PRIORITY - 1
+            priority = Thread.NORM_PRIORITY
         }
     }
 

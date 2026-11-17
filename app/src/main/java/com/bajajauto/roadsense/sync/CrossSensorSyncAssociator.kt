@@ -134,11 +134,6 @@ class CrossSensorSyncAssociator {
         imuQy[idx] = frame.qy
         imuQz[idx] = frame.qz
 
-        val (pitch, roll, yaw) = SyncKeyframe.quaternionToEulerDeg(frame.qw, frame.qx, frame.qy, frame.qz)
-        imuPitchDeg[idx] = pitch
-        imuRollDeg[idx] = roll
-        imuYawDeg[idx] = yaw
-
         lastImuHeartbeatNs.set(frame.elapsedRealtimeNs)
     }
 
@@ -175,11 +170,6 @@ class CrossSensorSyncAssociator {
         imuQx[idx] = qx
         imuQy[idx] = qy
         imuQz[idx] = qz
-
-        val (pitch, roll, yaw) = SyncKeyframe.quaternionToEulerDeg(qw, qx, qy, qz)
-        imuPitchDeg[idx] = pitch
-        imuRollDeg[idx] = roll
-        imuYawDeg[idx] = yaw
 
         lastImuHeartbeatNs.set(elapsedRealtimeNs)
     }
@@ -321,6 +311,11 @@ class CrossSensorSyncAssociator {
         }
 
         val gnss = latestGnssFix.get()
+        val (pitchDeg, rollDeg, yawDeg) = if (imuCursor > 0L) {
+            SyncKeyframe.quaternionToEulerDeg(imuQw[bestImuIdx], imuQx[bestImuIdx], imuQy[bestImuIdx], imuQz[bestImuIdx])
+        } else {
+            Triple(0f, 0f, 0f)
+        }
 
         return SyncKeyframe(
             keyframeId = keyId,
@@ -348,9 +343,9 @@ class CrossSensorSyncAssociator {
             quatX = if (imuCursor > 0L) imuQx[bestImuIdx] else 0f,
             quatY = if (imuCursor > 0L) imuQy[bestImuIdx] else 0f,
             quatZ = if (imuCursor > 0L) imuQz[bestImuIdx] else 0f,
-            pitchDeg = if (imuCursor > 0L) imuPitchDeg[bestImuIdx] else 0f,
-            rollDeg = if (imuCursor > 0L) imuRollDeg[bestImuIdx] else 0f,
-            yawDeg = if (imuCursor > 0L) imuYawDeg[bestImuIdx] else 0f,
+            pitchDeg = pitchDeg,
+            rollDeg = rollDeg,
+            yawDeg = yawDeg,
             isRadarActive = isRadarActive,
             radarFrameNumber = if (isRadarActive && radCursor > 0L) radFrameNum[bestRadIdx] else -1L,
             radarHostMonoNs = radMono,

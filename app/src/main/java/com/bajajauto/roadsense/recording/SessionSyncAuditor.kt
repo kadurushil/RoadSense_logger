@@ -134,7 +134,7 @@ object SessionSyncAuditor {
     fun auditSession(sessionInfo: SessionInfo): AuditResult {
         Log.i(TAG, "Starting post-session cross-sensor audit for ${sessionInfo.sessionId}...")
 
-        // 1. Audit Camera Frames (camera/camera_frames.csv)
+        // 1. Audit Camera Frames (camera_frames.csv or session_timeline.csv fallback)
         val cameraCsv = File(sessionInfo.cameraDir, "camera_frames.csv")
         val camMonoList = mutableListOf<Long>()
         if (cameraCsv.exists()) {
@@ -151,6 +151,24 @@ object SessionSyncAuditor {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error parsing camera_frames.csv", e)
+            }
+        } else {
+            val timelineCsv = File(sessionInfo.sessionDir, SessionTimelineWriter.TIMELINE_FILE_NAME)
+            if (timelineCsv.exists()) {
+                try {
+                    BufferedReader(FileReader(timelineCsv)).use { reader ->
+                        reader.readLine() // Header
+                        var line: String?
+                        while (reader.readLine().also { line = it } != null) {
+                            val parts = line!!.split(",")
+                            if (parts.size >= 3 && parts[1] == "CAMERA" && parts[2] == "FRAME") {
+                                parts[0].trim().toLongOrNull()?.let { camMonoList.add(it) }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing camera frames from session_timeline.csv", e)
+                }
             }
         }
 

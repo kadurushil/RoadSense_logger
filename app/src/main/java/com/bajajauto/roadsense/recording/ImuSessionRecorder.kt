@@ -5,6 +5,7 @@ import android.os.SystemClock
 import android.os.Trace
 import android.util.Log
 import com.bajajauto.roadsense.imu.ImuFrame
+import com.bajajauto.roadsense.DebugToggles
 import com.bajajauto.roadsense.logging.AppLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -98,10 +99,12 @@ class ImuSessionRecorder(
 
             // Spawn dedicated consumer worker thread
             workerThread = Thread({
-                Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
-                val tid = Process.myTid()
-                val osPriority = Process.getThreadPriority(tid)
-                AppLogger.i(TAG, "ImuSessionRecorder-Worker started (TID=$tid, OS Priority=$osPriority, TargetPriority=${Process.THREAD_PRIORITY_URGENT_AUDIO})")
+                Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+                if (DebugToggles.isDiskWriterPriorityLogsActive) {
+                    val tid = Process.myTid()
+                    val osPriority = Process.getThreadPriority(tid)
+                    AppLogger.i(TAG, "ImuSessionRecorder-Worker started (TID=$tid, OS=$osPriority, Target=${Process.THREAD_PRIORITY_BACKGROUND}, Java=${Thread.currentThread().priority})")
+                }
                 ringBuffer.consumerThread = Thread.currentThread()
 
                 var writer: BufferedWriter? = null
@@ -155,7 +158,7 @@ class ImuSessionRecorder(
                     AppLogger.i(TAG, "Closed IMU CSV writer: $totalFramesWritten frames written. Peak ring buffer occupancy: ${ringBuffer.peakOccupancy}/4096 (${ringBuffer.peakOccupancy * 100 / 4096}%), dropped: ${ringBuffer.droppedFrames}")
                 }
             }, "ImuSessionRecorder-Worker").apply {
-                priority = Thread.MAX_PRIORITY - 1
+                priority = Thread.NORM_PRIORITY
                 start()
             }
 

@@ -1,6 +1,8 @@
 package com.bajajauto.roadsense.sync
 
 import android.os.Process
+import com.bajajauto.roadsense.DebugToggles
+import com.bajajauto.roadsense.logging.AppLogger
 import android.util.Log
 import java.io.BufferedWriter
 import java.io.File
@@ -26,10 +28,15 @@ class SyncKeyframeWriter {
 
     private val executor: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
         Thread({
-            Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_DISPLAY)
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND)
+            if (DebugToggles.isDiskWriterPriorityLogsActive) {
+                val tid = Process.myTid()
+                val osPriority = Process.getThreadPriority(tid)
+                AppLogger.i(TAG, "SyncKeyframeWriter-Worker started (TID=$tid, OS=$osPriority, Target=${Process.THREAD_PRIORITY_BACKGROUND}, Java=${Thread.currentThread().priority})")
+            }
             runnable.run()
         }, "SyncKeyframeWriter-Worker").apply {
-            priority = Thread.MAX_PRIORITY - 1
+            priority = Thread.NORM_PRIORITY
         }
     }
 
