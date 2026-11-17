@@ -233,7 +233,8 @@ fun ViewfinderRadarOverlay(
                     viewHeight = h,
                     filterUntrackedClutter = !includeRawPoints,
                     includeUntrackedPoints = includeRawPoints,
-                    maxRangeM = 80f
+                    maxRangeM = 80f,
+                    includeFootprints = false
                 ).also {
                     projectionCache.lastFrameRef = activeFrame
                     projectionCache.lastHudMode = effectiveHudMode
@@ -360,14 +361,7 @@ fun ViewfinderRadarOverlay(
                         )
                     }
 
-                    // Ground contact anchor dot
-                    drawCircle(
-                        color = targetColor.copy(alpha = alpha * 0.9f),
-                        radius = if (lollipop.isFcwTarget || lollipop.isAccTarget) 3.5.dp.toPx() else if (lollipop.isTracked) 2.5.dp.toPx() else 1.5.dp.toPx(),
-                        center = Offset(lollipop.basePt.xPx, lollipop.basePt.yPx)
-                    )
-
-                    // B. Vertical Perspective Stem
+                    // Foxglove-style lightweight stem + single crisp marker + compact tag
                     val stemDx = lollipop.headPt.xPx - lollipop.basePt.xPx
                     val stemDy = lollipop.headPt.yPx - lollipop.basePt.yPx
                     if (kotlin.math.hypot(stemDx, stemDy) > 2f) {
@@ -380,28 +374,17 @@ fun ViewfinderRadarOverlay(
                         )
                     }
 
-                    // C. Lollipop Head with outer halo and specular center
-                    val outerHaloRadius = when {
-                        lollipop.isFcwTarget -> headRadius * 2.0f
-                        lollipop.isAccTarget -> headRadius * 1.8f
-                        else -> headRadius * 1.5f
-                    }
-                    drawCircle(
-                        color = targetColor.copy(alpha = alpha * 0.35f),
-                        radius = outerHaloRadius,
-                        center = Offset(lollipop.headPt.xPx, lollipop.headPt.yPx)
-                    )
                     if (lollipop.isFcwTarget) {
                         drawCircle(
-                            color = HUD_COLOR_FCW.copy(alpha = alpha * 0.7f),
-                            radius = headRadius * 1.4f,
+                            color = HUD_COLOR_FCW.copy(alpha = alpha * 0.85f),
+                            radius = headRadius * 1.45f,
                             center = Offset(lollipop.headPt.xPx, lollipop.headPt.yPx),
                             style = fcwHaloStroke
                         )
                     } else if (lollipop.isAccTarget) {
                         drawCircle(
-                            color = HUD_COLOR_ACC.copy(alpha = alpha * 0.6f),
-                            radius = headRadius * 1.3f,
+                            color = HUD_COLOR_ACC.copy(alpha = alpha * 0.75f),
+                            radius = headRadius * 1.35f,
                             center = Offset(lollipop.headPt.xPx, lollipop.headPt.yPx),
                             style = accHaloStroke
                         )
@@ -411,15 +394,7 @@ fun ViewfinderRadarOverlay(
                         radius = headRadius,
                         center = Offset(lollipop.headPt.xPx, lollipop.headPt.yPx)
                     )
-                    if (lollipop.isTracked) {
-                        drawCircle(
-                            color = Color.White.copy(alpha = alpha * 0.9f),
-                            radius = headRadius * 0.35f,
-                            center = Offset(lollipop.headPt.xPx, lollipop.headPt.yPx)
-                        )
-                    }
 
-                    // D. Track ID & Range Badge (for tracked obstacles)
                     if (lollipop.trackId != null) {
                         val trackLabel = lollipop.label
                         val textWidth = badgeTextPaint.measureText(trackLabel)
@@ -439,13 +414,6 @@ fun ViewfinderRadarOverlay(
                             topLeft = Offset(badgeLeft, badgeTop),
                             size = Size(badgeWidth, badgeHeight),
                             cornerRadius = CornerRadius(4f * density, 4f * density)
-                        )
-                        drawRoundRect(
-                            color = targetColor.copy(alpha = 0.9f * alpha),
-                            topLeft = Offset(badgeLeft, badgeTop),
-                            size = Size(badgeWidth, badgeHeight),
-                            cornerRadius = CornerRadius(4f * density, 4f * density),
-                            style = if (lollipop.isFcwTarget || lollipop.isAccTarget) badgePriorityStroke else badgeNormalStroke
                         )
                         drawContext.canvas.nativeCanvas.drawText(
                             trackLabel,

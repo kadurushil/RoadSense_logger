@@ -235,9 +235,9 @@ fun RadarBevPlot(
             Spacer(modifier = Modifier.height(if (isLandscape) 4.dp else 8.dp))
 
             // Filter Toggles, Bench Toggle & Target/Velocity Legend
-            // Responsive layout: single row on wide viewports; stacked cleanly on narrow SBS/portrait panes
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val useCompactFooter = maxWidth < 460.dp
+            // Lightweight footer without SubcomposeLayout (BoxWithConstraints)
+            run {
+                val useCompactFooter = true
 
                 val filtersContent: @Composable () -> Unit = {
                     Row(
@@ -637,15 +637,9 @@ private fun RadarBevCanvas(
                                 }
                             }
 
-                            val dotRadius = 4.5f
-                            drawCircle(
-                                color = glowColor,
-                                radius = dotRadius + 2.5f,
-                                center = Offset(px, py)
-                            )
                             drawCircle(
                                 color = pointColor,
-                                radius = dotRadius,
+                                radius = 4.5f,
                                 center = Offset(px, py)
                             )
                         }
@@ -742,26 +736,16 @@ private fun RadarBevCanvas(
 
                         if (isFcw) {
                             drawCircle(
-                                color = BEV_COLOR_FCW_GLOW,
-                                center = Offset(tx, ty),
-                                radius = trackRadius + 7f
-                            )
-                            drawCircle(
                                 color = BEV_COLOR_FCW_HALO,
                                 center = Offset(tx, ty),
-                                radius = trackRadius + 3.5f,
+                                radius = trackRadius + 4f,
                                 style = BEV_STROKE_FCW_OUTER
                             )
                         } else if (isAcc) {
                             drawCircle(
-                                color = BEV_COLOR_ACC_GLOW,
-                                center = Offset(tx, ty),
-                                radius = trackRadius + 6f
-                            )
-                            drawCircle(
                                 color = BEV_COLOR_ACC_HALO,
                                 center = Offset(tx, ty),
-                                radius = trackRadius + 3f,
+                                radius = trackRadius + 3.5f,
                                 style = BEV_STROKE_ACC_OUTER
                             )
                         }
@@ -776,11 +760,6 @@ private fun RadarBevCanvas(
                             center = Offset(tx, ty),
                             radius = trackRadius,
                             style = if (isFcw || isAcc) BEV_STROKE_TRACK_PRIORITY else BEV_STROKE_TRACK_NORMAL
-                        )
-                        drawCircle(
-                            color = trackColor,
-                            center = Offset(tx, ty),
-                            radius = 3.5f
                         )
 
                         val vxPx = track.vx * scale * 0.75f

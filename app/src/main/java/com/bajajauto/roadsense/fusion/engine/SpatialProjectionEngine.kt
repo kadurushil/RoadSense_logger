@@ -31,6 +31,90 @@ object SpatialProjectionEngine {
      * @param yRadar Longitudinal range in meters (+forward)
      * @param targetHeightM Optional elevation of the target above the radar plane
      */
+    /**
+     * Precomputed 3x3 extrinsic rotation matrix + scaled camera intrinsics for a single frame.
+     * Eliminates per-vertex sin/cos/toRadians calls across hundreds of detections.
+     */
+    private class PrecomputedProjection(
+        params: CalibrationParameters,
+        intrinsics: CameraIntrinsics,
+        viewWidth: Int,
+        viewHeight: Int
+    ) {
+        private val latOff = params.lateralOffsetM
+        private val setOff = params.setbackM
+        private val hOff = params.heightOffsetM
+
+        private val r00: Float; private val r01: Float; private val r02: Float
+        private val r10: Float; private val r11: Float; private val r12: Float
+        private val r20: Float; private val r21: Float; private val r22: Float
+
+        private val fx: Float
+        private val fy: Float
+        private val cx: Float
+        private val cy: Float
+        private val invViewW = 1f / viewWidth.toFloat()
+        private val invViewH = 1f / viewHeight.toFloat()
+
+        init {
+            val pitchRad = Math.toRadians(params.effectivePitchDeg.toDouble()).toFloat()
+            val yawRad = Math.toRadians(params.effectiveYawDeg.toDouble()).toFloat()
+            val rollRad = Math.toRadians(params.rollDeg.toDouble()).toFloat()
+
+            val cosY = cos(yawRad); val sinY = sin(yawRad)
+            val cosP = cos(pitchRad); val sinP = sin(pitchRad)
+            val cosR = cos(rollRad); val sinR = sin(rollRad)
+
+            // Combined R = R_roll * R_pitch * R_yaw applied to [x0, y0, z0]
+            // x1 = x0*cosY - z0*sinY, y1 = y0, z1 = x0*sinY + z0*cosY
+            // x2 = x1, y2 = y1*cosP - z1*sinP, z2 = y1*sinP + z1*cosP
+            // xCam = x2*cosR + y2*sinR, yCam = -x2*sinR + y2*cosR, zCam = z2
+            r00 = cosY * cosR - sinY * sinP * sinR
+            r01 = cosP * sinR
+            r02 = -sinY * cosR - cosY * sinP * sinR
+
+            r10 = -cosY * sinR - sinY * sinP * cosR
+            r11 = cosP * cosR
+            r12 = sinY * sinR - cosY * sinP * cosR
+
+            r20 = sinY * cosP
+            r21 = sinP
+            r22 = cosY * cosP
+
+            val scaleX = viewWidth.toFloat() / intrinsics.imageWidth.toFloat()
+            val scaleY = viewHeight.toFloat() / intrinsics.imageHeight.toFloat()
+            fx = intrinsics.fx * scaleX
+            fy = intrinsics.fy * scaleY
+            cx = intrinsics.cx * scaleX
+            cy = intrinsics.cy * scaleY
+        }
+
+        fun project(xRadar: Float, yRadar: Float, targetHeightM: Float): ScreenPoint? {
+            if (yRadar <= 0.2f) return null
+            val x0 = xRadar - latOff
+            val z0 = yRadar - setOff
+            if (z0 <= 0.1f) return null
+            val y0 = -(targetHeightM - hOff)
+
+            val zCam = r20 * x0 + r21 * y0 + r22 * z0
+            if (zCam <= 0.1f) return null
+
+            val xCam = r00 * x0 + r01 * y0 + r02 * z0
+            val yCam = r10 * x0 + r11 * y0 + r12 * z0
+
+            val invZ = 1f / zCam
+            val u = fx * (xCam * invZ) + cx
+            val v = fy * (yCam * invZ) + cy
+            return ScreenPoint(
+                xPx = u,
+                yPx = v,
+                normX = u * invViewW,
+                normY = v * invViewH,
+                depthM = zCam
+            )
+        }
+    }
+
     fun project2DRadarToScreen(
         xRadar: Float,
         yRadar: Float,
@@ -427,10 +511,12 @@ object SpatialProjectionEngine {
         filterUntrackedClutter: Boolean = true,
         trackGatingRadiusM: Float = 1.8f,
         includeUntrackedPoints: Boolean = !filterUntrackedClutter,
-        maxRangeM: Float = 80f
+        maxRangeM: Float = 80f,
+        includeFootprints: Boolean = true
     ): List<ProjectedRadarLollipop> {
         val roadZ = -abs(params.radarHeightM.takeIf { it > 0.1f } ?: 0.95f)
-        val lollipops = mutableListOf<ProjectedRadarLollipop>()
+        val proj = PrecomputedProjection(params, intrinsics, viewWidth, viewHeight)
+        val lollipops = ArrayList<ProjectedRadarLollipop>(radarFrame.tracks.size + 4)
 
         val fcwAlert = radarFrame.canOutputs?.fcw
         val accTarget = radarFrame.canOutputs?.acc
@@ -452,17 +538,26 @@ object SpatialProjectionEngine {
                 }.takeIf { it >= 0 }
             }
 
-            // Tier 3: High-Risk Forward Corridor matching
+            // Tier 3: High-Risk Forward Corridor matching (zero-allocation pass)
             if (matchedFcwIndex == null) {
-                val candidates = radarFrame.tracks.mapIndexed { idx, track -> Pair(idx, track) }
-                    .filter { (_, track) -> track.risk >= 2 && abs(track.x) <= 4.5f && track.y <= 50.0f }
-                    .ifEmpty {
-                        radarFrame.tracks.mapIndexed { idx, track -> Pair(idx, track) }
-                            .filter { (_, track) -> track.risk >= 1 && track.vy < -1.0f && abs(track.x) <= 4.5f }
+                var bestHighIdx = -1
+                var bestHighScore = Float.MAX_VALUE
+                var bestLowIdx = -1
+                var bestLowScore = Float.MAX_VALUE
+                for (idx in radarFrame.tracks.indices) {
+                    val track = radarFrame.tracks[idx]
+                    if (abs(track.x) <= 4.5f) {
+                        val score = -track.risk * 100f + track.y
+                        if (track.risk >= 2 && track.y <= 50.0f && score < bestHighScore) {
+                            bestHighScore = score
+                            bestHighIdx = idx
+                        } else if (track.risk >= 1 && track.vy < -1.0f && score < bestLowScore) {
+                            bestLowScore = score
+                            bestLowIdx = idx
+                        }
                     }
-                if (candidates.isNotEmpty()) {
-                    matchedFcwIndex = candidates.minByOrNull { (_, track) -> -track.risk * 100f + track.y }?.first
                 }
+                matchedFcwIndex = if (bestHighIdx >= 0) bestHighIdx else if (bestLowIdx >= 0) bestLowIdx else null
             }
         }
 
@@ -499,16 +594,18 @@ object SpatialProjectionEngine {
             val fcwStage = if (isFcw) (fcwAlert?.stage ?: 0) else 0
 
             // Ground base anchor (road surface)
-            val basePt = project2DRadarToScreen(x, y, params, intrinsics, viewWidth, viewHeight, roadZ) ?: continue
+            val basePt = proj.project(x, y, roadZ) ?: continue
 
             // Head centroid (raised to vehicle body center of mass, ~0.80m above road)
             val headZ = roadZ + 0.80f
-            val headPt = project2DRadarToScreen(x, y, params, intrinsics, viewWidth, viewHeight, headZ) ?: continue
+            val headPt = proj.project(x, y, headZ) ?: continue
 
-            // Ground footprint ellipse
-            val rx = (track.xSize / 2f).coerceIn(0.7f, 1.4f)
-            val ry = (track.ySize / 2f).coerceIn(0.7f, 1.6f)
-            val footprint = calculateGroundFootprintEllipse(x, y, rx, ry, params, intrinsics, viewWidth, viewHeight, 12)
+            // Ground footprint ellipse (skipped in lightweight Foxglove HUD mode)
+            val footprint = if (includeFootprints) {
+                val rx = (track.xSize / 2f).coerceIn(0.7f, 1.4f)
+                val ry = (track.ySize / 2f).coerceIn(0.7f, 1.6f)
+                calculateGroundFootprintEllipse(x, y, rx, ry, params, intrinsics, viewWidth, viewHeight, 12)
+            } else null
 
             val adasTag = when {
                 isFcw && isAcc -> " [FCW+ACC]"
@@ -543,10 +640,12 @@ object SpatialProjectionEngine {
             val fy = fcwAlert.targetY
             val range = sqrt(fx * fx + fy * fy)
             if (maxRangeM <= 0f || range <= maxRangeM) {
-                val basePt = project2DRadarToScreen(fx, fy, params, intrinsics, viewWidth, viewHeight, roadZ)
-                val headPt = project2DRadarToScreen(fx, fy, params, intrinsics, viewWidth, viewHeight, roadZ + 0.80f)
+                val basePt = proj.project(fx, fy, roadZ)
+                val headPt = proj.project(fx, fy, roadZ + 0.80f)
                 if (basePt != null && headPt != null) {
-                    val footprint = calculateGroundFootprintEllipse(fx, fy, 0.90f, 1.20f, params, intrinsics, viewWidth, viewHeight, 12)
+                    val footprint = if (includeFootprints) {
+                        calculateGroundFootprintEllipse(fx, fy, 0.90f, 1.20f, params, intrinsics, viewWidth, viewHeight, 12)
+                    } else null
                     lollipops.add(
                         ProjectedRadarLollipop(
                             basePt = basePt,
