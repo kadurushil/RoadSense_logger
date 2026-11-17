@@ -643,6 +643,67 @@ def parse_radar_stream(radar_bin_path):
         yield frame_data
 
 
+def _build_imu_protobuf_classes():
+    """Builds dynamic Protobuf message classes for /imu/data and /imu/vehicle."""
+    from google.protobuf import descriptor_pb2, message_factory
+
+    fdp = descriptor_pb2.FileDescriptorProto(
+        name="roadsense_imu.proto",
+        package="roadsense",
+        syntax="proto3"
+    )
+    vec3 = fdp.message_type.add(name="ImuVec3")
+    for idx, fname in enumerate(["x", "y", "z"], 1):
+        vec3.field.add(name=fname, number=idx, label=1, type=2)  # TYPE_FLOAT
+
+    quat = fdp.message_type.add(name="ImuQuat")
+    for idx, fname in enumerate(["x", "y", "z", "w"], 1):
+        quat.field.add(name=fname, number=idx, label=1, type=2)
+
+    for msg_name in ("Imu", "ImuVehicle"):
+        msg = fdp.message_type.add(name=msg_name)
+        msg.field.add(name="mono_ns", number=1, label=1, type=3)   # TYPE_INT64
+        msg.field.add(name="wall_ms", number=2, label=1, type=3)   # TYPE_INT64
+        msg.field.add(name="acceleration", number=3, label=1, type=11, type_name=".roadsense.ImuVec3")
+        msg.field.add(name="angular_velocity", number=4, label=1, type=11, type_name=".roadsense.ImuVec3")
+        msg.field.add(name="linear_acceleration", number=5, label=1, type=11, type_name=".roadsense.ImuVec3")
+        msg.field.add(name="orientation", number=6, label=1, type=11, type_name=".roadsense.ImuQuat")
+        scalar_fields = [
+            "ax", "ay", "az",
+            "gx", "gy", "gz",
+            "lin_ax", "lin_ay", "lin_az",
+            "qx", "qy", "qz", "qw",
+            "roll_deg", "pitch_deg", "yaw_deg"
+        ]
+        for idx, fname in enumerate(scalar_fields, 7):
+            msg.field.add(name=fname, number=idx, label=1, type=2)
+
+    classes = message_factory.GetMessages([fdp])
+    return classes["roadsense.Imu"], classes["roadsense.ImuVehicle"]
+
+
+def _populate_imu_proto(msg_cls, sample):
+    """Populates a roadsense.Imu or roadsense.ImuVehicle Protobuf message from sample dict."""
+    msg = msg_cls(
+        mono_ns=sample["mono_ns"],
+        wall_ms=sample["wall_ms"],
+        ax=sample["ax"], ay=sample["ay"], az=sample["az"],
+        gx=sample["gx"], gy=sample["gy"], gz=sample["gz"],
+        lin_ax=sample["lin_ax"], lin_ay=sample["lin_ay"], lin_az=sample["lin_az"],
+        qx=sample["qx"], qy=sample["qy"], qz=sample["qz"], qw=sample["qw"],
+        roll_deg=sample["roll_deg"], pitch_deg=sample["pitch_deg"], yaw_deg=sample["yaw_deg"],
+    )
+    acc = sample["acceleration"]
+    msg.acceleration.x, msg.acceleration.y, msg.acceleration.z = acc["x"], acc["y"], acc["z"]
+    gyr = sample["angular_velocity"]
+    msg.angular_velocity.x, msg.angular_velocity.y, msg.angular_velocity.z = gyr["x"], gyr["y"], gyr["z"]
+    lin = sample["linear_acceleration"]
+    msg.linear_acceleration.x, msg.linear_acceleration.y, msg.linear_acceleration.z = lin["x"], lin["y"], lin["z"]
+    ori = sample["orientation"]
+    msg.orientation.x, msg.orientation.y, msg.orientation.z, msg.orientation.w = ori["x"], ori["y"], ori["z"], ori["w"]
+    return msg
+
+
 def parse_imu_csv(imu_csv_path, gnss_csv_path=None, calib_params=None):
     """Generator yielding (raw_sample, vehicle_sample) tuples from imu_frames.csv.
     
@@ -1327,137 +1388,8 @@ def convert_session_to_mcap(
             schema_id=adas_schema_id
         )
 
-        imu_schema_id = writer._writer.register_schema(
-            name="roadsense.Imu",
-            encoding="jsonschema",
-            data=json.dumps({
-                "type": "object",
-                "properties": {
-                    "elapsed_realtime_ns": {"type": "integer"},
-                    "wall_time_ms": {"type": "integer"},
-                    "acceleration": {
-                        "type": "object",
-                        "properties": {
-                            "x": {"type": "number"},
-                            "y": {"type": "number"},
-                            "z": {"type": "number"}
-                        }
-                    },
-                    "angular_velocity": {
-                        "type": "object",
-                        "properties": {
-                            "x": {"type": "number"},
-                            "y": {"type": "number"},
-                            "z": {"type": "number"}
-                        }
-                    },
-                    "linear_acceleration": {
-                        "type": "object",
-                        "properties": {
-                            "x": {"type": "number"},
-                            "y": {"type": "number"},
-                            "z": {"type": "number"}
-                        }
-                    },
-                    "orientation": {
-                        "type": "object",
-                        "properties": {
-                            "x": {"type": "number"},
-                            "y": {"type": "number"},
-                            "z": {"type": "number"},
-                            "w": {"type": "number"}
-                        }
-                    },
-                    "ax": {"type": "number"},
-                    "ay": {"type": "number"},
-                    "az": {"type": "number"},
-                    "gx": {"type": "number"},
-                    "gy": {"type": "number"},
-                    "gz": {"type": "number"},
-                    "lin_ax": {"type": "number"},
-                    "lin_ay": {"type": "number"},
-                    "lin_az": {"type": "number"},
-                    "qx": {"type": "number"},
-                    "qy": {"type": "number"},
-                    "qz": {"type": "number"},
-                    "qw": {"type": "number"},
-                    "roll_deg": {"type": "number"},
-                    "pitch_deg": {"type": "number"},
-                    "yaw_deg": {"type": "number"}
-                }
-            }).encode("utf-8")
-        )
-        imu_chan_id = writer._writer.register_channel(
-            topic="/imu/data",
-            message_encoding="json",
-            schema_id=imu_schema_id
-        )
-
-        imu_vehicle_schema_id = writer._writer.register_schema(
-            name="roadsense.ImuVehicle",
-            encoding="jsonschema",
-            data=json.dumps({
-                "type": "object",
-                "properties": {
-                    "elapsed_realtime_ns": {"type": "integer"},
-                    "wall_time_ms": {"type": "integer"},
-                    "acceleration": {
-                        "type": "object",
-                        "properties": {
-                            "x": {"type": "number"},
-                            "y": {"type": "number"},
-                            "z": {"type": "number"}
-                        }
-                    },
-                    "angular_velocity": {
-                        "type": "object",
-                        "properties": {
-                            "x": {"type": "number"},
-                            "y": {"type": "number"},
-                            "z": {"type": "number"}
-                        }
-                    },
-                    "linear_acceleration": {
-                        "type": "object",
-                        "properties": {
-                            "x": {"type": "number"},
-                            "y": {"type": "number"},
-                            "z": {"type": "number"}
-                        }
-                    },
-                    "orientation": {
-                        "type": "object",
-                        "properties": {
-                            "x": {"type": "number"},
-                            "y": {"type": "number"},
-                            "z": {"type": "number"},
-                            "w": {"type": "number"}
-                        }
-                    },
-                    "ax": {"type": "number"},
-                    "ay": {"type": "number"},
-                    "az": {"type": "number"},
-                    "gx": {"type": "number"},
-                    "gy": {"type": "number"},
-                    "gz": {"type": "number"},
-                    "lin_ax": {"type": "number"},
-                    "lin_ay": {"type": "number"},
-                    "lin_az": {"type": "number"},
-                    "qx": {"type": "number"},
-                    "qy": {"type": "number"},
-                    "qz": {"type": "number"},
-                    "qw": {"type": "number"},
-                    "roll_deg": {"type": "number"},
-                    "pitch_deg": {"type": "number"},
-                    "yaw_deg": {"type": "number"}
-                }
-            }).encode("utf-8")
-        )
-        imu_vehicle_chan_id = writer._writer.register_channel(
-            topic="/imu/vehicle",
-            message_encoding="json",
-            schema_id=imu_vehicle_schema_id
-        )
+        # Build binary Protobuf schemas for /imu/data and /imu/vehicle (eliminates JSON parsing overhead in Foxglove)
+        imu_raw_cls, imu_veh_cls = _build_imu_protobuf_classes()
 
         # 5. Emit Static Transforms & Camera Calibration
         base_sec = start_wall_ms // 1000
@@ -1910,39 +1842,40 @@ def convert_session_to_mcap(
                     writer.write_message("/gnss/fix", loc_msg, log_time=utc_ns)
                     count_msg("/gnss/fix")
 
-        # Ingest IMU Telemetry (100 Hz Accelerometer, Gyroscope & Orientation)
+        # Ingest IMU Telemetry (Full rate Protobuf on /imu/data & /imu/vehicle; 50 Hz PoseInFrame on /imu/pose)
         if os.path.isfile(imu_csv):
-            print(f"    - Ingesting IMU Telemetry (100 Hz): {imu_csv}")
-            print(f"[PROGRESS] {json.dumps({'step': 'imu', 'desc': 'Ingesting IMU Telemetry (100 Hz)', 'pct': 28})}", flush=True)
+            print(f"    - Ingesting IMU Telemetry (Binary Protobuf): {imu_csv}")
+            print(f"[PROGRESS] {json.dumps({'step': 'imu', 'desc': 'Ingesting IMU Telemetry (Protobuf)', 'pct': 28})}", flush=True)
+            last_pose_utc_ns = 0
             for imu_sample, imu_vehicle in parse_imu_csv(imu_csv, gnss_csv_path=gnss_csv, calib_params=calib_params):
                 utc_ns = imu_sample["mono_ns"] + time_offset_ns
-                writer._writer.add_message(
-                    channel_id=imu_chan_id,
-                    log_time=utc_ns,
-                    data=json.dumps(imu_sample).encode("utf-8"),
-                    publish_time=utc_ns
+                writer.write_message(
+                    "/imu/data",
+                    _populate_imu_proto(imu_raw_cls, imu_sample),
+                    log_time=utc_ns
                 )
                 count_msg("/imu/data")
 
-                writer._writer.add_message(
-                    channel_id=imu_vehicle_chan_id,
-                    log_time=utc_ns,
-                    data=json.dumps(imu_vehicle).encode("utf-8"),
-                    publish_time=utc_ns
+                writer.write_message(
+                    "/imu/vehicle",
+                    _populate_imu_proto(imu_veh_cls, imu_vehicle),
+                    log_time=utc_ns
                 )
                 count_msg("/imu/vehicle")
 
-                # Orientation Pose in base_link (using transformed vehicle orientation)
-                pose_msg = PoseInFrame()
-                pose_msg.timestamp.seconds = utc_ns // 1_000_000_000
-                pose_msg.timestamp.nanos = utc_ns % 1_000_000_000
-                pose_msg.frame_id = "base_link"
-                pose_msg.pose.orientation.x = imu_vehicle["qx"]
-                pose_msg.pose.orientation.y = imu_vehicle["qy"]
-                pose_msg.pose.orientation.z = imu_vehicle["qz"]
-                pose_msg.pose.orientation.w = imu_vehicle["qw"]
-                writer.write_message("/imu/pose", pose_msg, log_time=utc_ns)
-                count_msg("/imu/pose")
+                # Orientation Pose in base_link capped at ~50 Hz (full 200 Hz quaternion preserved in /imu/vehicle)
+                if last_pose_utc_ns == 0 or (utc_ns - last_pose_utc_ns) >= 19_000_000:
+                    last_pose_utc_ns = utc_ns
+                    pose_msg = PoseInFrame()
+                    pose_msg.timestamp.seconds = utc_ns // 1_000_000_000
+                    pose_msg.timestamp.nanos = utc_ns % 1_000_000_000
+                    pose_msg.frame_id = "base_link"
+                    pose_msg.pose.orientation.x = imu_vehicle["qx"]
+                    pose_msg.pose.orientation.y = imu_vehicle["qy"]
+                    pose_msg.pose.orientation.z = imu_vehicle["qz"]
+                    pose_msg.pose.orientation.w = imu_vehicle["qw"]
+                    writer.write_message("/imu/pose", pose_msg, log_time=utc_ns)
+                    count_msg("/imu/pose")
 
         # Ingest Camera Video Bitstream (H.264 Annex B)
         if include_video and os.path.isfile(video_mp4) and (sync_master is not None or os.path.isfile(frames_csv)):
