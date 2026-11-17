@@ -7,7 +7,7 @@ import android.content.res.Configuration
 import android.graphics.SurfaceTexture
 import android.view.TextureView
 import android.view.WindowManager
-import com.bajajauto.roadsense.camera.AutoFitTextureView
+import com.bajajauto.roadsense.ui.components.bindPersistentCameraViewport
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -132,12 +132,12 @@ fun CameraDashboardCard(
                 .padding(8.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Left Pane: Large Live Viewfinder (no RoundedCornerShape clip to avoid offscreen FBO stencil pass)
+            // Left Pane: Large Live Viewfinder (transparent hole for persistent SurfaceView)
             Box(
                 modifier = Modifier
                     .weight(0.55f)
                     .fillMaxHeight()
-                    .background(Color.Black),
+                    .background(if (shouldRenderPreview) Color.Transparent else Color.Black),
                 contentAlignment = Alignment.Center
             ) {
                 if (shouldRenderPreview) {
@@ -145,6 +145,17 @@ fun CameraDashboardCard(
                     Box(
                         modifier = Modifier
                             .aspectRatio(cameraAspect)
+                            .bindPersistentCameraViewport(
+                                slotId = "CameraLandscape",
+                                active = shouldRenderPreview,
+                                displayRotation = displayRotation,
+                                onViewportSized = { w, h ->
+                                    if (previewWidth != w || previewHeight != h) {
+                                        previewWidth = w
+                                        previewHeight = h
+                                    }
+                                }
+                            )
                             .pointerInput(shouldRenderPreview) {
                                 if (shouldRenderPreview) {
                                     detectTapGestures { offset ->
@@ -156,66 +167,7 @@ fun CameraDashboardCard(
                             },
                         contentAlignment = Alignment.Center
                     ) {
-                        AndroidView(
-                            factory = { ctx ->
-                                AutoFitTextureView(ctx).apply {
-                                    val res = viewModel.cameraEngine.selectedResolution.value
-                                    setAspectRatio(res.width, res.height, displayRotation)
-                                    val persistent = viewModel.cameraEngine.persistentSurfaceTexture
-                                    if (persistent != null && !persistent.isReleased) {
-                                        try {
-                                            setSurfaceTexture(persistent)
-                                        } catch (e: Exception) {
-                                            AppLogger.w("CameraDashboardCard", "Could not reuse persistent SurfaceTexture: ${e.message}")
-                                        }
-                                    }
-                                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                                        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                                            previewWidth = width
-                                            previewHeight = height
-                                            viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
-                                            viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                                            viewModel.updateCameraIntrinsics(width, height)
-                                        }
-
-                                        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-                                            previewWidth = width
-                                            previewHeight = height
-                                            viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
-                                            viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                                            viewModel.updateCameraIntrinsics(width, height)
-                                        }
-
-                                        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                                            viewModel.cameraEngine.detachPreviewSurface(surface)
-                                            return false
-                                        }
-
-                                        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-                                    }
-                                }
-                            },
-                            update = { textureView ->
-                                val res = viewModel.cameraEngine.selectedResolution.value
-                                textureView.setAspectRatio(res.width, res.height, displayRotation)
-                                if (textureView.isAvailable) {
-                                    val sizeChanged = previewWidth != textureView.width || previewHeight != textureView.height
-                                    if (sizeChanged) {
-                                        previewWidth = textureView.width
-                                        previewHeight = textureView.height
-                                    }
-                                    val st = textureView.surfaceTexture
-                                    if (shouldRenderPreview && st != null && (engineState is CameraEngineState.Closed || !viewModel.cameraEngine.isSurfaceAttached(st))) {
-                                        viewModel.cameraEngine.attachPreviewSurface(st, textureView.width, textureView.height)
-                                    }
-                                    if (sizeChanged) {
-                                        viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
-                                        viewModel.updateCameraIntrinsics(textureView.width, textureView.height)
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        Spacer(modifier = Modifier.fillMaxSize())
                         if (isAfAeLocked) {
                             TapFocusReticleOverlay(tapPoint = tapPoint)
                         }
@@ -360,10 +312,10 @@ fun CameraDashboardCard(
                 onToggleMute = { viewModel.setCameraPreviewMuted(!isPreviewMutedByUser) }
             )
 
-            // Live Camera Viewfinder Card
+            // Live Camera Viewfinder Card (transparent hole for persistent SurfaceView)
             Card(
                 shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Black),
+                colors = CardDefaults.cardColors(containerColor = if (shouldRenderPreview) Color.Transparent else Color.Black),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Box(
@@ -371,6 +323,17 @@ fun CameraDashboardCard(
                         .height(420.dp)
                         .aspectRatio(selectedRes.height.toFloat() / selectedRes.width.toFloat())
                         .align(Alignment.CenterHorizontally)
+                        .bindPersistentCameraViewport(
+                            slotId = "CameraPortrait",
+                            active = shouldRenderPreview,
+                            displayRotation = displayRotation,
+                            onViewportSized = { w, h ->
+                                if (previewWidth != w || previewHeight != h) {
+                                    previewWidth = w
+                                    previewHeight = h
+                                }
+                            }
+                        )
                         .pointerInput(shouldRenderPreview) {
                             if (shouldRenderPreview) {
                                 detectTapGestures { offset ->
@@ -383,65 +346,7 @@ fun CameraDashboardCard(
                     contentAlignment = Alignment.Center
                 ) {
                     if (shouldRenderPreview) {
-                        AndroidView(
-                            factory = { ctx ->
-                                AutoFitTextureView(ctx).apply {
-                                    val res = viewModel.cameraEngine.selectedResolution.value
-                                    setAspectRatio(res.width, res.height, displayRotation)
-                                    val persistent = viewModel.cameraEngine.persistentSurfaceTexture
-                                    if (persistent != null && !persistent.isReleased) {
-                                        try {
-                                            setSurfaceTexture(persistent)
-                                        } catch (e: Exception) {
-                                            AppLogger.w("CameraDashboardCard", "Could not reuse persistent SurfaceTexture: ${e.message}")
-                                        }
-                                    }
-                                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                                        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                                            previewWidth = width
-                                            previewHeight = height
-                                            viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
-                                            viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                                            viewModel.updateCameraIntrinsics(width, height)
-                                        }
-
-                                        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-                                            previewWidth = width
-                                            previewHeight = height
-                                            viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                                            viewModel.updateCameraIntrinsics(width, height)
-                                        }
-
-                                        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                                            viewModel.cameraEngine.detachPreviewSurface(surface)
-                                            return false
-                                        }
-
-                                        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-                                    }
-                                }
-                            },
-                            update = { textureView ->
-                                val res = viewModel.cameraEngine.selectedResolution.value
-                                textureView.setAspectRatio(res.width, res.height, displayRotation)
-                                if (textureView.isAvailable) {
-                                    val sizeChanged = previewWidth != textureView.width || previewHeight != textureView.height
-                                    if (sizeChanged) {
-                                        previewWidth = textureView.width
-                                        previewHeight = textureView.height
-                                    }
-                                    val st = textureView.surfaceTexture
-                                    if (shouldRenderPreview && st != null && (engineState is CameraEngineState.Closed || !viewModel.cameraEngine.isSurfaceAttached(st))) {
-                                        viewModel.cameraEngine.attachPreviewSurface(st, textureView.width, textureView.height)
-                                    }
-                                    if (sizeChanged) {
-                                        viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
-                                        viewModel.updateCameraIntrinsics(textureView.width, textureView.height)
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        Spacer(modifier = Modifier.fillMaxSize())
                         if (isAfAeLocked) {
                             TapFocusReticleOverlay(tapPoint = tapPoint)
                         }

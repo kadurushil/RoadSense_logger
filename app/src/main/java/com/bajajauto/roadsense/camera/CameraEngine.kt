@@ -359,6 +359,7 @@ class CameraEngine(private val context: Context) {
         val session = captureSession ?: return
         val builder = repeatingRequestBuilder ?: return
         val callback = repeatingCaptureCallback ?: return
+        val postStartNs = System.nanoTime()
         backgroundHandler?.post {
             if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording) return@post
             try {
@@ -370,7 +371,8 @@ class CameraEngine(private val context: Context) {
                         fps = _selectedFps.value.fps
                     )
                 }
-                AppLogger.i(TAG, "Resumed repeating capture request on persistent preview surface")
+                val resumeMs = (System.nanoTime() - postStartNs) / 1_000_000.0
+                AppLogger.i(TAG, "Resumed repeating capture request on persistent SurfaceView in ${String.format(Locale.US, "%.2f", resumeMs)} ms (restarts=0)")
             } catch (e: Exception) {
                 AppLogger.w(TAG, "Could not resume repeating request on persistent surface; restarting session: ${e.message}")
                 restartSession()
@@ -379,48 +381,30 @@ class CameraEngine(private val context: Context) {
     }
 
     /**
-     * Attaches the live viewfinder surface texture from Compose AndroidView.
+     * Attaches the persistent [AutoFitSurfaceView] Surface from [MainActivity].
+     * Because the single SurfaceView never leaves the window, tab and fullscreen switches reuse
+     * the exact same Surface with 0 CameraCaptureSession restarts and 0 dropped video frames.
      */
-    fun attachPreviewSurface(surfaceTexture: SurfaceTexture, width: Int = 0, height: Int = 0) {
-        if (previewSurfaceTexture === surfaceTexture && isPreviewActive && isRepeatingActive && cameraDevice != null && _engineState.value !is CameraEngineState.Closed && _engineState.value !is CameraEngineState.Error) {
-            AppLogger.d(TAG, "attachPreviewSurface: surface already active; updating dimensions ${width}x${height}")
+    fun attachPreviewSurface(surface: Surface, width: Int = 0, height: Int = 0) {
+        if (!surface.isValid) return
+
+        if (previewSurface === surface && captureSession != null && cameraDevice != null && _engineState.value !is CameraEngineState.Error) {
             currentViewWidth = width
             currentViewHeight = height
+            if (!isPreviewActive || !isRepeatingActive || _engineState.value is CameraEngineState.Closed) {
+                isPreviewActive = true
+                resumeRepeatingPreviewIfNeeded()
+            }
             return
         }
 
-        // If the session is already active:
-        // Reuse the existing session and persistent surface without destroying CameraCaptureSession!
-        if (captureSession != null && cameraDevice != null) {
-            if (previewSurfaceTexture === surfaceTexture) {
-                AppLogger.i(TAG, "attachPreviewSurface: Re-attaching existing persistent preview surface (${width}x${height})")
-                currentViewWidth = width
-                currentViewHeight = height
-                isPreviewActive = true
-                resumeRepeatingPreviewIfNeeded()
-                if (_roadAeMode.value == RoadAeMode.AUTO_ROAD) {
-                    startLuminanceAnalyzer()
-                }
-                return
-            } else if (isRecordingVideo || isPendingVideoRecording) {
-                AppLogger.w(TAG, "attachPreviewSurface: SurfaceTexture changed during active recording. Preserving active recording session.")
-                currentViewWidth = width
-                currentViewHeight = height
-                isPreviewActive = true
-                return
-            }
-        }
-
-        previewSurfaceTexture = surfaceTexture
+        previewSurface = surface
         currentViewWidth = width
         currentViewHeight = height
-        val res = _selectedResolution.value
-        surfaceTexture.setDefaultBufferSize(res.width, res.height)
-        previewSurface?.release()
-        previewSurface = Surface(surfaceTexture)
         isPreviewActive = true
+        val res = _selectedResolution.value
 
-        AppLogger.i(TAG, "Attached preview surface: ${res.width}x${res.height}, view size: ${width}x${height}")
+        AppLogger.i(TAG, "Attached persistent SurfaceView surface: ${res.width}x${res.height}, view size: ${width}x${height}")
 
         if (cameraDevice != null) {
             restartSession()
@@ -430,10 +414,34 @@ class CameraEngine(private val context: Context) {
     }
 
     /**
-     * Checks if the given SurfaceTexture is currently attached to this engine.
+     * Pauses or resumes preview repeating requests when switching to/from non-camera tabs
+     * without destroying the persistent SurfaceView Surface.
      */
-    fun isSurfaceAttached(st: SurfaceTexture?): Boolean {
-        return st != null && previewSurfaceTexture === st && isPreviewActive && cameraDevice != null
+    fun setPreviewPaused(paused: Boolean) {
+        if (paused) {
+            if (!isPreviewActive) return
+            isPreviewActive = false
+            if (!isRecordingVideo && !isPendingVideoRecording) {
+                backgroundHandler?.post {
+                    if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording && isRepeatingActive) {
+                        try {
+                            captureSession?.stopRepeating()
+                            isRepeatingActive = false
+                            _engineState.value = CameraEngineState.Closed
+                            AppLogger.i(TAG, "Paused CameraCaptureSession repeating request (ISP idle while off-tab/muted)")
+                        } catch (e: Exception) {
+                            AppLogger.w(TAG, "Could not pause repeating request on park: ${e.message}")
+                        }
+                    }
+                }
+            } else {
+                AppLogger.i(TAG, "Preserving active CameraCaptureSession repeating request for 0-drop recording while parked")
+            }
+        } else {
+            if (isPreviewActive) return
+            isPreviewActive = true
+            resumeRepeatingPreviewIfNeeded()
+        }
     }
 
     /**
@@ -482,15 +490,16 @@ class CameraEngine(private val context: Context) {
      * re-attachment, while pausing the 30 FPS repeating request when not recording so the Camera ISP
      * consumes 0% CPU when off-tab or muted!
      */
-    fun detachPreviewSurface(surfaceTexture: SurfaceTexture? = null) {
-        if (surfaceTexture != null && previewSurfaceTexture != null && previewSurfaceTexture !== surfaceTexture) {
-            AppLogger.d(TAG, "Ignoring detachPreviewSurface for stale surfaceTexture")
+    fun detachPreviewSurface(surface: Surface? = null) {
+        if (surface != null && previewSurface != null && previewSurface !== surface) {
+            AppLogger.d(TAG, "Ignoring detachPreviewSurface for stale Surface")
             return
         }
-        AppLogger.i(TAG, "Detaching preview surface (user switched tabs or muted preview)")
+        AppLogger.i(TAG, "Detaching preview surface (SurfaceHolder destroyed)")
         stopLuminanceAnalyzer()
         previewTextureViewRef = null
         isPreviewActive = false
+        previewSurface = null
 
         if (!isRecordingVideo && !isPendingVideoRecording) {
             backgroundHandler?.post {
@@ -499,14 +508,11 @@ class CameraEngine(private val context: Context) {
                         captureSession?.stopRepeating()
                         isRepeatingActive = false
                         _engineState.value = CameraEngineState.Closed
-                        AppLogger.i(TAG, "Paused CameraCaptureSession repeating request (ISP idle while off-tab/muted)")
                     } catch (e: Exception) {
                         AppLogger.w(TAG, "Could not pause repeating request on detach: ${e.message}")
                     }
                 }
             }
-        } else {
-            AppLogger.i(TAG, "Preserving active CameraCaptureSession repeating request for ongoing recording")
         }
     }
 

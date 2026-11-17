@@ -7,7 +7,7 @@ import android.content.res.Configuration
 import android.graphics.SurfaceTexture
 import android.view.TextureView
 import android.view.WindowManager
-import com.bajajauto.roadsense.camera.AutoFitTextureView
+import com.bajajauto.roadsense.ui.components.bindPersistentCameraViewport
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -131,8 +131,12 @@ private fun SbsCameraFeedPane(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val radarFrameState = viewModel.latestFrame.collectAsState()
-    val effectiveFrameProducer: () -> RadarFrame? = frameProducer ?: { radarFrameState.value }
+    val effectiveFrameProducer: () -> RadarFrame? = if (frameProducer != null) {
+        remember(frameProducer) { frameProducer }
+    } else {
+        val radarFrameState = viewModel.latestFrame.collectAsState()
+        remember(radarFrameState) { { radarFrameState.value } }
+    }
     val engineState by viewModel.cameraEngineState.collectAsState()
     val selectedCamera by viewModel.selectedCamera.collectAsState()
     val selectedRes by viewModel.selectedResolution.collectAsState()
@@ -175,7 +179,7 @@ private fun SbsCameraFeedPane(
 
     Card(
         modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF11141C)),
+        colors = CardDefaults.cardColors(containerColor = if (shouldRenderPreview) Color.Transparent else Color(0xFF11141C)),
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(
@@ -336,12 +340,12 @@ private fun SbsCameraFeedPane(
 
             Spacer(modifier = Modifier.height(4.dp))
 
-            // Viewfinder Surface Box (no RoundedCornerShape clip to avoid offscreen FBO stencil pass)
+            // Viewfinder Surface Box (transparent hole for persistent SurfaceView)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .background(Color(0xFF090B10)),
+                    .background(if (shouldRenderPreview) Color.Transparent else Color(0xFF090B10)),
                 contentAlignment = Alignment.Center
             ) {
                 if (shouldRenderPreview) {
@@ -352,69 +356,22 @@ private fun SbsCameraFeedPane(
                         selectedRes.height.toFloat() / selectedRes.width.toFloat()
                     }
                     Box(
-                        modifier = Modifier.aspectRatio(cameraAspect),
+                        modifier = Modifier
+                            .aspectRatio(cameraAspect)
+                            .bindPersistentCameraViewport(
+                                slotId = "Sbs",
+                                active = shouldRenderPreview,
+                                displayRotation = displayRotation,
+                                onViewportSized = { w, h ->
+                                    if (previewWidth != w || previewHeight != h) {
+                                        previewWidth = w
+                                        previewHeight = h
+                                    }
+                                }
+                            ),
                         contentAlignment = Alignment.Center
                     ) {
-                        AndroidView(
-                            factory = { ctx ->
-                                AutoFitTextureView(ctx).apply {
-                                    val res = viewModel.cameraEngine.selectedResolution.value
-                                    setAspectRatio(res.width, res.height, displayRotation)
-                                    val persistent = viewModel.cameraEngine.persistentSurfaceTexture
-                                    if (persistent != null && !persistent.isReleased) {
-                                        try {
-                                            setSurfaceTexture(persistent)
-                                        } catch (e: Exception) {
-                                            AppLogger.w("SbsDashboardCard", "Could not reuse persistent SurfaceTexture: ${e.message}")
-                                        }
-                                    }
-                                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                                        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                                            previewWidth = width
-                                            previewHeight = height
-                                            viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
-                                            viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                                            viewModel.updateCameraIntrinsics(width, height)
-                                        }
-
-                                        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-                                            previewWidth = width
-                                            previewHeight = height
-                                            viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
-                                            viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                                            viewModel.updateCameraIntrinsics(width, height)
-                                        }
-
-                                        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                                            viewModel.cameraEngine.detachPreviewSurface(surface)
-                                            return false
-                                        }
-
-                                        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-                                    }
-                                }
-                            },
-                            update = { textureView ->
-                                val res = viewModel.cameraEngine.selectedResolution.value
-                                textureView.setAspectRatio(res.width, res.height, displayRotation)
-                                if (textureView.isAvailable) {
-                                    val sizeChanged = previewWidth != textureView.width || previewHeight != textureView.height
-                                    if (sizeChanged) {
-                                        previewWidth = textureView.width
-                                        previewHeight = textureView.height
-                                    }
-                                    val st = textureView.surfaceTexture
-                                    if (shouldRenderPreview && st != null && (engineState is CameraEngineState.Closed || !viewModel.cameraEngine.isSurfaceAttached(st))) {
-                                        viewModel.cameraEngine.attachPreviewSurface(st, textureView.width, textureView.height)
-                                    }
-                                    if (sizeChanged) {
-                                        viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
-                                        viewModel.updateCameraIntrinsics(textureView.width, textureView.height)
-                                    }
-                                }
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        Spacer(modifier = Modifier.fillMaxSize())
 
                         if (isRadarOverlayEnabled) {
                             ViewfinderRadarOverlay(

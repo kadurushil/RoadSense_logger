@@ -24,7 +24,20 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import android.view.SurfaceHolder
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.viewinterop.AndroidView
+import com.bajajauto.roadsense.camera.AutoFitSurfaceView
+import com.bajajauto.roadsense.ui.components.LocalPersistentCameraViewport
+import com.bajajauto.roadsense.ui.components.PersistentCameraViewportState
+import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -160,11 +173,81 @@ fun RoadSenseCockpitScreen(
         }
     }
 
+    val viewportState = remember { PersistentCameraViewportState() }
+    var rootOriginInWindow by remember { mutableStateOf(IntOffset.Zero) }
+    val density = LocalDensity.current
+    val selectedRes by viewModel.selectedResolution.collectAsState()
+    val isActiveViewport = viewportState.isActive
+    val viewportBounds = viewportState.boundsInWindow
+    val relX = if (isActiveViewport) viewportBounds.left - rootOriginInWindow.x else 0
+    val relY = if (isActiveViewport) viewportBounds.top - rootOriginInWindow.y else 0
+    val targetW = if (isActiveViewport) viewportBounds.width else 1
+    val targetH = if (isActiveViewport) viewportBounds.height else 1
+
+    CompositionLocalProvider(LocalPersistentCameraViewport provides viewportState) {
     Box(
         modifier = modifier
             .fillMaxSize()
+            .onGloballyPositioned { coords ->
+                val p = coords.positionInWindow()
+                rootOriginInWindow = IntOffset(p.x.roundToInt(), p.y.roundToInt())
+            }
             .then(if (!hasSpokenScreenReader) Modifier.clearAndSetSemantics {} else Modifier)
     ) {
+        // Single Persistent AutoFitSurfaceView Host (Point 1 + Point 2):
+        // Renders Camera2 directly onto SurfaceFlinger HWC overlay plane (0ms HWUI GPU copy)
+        // and stays attached across Camera, SBS, Fullscreen, Calibration, and non-camera tabs.
+        AndroidView(
+            factory = { ctx ->
+                AutoFitSurfaceView(ctx).apply {
+                    holder.addCallback(object : SurfaceHolder.Callback {
+                        override fun surfaceCreated(holder: SurfaceHolder) {
+                            val res = viewModel.cameraEngine.selectedResolution.value
+                            holder.setFixedSize(res.width, res.height)
+                            if (viewportState.isActive) {
+                                viewModel.cameraEngine.attachPreviewSurface(
+                                    holder.surface,
+                                    viewportState.boundsInWindow.width,
+                                    viewportState.boundsInWindow.height
+                                )
+                            }
+                        }
+
+                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                            if (viewportState.isActive && width > 1 && height > 1) {
+                                viewModel.cameraEngine.attachPreviewSurface(holder.surface, width, height)
+                                viewModel.updateCameraDisplayRotation(viewportState.displayRotation, width = width, height = height)
+                                viewModel.updateCameraIntrinsics(width, height)
+                            }
+                        }
+
+                        override fun surfaceDestroyed(holder: SurfaceHolder) {
+                            viewModel.cameraEngine.detachPreviewSurface(holder.surface)
+                        }
+                    })
+                }
+            },
+            update = { surfaceView ->
+                surfaceView.holder.setFixedSize(selectedRes.width, selectedRes.height)
+                if (isActiveViewport) {
+                    surfaceView.setAspectRatio(selectedRes.width, selectedRes.height, viewportState.displayRotation)
+                    val surface = surfaceView.holder.surface
+                    if (surface != null && surface.isValid) {
+                        viewModel.cameraEngine.attachPreviewSurface(surface, targetW, targetH)
+                        viewModel.updateCameraDisplayRotation(viewportState.displayRotation, width = targetW, height = targetH)
+                        viewModel.updateCameraIntrinsics(targetW, targetH)
+                    }
+                } else {
+                    viewModel.cameraEngine.setPreviewPaused(true)
+                }
+            },
+            modifier = Modifier
+                .offset { IntOffset(relX, relY) }
+                .size(
+                    width = with(density) { targetW.toDp() },
+                    height = with(density) { targetH.toDp() }
+                )
+        )
         if (isCameraFullScreen) {
             FullscreenCameraPreview(
                 viewModel = viewModel,
@@ -245,6 +328,7 @@ fun RoadSenseCockpitScreen(
         ) {
             LaunchBuildOverlay(onDismiss = { showLaunchOverlay = false })
         }
+    }
     }
 }
 

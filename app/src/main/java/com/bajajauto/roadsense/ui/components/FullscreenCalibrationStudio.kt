@@ -9,7 +9,7 @@ import android.graphics.Typeface
 import android.view.Surface
 import android.view.TextureView
 import android.view.WindowManager
-import com.bajajauto.roadsense.camera.AutoFitTextureView
+import com.bajajauto.roadsense.ui.components.bindPersistentCameraViewport
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -85,13 +85,14 @@ fun FullscreenCalibrationStudio(
     val isRadarArcsEnabled by viewModel.isRadarArcsEnabled.collectAsState()
     val isLiveImuHorizonEnabled by viewModel.isLiveImuHorizonEnabled.collectAsState()
     val radarFrameState = viewModel.latestFrame.collectAsState()
+    val imuTelemetryState = viewModel.imuTelemetry.collectAsState()
 
-    // Pure functional provider: dynamically evaluates active display parameters at draw time
-    // without triggering recomposition of FullscreenCalibrationStudio root when IMU updates at 30 Hz
-    val activeDisplayParamsProvider = remember(calibrationParams, isLiveImuHorizonEnabled) {
+    // Pure functional provider: reads Compose Snapshot State inside Canvas draw scope
+    // so only the Canvas draw phase invalidates at 30 Hz without recomposing the studio root.
+    val activeDisplayParamsProvider = remember(calibrationParams, isLiveImuHorizonEnabled, imuTelemetryState) {
         {
             if (isLiveImuHorizonEnabled) {
-                val imu = viewModel.imuTelemetry.value
+                val imu = imuTelemetryState.value
                 calibrationParams.copy(
                     pitchDeg = imu.pitchDeg,
                     rollDeg = imu.rollDeg,
@@ -142,72 +143,37 @@ fun FullscreenCalibrationStudio(
         abs(calibrationParams.lateralOffsetM - savedBaseline!!.lateralOffsetM) > 0.01f
     }
 
+    val selectedRes by viewModel.selectedResolution.collectAsState()
+    val isLandscape = displayRotation == android.view.Surface.ROTATION_90 || displayRotation == android.view.Surface.ROTATION_270
+    val cameraAspect = if (isLandscape) {
+        selectedRes.width.toFloat() / selectedRes.height.toFloat()
+    } else {
+        selectedRes.height.toFloat() / selectedRes.width.toFloat()
+    }
+
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color.Black),
+        modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        // Viewport Box: Houses camera preview and all spatial projection overlays edge-to-edge
+        // Viewport Box: Houses persistent SurfaceView bounds and spatial projection overlays
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.aspectRatio(cameraAspect),
             contentAlignment = Alignment.Center
         ) {
-            // 1. Edge-to-Edge Camera Viewfinder (Rotated according to display orientation, strict 16:9 Fit)
-            AndroidView(
-                factory = { ctx ->
-                    AutoFitTextureView(ctx).apply {
-                        val res = viewModel.cameraEngine.selectedResolution.value
-                        setAspectRatio(res.width, res.height, displayRotation)
-                        val persistent = viewModel.cameraEngine.persistentSurfaceTexture
-                        if (persistent != null && !persistent.isReleased) {
-                            try {
-                                setSurfaceTexture(persistent)
-                            } catch (e: Exception) {
-                                AppLogger.w("FullscreenCalibrationStudio", "Could not reuse persistent SurfaceTexture: ${e.message}")
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .bindPersistentCameraViewport(
+                        slotId = "FullscreenCalibration",
+                        active = true,
+                        displayRotation = displayRotation,
+                        onViewportSized = { w, h ->
+                            if (studioWidth != w || studioHeight != h) {
+                                studioWidth = w
+                                studioHeight = h
                             }
                         }
-                        surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                            override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                                studioWidth = width
-                                studioHeight = height
-                                viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
-                                viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                                viewModel.updateCameraIntrinsics(width, height)
-                            }
-
-                            override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-                                studioWidth = width
-                                studioHeight = height
-                                viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
-                                viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                                viewModel.updateCameraIntrinsics(width, height)
-                            }
-
-                            override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                                viewModel.cameraEngine.detachPreviewSurface(surface)
-                                return false
-                            }
-
-                            override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-                        }
-                    }
-                },
-                update = { textureView ->
-                    val res = viewModel.cameraEngine.selectedResolution.value
-                    textureView.setAspectRatio(res.width, res.height, displayRotation)
-                    if (textureView.isAvailable) {
-                        studioWidth = textureView.width
-                        studioHeight = textureView.height
-                        val st = textureView.surfaceTexture
-                        if (st != null && !viewModel.cameraEngine.isSurfaceAttached(st)) {
-                            viewModel.cameraEngine.attachPreviewSurface(st, textureView.width, textureView.height)
-                        }
-                        viewModel.updateCameraDisplayRotation(displayRotation, textureView, textureView.width, textureView.height)
-                        viewModel.updateCameraIntrinsics(textureView.width, textureView.height)
-                    }
-                },
-                modifier = Modifier.fillMaxSize()
+                    )
             )
 
             // 2. Reverse-Camera Style Ground Guidelines, Distance Ladder & Horizon Line (Isolated Leaf)

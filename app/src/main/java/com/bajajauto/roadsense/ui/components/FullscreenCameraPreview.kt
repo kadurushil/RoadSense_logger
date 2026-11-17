@@ -28,7 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import com.bajajauto.roadsense.camera.AutoFitTextureView
+import com.bajajauto.roadsense.ui.components.bindPersistentCameraViewport
 import com.bajajauto.roadsense.camera.CameraEngineState
 import com.bajajauto.roadsense.camera.RoadAeMode
 import com.bajajauto.roadsense.camera.RoadAeState
@@ -85,71 +85,24 @@ fun FullscreenCameraPreview(
     }
 
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color.Black),
+        modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        // 1. Edge-to-Edge Camera Viewfinder (Strict 16:9 Fit without stretching)
-        AndroidView(
-            factory = { ctx ->
-                AutoFitTextureView(ctx).apply {
-                    val res = viewModel.cameraEngine.selectedResolution.value
-                    setAspectRatio(res.width, res.height, displayRotation)
-                    val persistent = viewModel.cameraEngine.persistentSurfaceTexture
-                    if (persistent != null && !persistent.isReleased) {
-                        try {
-                            setSurfaceTexture(persistent)
-                        } catch (e: Exception) {
-                            AppLogger.w("FullscreenCameraPreview", "Could not reuse persistent SurfaceTexture: ${e.message}")
+        // 1. Aspect-matched transparent viewport slot bound to persistent SurfaceView host
+        Box(
+            modifier = Modifier
+                .aspectRatio(cameraAspect)
+                .bindPersistentCameraViewport(
+                    slotId = "FullscreenCamera",
+                    active = true,
+                    displayRotation = displayRotation,
+                    onViewportSized = { w, h ->
+                        if (previewWidth != w || previewHeight != h) {
+                            previewWidth = w
+                            previewHeight = h
                         }
                     }
-                    surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-                        override fun onSurfaceTextureAvailable(surface: SurfaceTexture, width: Int, height: Int) {
-                            previewWidth = width
-                            previewHeight = height
-                            viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
-                            viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                            viewModel.updateCameraIntrinsics(width, height)
-                        }
-
-                        override fun onSurfaceTextureSizeChanged(surface: SurfaceTexture, width: Int, height: Int) {
-                            previewWidth = width
-                            previewHeight = height
-                            viewModel.cameraEngine.attachPreviewSurface(surface, width, height)
-                            viewModel.updateCameraDisplayRotation(displayRotation, this@apply, width, height)
-                            viewModel.updateCameraIntrinsics(width, height)
-                        }
-
-                        override fun onSurfaceTextureDestroyed(surface: SurfaceTexture): Boolean {
-                            viewModel.cameraEngine.detachPreviewSurface(surface)
-                            return false
-                        }
-
-                        override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {}
-                    }
-                }
-            },
-            update = { textureView ->
-                val res = viewModel.cameraEngine.selectedResolution.value
-                textureView.setAspectRatio(res.width, res.height, displayRotation)
-                if (textureView.isAvailable) {
-                    val w = textureView.width
-                    val h = textureView.height
-                    val st = textureView.surfaceTexture
-                    if (st != null && !viewModel.cameraEngine.isSurfaceAttached(st)) {
-                        viewModel.cameraEngine.attachPreviewSurface(st, w, h)
-                        viewModel.updateCameraDisplayRotation(displayRotation, textureView, w, h)
-                        viewModel.updateCameraIntrinsics(w, h)
-                    } else if (previewWidth != w || previewHeight != h) {
-                        previewWidth = w
-                        previewHeight = h
-                        viewModel.updateCameraDisplayRotation(displayRotation, textureView, w, h)
-                        viewModel.updateCameraIntrinsics(w, h)
-                    }
-                }
-            },
-            modifier = Modifier.aspectRatio(cameraAspect)
+                )
         )
 
         // 2. Tap-to-Focus Layer
