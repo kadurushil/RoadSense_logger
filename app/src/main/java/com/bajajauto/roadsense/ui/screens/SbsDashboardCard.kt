@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -163,23 +164,30 @@ private fun SbsCameraFeedPane(
 
     val isCameraFullScreen by viewModel.isCameraFullScreen.collectAsState()
     val isCalibrationFullScreen by viewModel.isCalibrationFullScreen.collectAsState()
+    val isSbsFullScreen by viewModel.isSbsFullScreen.collectAsState()
 
     // Render preview only when this tab is active, not covered by fullscreen, and permitted/unmuted.
     val shouldRenderPreview by remember(
         isCameraFullScreen,
         isCalibrationFullScreen,
+        isSbsFullScreen,
         isPreviewMutedByUser,
         hasCameraPermission,
         isCurrentTabProvider
     ) {
         derivedStateOf {
             !isCameraFullScreen && !isCalibrationFullScreen && !isPreviewMutedByUser && hasCameraPermission && isCurrentTabProvider()
+            !isCameraFullScreen && !isCalibrationFullScreen && !isSbsFullScreen && !isPreviewMutedByUser && hasCameraPermission && isCurrentTabProvider()
         }
     }
 
     Card(
         modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = if (shouldRenderPreview) Color.Transparent else Color(0xFF11141C)),
+        colors = CardDefaults.cardColors(
+            containerColor = if (shouldRenderPreview) Color.Transparent else Color(
+                0xFF11141C
+            )
+        ),
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(
@@ -221,6 +229,19 @@ private fun SbsCameraFeedPane(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Immersive Fullscreen SBS Toggle
+                    IconButton(
+                        onClick = { viewModel.setSbsFullScreen(true) },
+                        modifier = Modifier.size(22.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Fullscreen,
+                            contentDescription = "Immersive SBS Fullscreen",
+                            tint = Color(0xFF80D8FF),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
                     // Mute / Pause Preview Toggle
                     IconButton(
                         onClick = { viewModel.setCameraPreviewMuted(!isPreviewMutedByUser) },
@@ -349,7 +370,8 @@ private fun SbsCameraFeedPane(
                 contentAlignment = Alignment.Center
             ) {
                 if (shouldRenderPreview) {
-                    val isLandscape = displayRotation == android.view.Surface.ROTATION_90 || displayRotation == android.view.Surface.ROTATION_270
+                    val isLandscape =
+                        displayRotation == android.view.Surface.ROTATION_90 || displayRotation == android.view.Surface.ROTATION_270
                     val cameraAspect = if (isLandscape) {
                         selectedRes.width.toFloat() / selectedRes.height.toFloat()
                     } else {

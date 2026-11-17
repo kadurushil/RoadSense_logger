@@ -153,6 +153,7 @@ fun RoadSenseCockpitScreen(
 ) {
     val isCalibrationFullScreen by viewModel.isCalibrationFullScreen.collectAsState()
     val isCameraFullScreen by viewModel.isCameraFullScreen.collectAsState()
+    val isSbsFullScreen by viewModel.isSbsFullScreen.collectAsState()
     var showSyncDialog by remember { mutableStateOf(false) }
     var showLaunchOverlay by rememberSaveable { mutableStateOf(true) }
 
@@ -285,6 +286,12 @@ fun RoadSenseCockpitScreen(
             FullscreenCalibrationStudio(
                 viewModel = viewModel,
                 onExit = { viewModel.setCalibrationFullScreen(false) },
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (isSbsFullScreen) {
+            com.bajajauto.roadsense.ui.components.FullscreenSbsPreview(
+                viewModel = viewModel,
+                onExit = { viewModel.setSbsFullScreen(false) },
                 modifier = Modifier.fillMaxSize()
             )
         } else {

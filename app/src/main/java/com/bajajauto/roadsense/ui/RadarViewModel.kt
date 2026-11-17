@@ -158,6 +158,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val _isCameraFullScreen = MutableStateFlow(false)
     val isCameraFullScreen: StateFlow<Boolean> = _isCameraFullScreen.asStateFlow()
 
+    private val _isSbsFullScreen = MutableStateFlow(false)
+    val isSbsFullScreen: StateFlow<Boolean> = _isSbsFullScreen.asStateFlow()
+
     private val _isRadarOverlayEnabled = MutableStateFlow(true)
     val isRadarOverlayEnabled: StateFlow<Boolean> = _isRadarOverlayEnabled.asStateFlow()
 
@@ -915,6 +918,11 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     fun setCameraFullScreen(enabled: Boolean) {
         _isCameraFullScreen.value = enabled
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "Camera fullscreen set to $enabled")
+    }
+
+    fun setSbsFullScreen(enabled: Boolean) {
+        _isSbsFullScreen.value = enabled
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "SBS fullscreen set to $enabled")
     }
 
     fun toggleRadarOverlay() {

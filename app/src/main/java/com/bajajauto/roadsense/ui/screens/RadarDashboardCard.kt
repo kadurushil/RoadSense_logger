@@ -32,7 +32,7 @@ import com.bajajauto.roadsense.ui.components.RadarBevPlot
  *     on the left pane (no vertical scrolling required), and streamlined diagnostics/controls
  *     on the right pane.
  *   - Portrait: Clean vertical card deck with full-width radar plot and diagnostics.
- * - Displays 2D Cartesian BEV plot with dynamic range scaling (15m, 30m, 60m, 130m).
+ * - Displays 2D Cartesian BEV plot with dynamic range scaling (15m, 30m, 60m, 100m, 150m).
  * - Streamlined Hardware Status with single-line TLV, Points, Tracks, Clusters, and Sequence metrics.
  * - Hardware connection controls. (Target HUD removed to eliminate Main-thread layout stalls;
  *   Hex stream preview container hidden per user workflow).

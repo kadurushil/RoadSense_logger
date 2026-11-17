@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -100,14 +101,30 @@ fun RadarBevPlot(
     frame: RadarFrame? = null,
     frameProducer: (() -> RadarFrame?)? = null,
     modifier: Modifier = Modifier,
-    isLandscape: Boolean = false
+    isLandscape: Boolean = false,
+    showChrome: Boolean = true
 ) {
     val maxRangeMeters by viewModel.radarMaxRange.collectAsState()
     val dynamicOnly by viewModel.radarDynamicOnly.collectAsState()
     val minSnrFilter by viewModel.radarMinSnr.collectAsState()
     val debugState by viewModel.debugToggleState.collectAsState()
+
+    if (!showChrome) {
+        RadarBevCanvas(
+            viewModel = viewModel,
+            staticFrame = frame,
+            frameProducer = frameProducer,
+            maxRangeMeters = maxRangeMeters,
+            dynamicOnly = dynamicOnly,
+            minSnrFilter = minSnrFilter,
+            debugState = debugState,
+            modifier = modifier.background(Color(0xFF090B10))
+        )
+        return
+    }
+
     var showBenchStrip by remember(isLandscape) { mutableStateOf(!isLandscape) }
-    val rangeOptions = remember { listOf(15f, 30f, 60f, 130f) }
+    val rangeOptions = remember { listOf(15f, 30f, 60f, 100f, 150f) }
 
     Card(
         modifier = modifier,
@@ -145,7 +162,7 @@ fun RadarBevPlot(
                             .padding(end = 6.dp)
                     )
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
                     ) {
                         rangeOptions.forEach { range ->
                             val isSelected = maxRangeMeters == range
@@ -158,7 +175,7 @@ fun RadarBevPlot(
                                 border = if (isSelected) null else BorderStroke(1.dp, Color(0xFF37474F)),
                                 modifier = Modifier.height(26.dp)
                             ) {
-                                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 8.dp)) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 6.dp)) {
                                     Text(
                                         text = "${range.toInt()}m",
                                         fontSize = 11.sp,
@@ -484,7 +501,7 @@ private fun RadarBevCanvas(
     val geometry = remember { BevGeometryCache() }
     val timingState = remember { BevDrawTimingState() }
 
-    Box(modifier = modifier) {
+    Box(modifier = modifier.clipToBounds()) {
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -501,7 +518,9 @@ private fun RadarBevCanvas(
             val usableHeight = originY - 16f
 
             // 1:1 Metric Scale (pixels per meter)
-            val scale = usableHeight / maxRangeMeters
+            val halfWidth = ((canvasWidth / 2f) - 12f).coerceAtLeast(1f)
+            val maxLateralMeters = maxRangeMeters * 0.8660254f // sin(60°) so full ±60° FOV fits horizontally
+            val scale = minOf(usableHeight / maxRangeMeters, halfWidth / maxLateralMeters)
 
             // 1-5. Static Grid, Range Rings & Ego Marker (cached into offscreen ImageBitmap once per resize/range)
             val wInt = canvasWidth.toInt()
@@ -522,7 +541,7 @@ private fun RadarBevCanvas(
                     ) {
                         if (showGrid) {
                             val fovRad = Math.toRadians(60.0).toFloat()
-                            val fovLen = usableHeight * 1.15f
+                            val fovLen = kotlin.math.hypot(canvasWidth / 2f, originY)
                             val fovLeftX = originX - sin(fovRad) * fovLen
                             val fovLeftY = originY - cos(fovRad) * fovLen
                             val fovRightX = originX + sin(fovRad) * fovLen
@@ -544,7 +563,7 @@ private fun RadarBevCanvas(
                                 else -> 25f
                             }
                             var ringDist = ringStep
-                            while (ringDist <= maxRangeMeters) {
+                            while (ringDist <= (usableHeight / scale) + 0.01f) {
                                 val radius = ringDist * scale
                                 val top = originY - radius
                                 val left = originX - radius

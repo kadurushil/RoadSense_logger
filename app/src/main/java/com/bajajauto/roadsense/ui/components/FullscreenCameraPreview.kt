@@ -440,7 +440,7 @@ private fun FullscreenRoadAeBadge(
  * without recomposing the Fullscreen top action pill.
  */
 @Composable
-private fun FullscreenRecordButton(
+internal fun FullscreenRecordButton(
     viewModel: RadarViewModel
 ) {
     val sessionRecordingState by viewModel.sessionRecordingState.collectAsState()

@@ -44,7 +44,7 @@ class AppPreferences(context: Context) {
         set(value) = prefs.edit().putString(KEY_CANEDGE_DEVICE_ID, value).apply()
 
     var radarMaxRange: Float
-        get() = prefs.getFloat(KEY_RADAR_MAX_RANGE, 30f)
+        get() = prefs.getFloat(KEY_RADAR_MAX_RANGE, 30f).let { if (it == 130f) 150f else it }
         set(value) = prefs.edit().putFloat(KEY_RADAR_MAX_RANGE, value).apply()
 
     var radarDynamicOnly: Boolean
