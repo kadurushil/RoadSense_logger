@@ -1,7 +1,7 @@
 # RoadSense Implementation Plans & Walkthroughs Index
 
 > **Total Documents:** 145 files (`01_`?`99_` chronological pairs across 8 subsystem folders)  
-> **Last Reorganized:** 2026-11-16
+> **Last Reorganized:** 2026-11-17
 
 ## 1. Subsystem Folders (Quick Navigation)
 
@@ -169,3 +169,4 @@
 | 100 | 2026-11-16 | `06_UI_AND_PERFORMANCE` | [`100_high_performance_ui_and_threading_overhaul_plan.md`](06_UI_AND_PERFORMANCE/100_high_performance_ui_and_threading_overhaul_plan.md) | `26cd3dc` |
 | 101 | 2026-11-17 | `06_UI_AND_PERFORMANCE` | [`101_surfaceview_and_overlay_dedup_plan.md`](06_UI_AND_PERFORMANCE/101_surfaceview_and_overlay_dedup_plan.md) | `0c5e146` |
 | 102 | 2026-11-17 | `06_UI_AND_PERFORMANCE` | [`102_ui_surfaceview_and_vsync_overhaul_walkthrough.md`](06_UI_AND_PERFORMANCE/102_ui_surfaceview_and_vsync_overhaul_walkthrough.md) | `b866676` |
+| 103 | 2026-11-17 | `06_UI_AND_PERFORMANCE` | [`103_immersive_sbs_bev_scaling_and_intrinsics_fix_walkthrough.md`](06_UI_AND_PERFORMANCE/103_immersive_sbs_bev_scaling_and_intrinsics_fix_walkthrough.md) | `0d9840e` |

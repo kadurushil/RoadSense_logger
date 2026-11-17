@@ -3,7 +3,7 @@
 > **Document Name:** `08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md`  
 > **Location:** `context/08_RADAR_CAMERA_SPATIAL_CALIBRATION_AND_FUSION.md`  
 > **Audience:** Autonomous AI Coding Agents, Perception Engineers & ADAS Researchers  
-> **Last Updated:** September 22, 2026  
+> **Last Updated:** November 17, 2026  
 
 ---
 
@@ -53,6 +53,7 @@ The physical displacement between radar and camera is parameterized by 6 degrees
 Retrieved dynamically at runtime via Android Camera2 `CameraCharacteristics`:
 * **Focal Lengths:** $f_x, f_y$ in pixels, extracted from `LENS_INTRINSIC_CALIBRATION` or calculated from sensor active array size and horizontal field of view ($\text{HFOV}$):
   $$f_x = \frac{W_{\text{pixels}}}{2 \cdot \tan(\text{HFOV} / 2)}, \quad f_y = f_x$$
+* **16:9 ISP Crop Compensation (`CameraIntrinsicsProvider.kt`):** Both `getIntrinsics()` (on-screen viewfinder) and `getStreamIntrinsics()` (saved to `radar_camera_calib.json` for Foxglove `/camera/calib`) compute and subtract the active 4:3-to-16:9 ISP center crop (`cropX`, `cropY`, `cropW`, `cropH`) from `SENSOR_INFO_ACTIVE_ARRAY_SIZE` when `LENS_INTRINSIC_CALIBRATION` is populated by the Camera2 HAL (e.g. `SM-M325F`), preventing uncropped 4:3 `cy = 480` shifts on 720p (`cy = 360`) streams.
 * **Principal Point:** Optical center $c_x = W / 2$, $c_y = H / 2$.
 * **Screen Projection:**
   $$u = f_x \frac{X_c}{Z_c} + c_x, \quad v = f_y \frac{Y_c}{Z_c} + c_y$$
@@ -85,6 +86,7 @@ To prevent the user's finger from visually occluding the target vehicle or retic
 * **`FullscreenCalibrationStudio.kt`:** Dedicated edge-to-edge calibration workbench displaying the camera feed, synthetic target calipers, real-time horizon line, and ground ladder rungs.
 * **`CameraCalibrationCard.kt`:** Expandable configuration card in the Camera dashboard tab providing numeric pitch/yaw/roll sliders, distance dials, and profile resets.
 * **`QuickNudgeBar.kt`:** Floating translucent bottom toolbar with $\pm 0.1^\circ$ and $\pm 0.5^\circ$ micro-step nudge buttons, revert, and persistent save actions.
+* **`FullscreenSbsPreview.kt` & `RadarBevPlot.kt`:** Immersive 50/50 Side-by-Side fullscreen mode (`showChrome = false` on the BEV canvas) with a compact floating top control pill (`Exit`, `HUD`, `Mode`, `Range`, `Quick Settings`, `REC/STOP`). BEV range presets (`15m`, `30m`, `60m`, `100m`, `150m`) constrain scale horizontally by the `±60°` radar FOV cone (`scale = minOf(usableHeight / maxRangeMeters, halfWidth / (maxRangeMeters * sin(60°)))`) with `.clipToBounds()` and full-height range ring / FOV line projection.
 
 ### 4.2 Profile Persistence
 Calibration state is serialized by `CalibrationStorageManager.kt` to:

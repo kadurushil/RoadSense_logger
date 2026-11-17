@@ -36,7 +36,7 @@ graph TD
 
 | Subsystem / Layer | Key Kotlin Classes | Primary Responsibility |
 |---|---|---|
-| **UI Cockpit** | `ui/MainActivity.kt`<br>`ui/RadarViewModel.kt`<br>`ui/screens/*.kt`<br>`ui/components/*.kt` | Multi-tab Compose UI with 7 cockpit tabs: Radar, GNSS, IMU, Camera, CANedge, SBS (Side-by-Side dual feed), and Storage (Session Deck). Features dedicated Fullscreen Camera Viewfinder, Calibration Studio, and Quick Nudge Bar. Exposes single source of truth via `StateFlow`. |
+| **UI Cockpit** | `ui/MainActivity.kt`<br>`ui/RadarViewModel.kt`<br>`ui/screens/*.kt`<br>`ui/components/*.kt` | Multi-tab `KeepAliveTabSlot` Compose UI with 7 cockpit tabs: Radar, GNSS, IMU, Camera, CANedge, SBS (Side-by-Side dual feed), and Storage (Session Deck). Features dedicated Fullscreen Camera Viewfinder, Immersive Fullscreen SBS (`FullscreenSbsPreview.kt`), Calibration Studio, Quick Nudge Bar, and `Choreographer` VSync `RadarDisplayPacer`. Exposes single source of truth via `StateFlow`. |
 | **Session Control** | `recording/SessionManager.kt`<br>`recording/SessionInfo.kt`<br>`recording/SessionTimelineWriter.kt` | Manages active recording sessions, folder initialization, metadata generation, and nanosecond monotonic timestamp events. |
 | **Radar Ingestion** | `radar/service/RadarSerialService.kt`<br>`radar/parser/RadarPacketParser.kt`<br>`radar/model/RadarFrame.kt` | Custom USB FTDI/CDC serial driver operating at 3.125 Mbps. Rings buffers and decodes TLV binary frames into point clouds and clusters. |
 | **IMU & Vehicle Dynamics** | `imu/ImuManager.kt`<br>`imu/ImuSample.kt`<br>`imu/ImuSamplingBenchmark.kt`<br>`ui/screens/ImuDashboardCard.kt` | High-rate 100 Hz STMicroelectronics LSM6DSL 6-DOF IMU, Linear Acceleration without $g$, and Game Rotation Vector. Acquired via dedicated background `HandlerThread` with live empirical rate and timing jitter profiling. |
@@ -154,7 +154,7 @@ Written by `SessionManager.writeMetadata(sessionInfo)` upon session start and fi
     "radar/radar_raw_stream.bin",
     "gnss/gnss_fixes.csv",
     "camera/camera_video.mp4",
-    "camera/camera_frames.csv",
+    "sync/sync_keyframes.csv",
     "can/00000041_00000051.MF4",
     "can/00000041_00000052.MF4",
     "can/00000041_00000053.MF4",

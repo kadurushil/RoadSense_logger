@@ -1866,6 +1866,62 @@ fun testRotatingPhoneToLeftRotatesHorizonLineToRightForPhysicalSync() {
 35. **Lock radar UI display pacing to `Choreographer.doFrame(frameTimeNanos)` with adaptive rate hysteresis:** Software `delay()` timers (even 48–50 ms) beat against Android's `16.67 ms` (60 Hz) VSync when radar hardware runs at non-divisor rates (e.g., `22 Hz` / `45 ms`), causing `17–83 ms` `deltaDrawMs` sawtooths. Gating `RadarDisplayPacer` on `Choreographer`'s `frameTimeNanos` with a `4 ms` VSync snap tolerance and 20-frame hysteresis (`20 Hz` ↔ `30 Hz`) locks UI pacing cleanly across 60/90/120 Hz screens and 10–60 Hz radar rates while keeping JVM unit tests on a coroutine fallback.
 36. **Pin Android Studio Gradle JDK explicitly to Studio's bundled JBR (avoid `kotlin-server` JRE `jlink.exe` failures):** JetBrains' `IntelliJServer/servers/kotlin-server/*/jbr` runtime lacks `jlink.exe`, causing AGP `JdkImageTransform` (`compileDebugJavaWithJavac`) to fail if a Gradle daemon inherits that JRE. Pin Android Studio's Gradle JDK to `android-studio/jbr` and pass `--no-daemon` in automated CLI verification.
 
+---
+
+## Bug #33: Fullscreen SBS BEV Lateral Ring Clipping & Unfilled Upper Range Canvas Space
+
+### Symptoms
+* After entering Immersive Fullscreen SBS mode (`FullscreenSbsPreview.kt`, commit `94d6ffc`), the BEV Scope became nearly square (`~1:1` aspect ratio instead of ~2.5:1 wide), causing outer range arcs (`75m`, `100m`, `125m`) to clip off the left and right edges of the BEV pane.
+* Once lateral `±60°` scaling was applied, empty black vertical space remained above `maxRangeMeters` (e.g., above `60m` in 60 m mode and above `130m` in 130 m mode) because the arc loop terminated at `maxRangeMeters`.
+
+### Root Cause
+1. `RadarBevCanvas` calculated `scale = usableHeight / maxRangeMeters` strictly from vertical canvas height, ignoring `canvasWidth`. A full `180°` semicircle or `±60°` FOV cone spans up to `2 * R * sin(60°)` horizontally, exceeding `canvasWidth` whenever `canvasHeight` grows relative to width.
+2. The ring loop (`while (ringDist <= maxRangeMeters)`) and FOV guide length (`fovLen = maxRangeMeters * scale * 1.05f`) stopped at `maxRangeMeters` instead of filling `(usableHeight / scale)`.
+
+### Resolution (`94d6ffc`)
+* **Horizontal `±60°` FOV Constraint + Clipping:** Constrained `scale = minOf(usableHeight / maxRangeMeters, halfWidth / (maxRangeMeters * 0.8660254f))` and added `.clipToBounds()` to `RadarBevCanvas`.
+* **Full-Height Grid Extension:** Extended the ring loop to `while (ringDist <= (usableHeight / scale) + 0.01f)` and FOV rays to `hypot(canvasWidth / 2f, originY)`.
+* **Zoom Presets Update:** Added `100m` and changed `130m` -> `150m` across `RadarBevPlot.kt`, `FullscreenSbsPreview.kt`, `RadarDashboardCard.kt`, and `AppPreferences.kt` (with `130f -> 150f` migration).
+
+---
+
+## Bug #34: Missing `/camera/video` and `/sync/frame_info` Topics in MCAP After `camera_frames.csv` Removal
+
+### Symptoms
+* Converting newer Phase 3+ sessions (e.g., `session_20261117_143826`) with `tools/convert_session_to_mcap.py` produced valid `/radar/*`, `/imu/*`, `/gnss/*`, `/tf`, and `/camera/calib` topics, but **0 messages** for `/camera/video` and `/sync/frame_info`, even though `camera/camera_video.mp4` (`9,562` frames) and `MasterTimelineSynchronizer` (`9,560` sync events) loaded successfully.
+
+### Root Cause
+* Phase 3 intentionally eliminated redundant 30 Hz `camera/camera_frames.csv` disk writes in favor of `session_timeline.csv` and `sync/sync_keyframes.csv`.
+* However, `tools/convert_session_to_mcap.py` still gated video ingestion on `os.path.isfile(frames_csv)` at both the caller guard and inside `parse_camera_video_frames()`, silently skipping MP4 demuxing whenever `camera_frames.csv` was absent.
+
+### Resolution (`0d9840e`)
+* Updated `parse_camera_video_frames()` and the MCAP `/camera/video` ingestion guard in `tools/convert_session_to_mcap.py` to require `(sync_master is not None or os.path.isfile(frames_csv))`, making `camera_frames.csv` optional when `MasterTimelineSynchronizer` is active.
+* **Verification:** Re-converting `session_20261117_143826` restored all `9,562` `/camera/video` frames and `9,562` `/sync/frame_info` records in `7.33s`.
+
+---
+
+## Bug #35: Foxglove `/camera/calib` 120 px Vertical Offset (`cy = 480` on 720p) on Devices Exposing `LENS_INTRINSIC_CALIBRATION` (`SM-M325F`)
+
+### Symptoms
+* On older `HARDWARE_LEVEL_LIMITED` phones, on-device Calibration Studio baseline saves aligned identically inside Foxglove (`/camera/calib` + `/tf`).
+* On the Galaxy M32 (`SM-M325F`), saving calibration on the phone aligned correctly on-screen, but projected radar tracks inside Foxglove showed a large vertical offset (~`7.5°`), disappearing when overridden with a Foxglove script setting `baseCy = 360.0`.
+
+### Root Cause
+* Older phones had `CameraCharacteristics.LENS_INTRINSIC_CALIBRATION == null`, so `CameraIntrinsicsProvider.getStreamIntrinsics()` fell through to physical sensor size calculation, centering `(cx, cy)` at `(640, 360)` for `1280×720`.
+* The M32 HAL exposes `LENS_INTRINSIC_CALIBRATION` on its full 4:3 active sensor array. While on-screen `getIntrinsics()` properly subtracted the 4:3-to-16:9 ISP center crop (`cropX`, `cropY`), `getStreamIntrinsics()` (which populates `radar_camera_calib.json` for Foxglove) skipped the 16:9 crop calculation (`cropY = activeRect.top = 0`).
+* This wrote `"cy": 480.0` (center of uncropped 4:3 `1280×960`) into `radar_camera_calib.json` and `session_debug.log` (`Stream LENS_INTRINSIC_CALIBRATION: fx=909.54034, fy=909.5404, cx=640.0, cy=480.0`) for a `1280×720` video, shifting vertical projection by `atan(120 / 909.54) ≈ 7.5°`.
+
+### Resolution (`0d9840e`)
+* Applied the exact 4:3-to-16:9 ISP crop (`cropW`, `cropH`, `cropX`, `cropY`) from `SENSOR_INFO_ACTIVE_ARRAY_SIZE` inside `CameraIntrinsicsProvider.getStreamIntrinsics()`.
+* **Verification:** Patched `logs/session_20261117_143826/radar_camera_calib.json` (`cy = 360`) and regenerated the MCAP; Foxglove alignment matched immediately without manual calibration script overrides.
+
+---
+
+### Additional Engineering Rules (37–39)
+37. **Constrain 2D BEV metric scale by both height and `±60°` FOV half-width, while extending range arcs through `(usableHeight / scale)`:** Preventing horizontal clipping on tall SBS panes keeps range contours readable while utilizing vertical headroom.
+38. **Keep PC converters (`convert_session_to_mcap.py`) decoupled from deprecated `camera_frames.csv` when `MasterTimelineSynchronizer` is active:** Always treat legacy CSVs as fallbacks rather than hard gates for `/camera/video`.
+39. **Apply identical 4:3-to-16:9 ISP crop offsets (`cropX`, `cropY`) to both UI viewport intrinsics and saved Foxglove stream intrinsics:** Any device exposing `LENS_INTRINSIC_CALIBRATION` in active-array coordinates will otherwise report `cy = 480` (4:3) on 720p (`360`) 16:9 streams.
+
 
 
 

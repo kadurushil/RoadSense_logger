@@ -4,8 +4,8 @@
 > **Location:** `context/00_MASTER_EXECUTIVE_HANDOVER.md`  
 > **Audience:** Autonomous AI Coding Agents & Incoming Core Engineers  
 > **Workspace Path:** `C:\Users\rakadu1.AHEAD\AndroidStudioProjects\RoadSense`  
-> **Active Branch:** `feature/3125000-baud`  
-> **Last Handover Date:** September 29, 2026  
+> **Active Branch:** `validation`  
+> **Last Handover Date:** November 17, 2026  
 
 ---
 
@@ -15,7 +15,7 @@
 
 The application operates as an autonomous multi-sensor logger synchronizing five distinct streams:
 1. **Automotive Radar:** TI AWR1843BOOST 77 GHz mmWave radar streaming raw point clouds, clusters, and hardware EKF target tracks over high-speed USB serial at **3,125,000 baud** (3.125 Mbps).
-2. **Camera Video:** Synchronized video capture (1080p/720p H.264 MP4) via Camera2/CameraX with nanosecond frame capture timestamps (`camera_frames.csv`).
+2. **Camera Video:** Synchronized video capture (1080p/720p H.264 MP4) via Camera2 with nanosecond frame capture timestamps indexed in `session_timeline.csv` (`CAMERA`/`FRAME`; legacy `camera_frames.csv` omitted in Phase 3+).
 3. **GNSS / GPS:** Real-time vehicular trajectory, heading, ground speed, and NMEA fixes via Android Location Services (`gnss_track.csv`).
 4. **Automotive CAN Bus:** CSS Electronics **CANedge2** dual-channel CAN/CAN-FD logger logging cyclic 1-minute (60s) split MF4 (MDF4) files, synchronized via local Wi-Fi AP using an autonomous 2-folder staging pool and post-recording finalizer.
 5. **Inertial Measurement Unit (IMU):** High-rate STMicroelectronics LSM6DSL 6-DOF IMU (Accelerometer & Gyroscope) at 100 Hz, Samsung Linear Acceleration (without $g$), and Game Rotation Vector (magnetic-immune 6-DOF orientation) acquired via a dedicated background `HandlerThread`.
@@ -58,6 +58,8 @@ As of September 29, 2026, the following major architectural milestones have been
 | **Persistent `SurfaceView` & Single-Tab UI** | **Production Ready** (`restarts=0`, 0-drop tab/fullscreen recording) | `AutoFitSurfaceView.kt`, `PersistentCameraViewportHost.kt`, `MainActivity.kt` |
 | **Background Disk Priorities & Fast Canvas** | **Production Ready** (`DRAW_BEV` 0.36–1.10 ms, `DRAW_OVERLAY` 0.38–0.41 ms) | `SpatialProjectionEngine.kt`, `RadarBevPlot.kt`, `ViewfinderRadarOverlay.kt` |
 | **Adaptive `Choreographer` VSync Pacer** | **Production Ready** (Locked `50.0 ms` / `33.3 ms` across 10–60 Hz radar) | `RadarDisplayPacer.kt` |
+| **Immersive Fullscreen SBS & BEV Presets** | **Production Ready** (50/50 `SurfaceView` + chromeless BEV, `±60°` FOV scale, `15/30/60/100/150m`) | `FullscreenSbsPreview.kt`, `RadarBevPlot.kt`, `AppPreferences.kt` |
+| **16:9 ISP-Cropped Stream Intrinsics & MCAP Video Fallback** | **Production Ready** (`cy=360` at 720p on `LENS_INTRINSIC_CALIBRATION` HALs; `/camera/video` without `camera_frames.csv`) | `CameraIntrinsicsProvider.kt`, `tools/convert_session_to_mcap.py` |
 
 ---
 

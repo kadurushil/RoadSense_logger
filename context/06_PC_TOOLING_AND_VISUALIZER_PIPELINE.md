@@ -21,7 +21,7 @@ graph TD
     PCLegacy --> PythonScript[tools/sync_and_process_sessions.py]
     
     PythonScript --> UnpackRadar[Unpack radar_frames.bin<br>Points & EKF Tracks]
-    PythonScript --> UnpackVideo[Parse camera_frames.csv<br>Monotonic PTS Alignment]
+    PythonScript --> UnpackVideo[MasterTimelineSynchronizer<br>session_timeline.csv & MP4 PTS]
     PythonScript --> UnpackGNSS[Parse gnss_track.csv<br>Lat/Lon/Speed]
     
     UnpackRadar --> TrackHistory[track_history.json<br>Perception & Trajectories]
@@ -167,7 +167,7 @@ RoadSense supports single-container archiving using the **Foxglove MCAP (`.mcap`
 | **GPU Utilization** | **0% (Idle)** | **80% GPU Core** |
 | **3D Frustum Orientation** | Upright via dynamic `/tf` frame roll | Upright via physically rotated pixels |
 | **2D Viewport Orientation** | Upright via Foxglove layout shader (`"rotation": 180`) | Upright natively (`"rotation": 0`) |
-| **Keyframe Seeking Stability** | Native camera keyframes (1s interval) | Enforced GOP 30 (`-g 30`, `-forced-idr 1`, `repeat-headers=1`) |
+| **Keyframe Seeking Stability** | Native camera keyframes (1s interval); `camera_frames.csv` optional when `sync_master` active | Enforced GOP 30 (`-g 30`, `-forced-idr 1`, `repeat-headers=1`) |
 
 ### 5.3 CLI Invocation
 ```powershell
