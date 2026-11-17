@@ -175,6 +175,16 @@ fun RoadSenseCockpitScreen(
 
     val viewportState = remember { PersistentCameraViewportState() }
     var rootOriginInWindow by remember { mutableStateOf(IntOffset.Zero) }
+    val lastAppliedViewport = remember {
+        object {
+            var resW = -1
+            var resH = -1
+            var rot = -1
+            var w = -1
+            var h = -1
+            var active: Boolean? = null
+        }
+    }
     val density = LocalDensity.current
     val selectedRes by viewModel.selectedResolution.collectAsState()
     val isActiveViewport = viewportState.isActive
@@ -228,17 +238,34 @@ fun RoadSenseCockpitScreen(
                 }
             },
             update = { surfaceView ->
-                surfaceView.holder.setFixedSize(selectedRes.width, selectedRes.height)
+                val resChanged = lastAppliedViewport.resW != selectedRes.width || lastAppliedViewport.resH != selectedRes.height
+                if (resChanged) {
+                    surfaceView.holder.setFixedSize(selectedRes.width, selectedRes.height)
+                    lastAppliedViewport.resW = selectedRes.width
+                    lastAppliedViewport.resH = selectedRes.height
+                }
                 if (isActiveViewport) {
-                    surfaceView.setAspectRatio(selectedRes.width, selectedRes.height, viewportState.displayRotation)
-                    val surface = surfaceView.holder.surface
-                    if (surface != null && surface.isValid) {
-                        viewModel.cameraEngine.attachPreviewSurface(surface, targetW, targetH)
-                        viewModel.updateCameraDisplayRotation(viewportState.displayRotation, width = targetW, height = targetH)
-                        viewModel.updateCameraIntrinsics(targetW, targetH)
+                    val rot = viewportState.displayRotation
+                    val geomChanged = resChanged || lastAppliedViewport.rot != rot || lastAppliedViewport.w != targetW || lastAppliedViewport.h != targetH
+                    val becameActive = lastAppliedViewport.active != true
+                    if (resChanged || lastAppliedViewport.rot != rot) {
+                        surfaceView.setAspectRatio(selectedRes.width, selectedRes.height, rot)
                     }
-                } else {
+                    val surface = surfaceView.holder.surface
+                    if (surface != null && surface.isValid && (becameActive || geomChanged)) {
+                        viewModel.cameraEngine.attachPreviewSurface(surface, targetW, targetH)
+                        if (geomChanged) {
+                            viewModel.updateCameraDisplayRotation(rot, width = targetW, height = targetH)
+                            viewModel.updateCameraIntrinsics(targetW, targetH)
+                        }
+                        lastAppliedViewport.rot = rot
+                        lastAppliedViewport.w = targetW
+                        lastAppliedViewport.h = targetH
+                        lastAppliedViewport.active = true
+                    }
+                } else if (lastAppliedViewport.active != false) {
                     viewModel.cameraEngine.setPreviewPaused(true)
+                    lastAppliedViewport.active = false
                 }
             },
             modifier = Modifier

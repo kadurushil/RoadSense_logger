@@ -13,6 +13,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
@@ -54,6 +56,8 @@ private class LollipopProjectionCache {
     var lastHudMode: HudOverlayMode? = null
     var cachedLollipops: List<ProjectedRadarLollipop> = emptyList()
     var cachedRangeOverlay: RadarRangeOverlay? = null
+    var cachedArcsBitmap: ImageBitmap? = null
+    val arcsDrawScope = CanvasDrawScope()
 }
 
 private class OverlayDrawTimingState {
@@ -146,13 +150,11 @@ fun ViewfinderRadarOverlay(
             projectionCache.lastWidth != w ||
             projectionCache.lastHeight != h
 
-        // 1. Draw Translucent Radar Range Arcs, Boresight, and FOV Boundary Lines
+        // 1. Static Radar Range Arcs, Boresight & FOV Rays (cached into offscreen ImageBitmap)
         if (showRangeArcs) {
             android.os.Trace.beginSection("RS_UI_DrawArcs")
-            val rangeOverlay = if (!geomChanged && projectionCache.cachedRangeOverlay != null) {
-                projectionCache.cachedRangeOverlay!!
-            } else {
-                SpatialProjectionEngine.calculateRadarRangeOverlay(
+            if (geomChanged || projectionCache.cachedArcsBitmap == null) {
+                val rangeOverlay = SpatialProjectionEngine.calculateRadarRangeOverlay(
                     params = calib,
                     intrinsics = intrinsics,
                     viewWidth = w,
@@ -161,59 +163,60 @@ fun ViewfinderRadarOverlay(
                 ).also {
                     projectionCache.cachedRangeOverlay = it
                 }
-            }
-
-            // Draw FOV Boundary Rays (±60° Azimuth)
-            if (rangeOverlay.leftFovRay.size >= 2) {
-                reusablePath.reset()
-                reusablePath.moveTo(rangeOverlay.leftFovRay[0].xPx, rangeOverlay.leftFovRay[0].yPx)
-                for (i in 1 until rangeOverlay.leftFovRay.size) {
-                    reusablePath.lineTo(rangeOverlay.leftFovRay[i].xPx, rangeOverlay.leftFovRay[i].yPx)
-                }
-                drawPath(reusablePath, color = HUD_COLOR_FOV, style = fovStroke)
-            }
-
-            if (rangeOverlay.rightFovRay.size >= 2) {
-                reusablePath.reset()
-                reusablePath.moveTo(rangeOverlay.rightFovRay[0].xPx, rangeOverlay.rightFovRay[0].yPx)
-                for (i in 1 until rangeOverlay.rightFovRay.size) {
-                    reusablePath.lineTo(rangeOverlay.rightFovRay[i].xPx, rangeOverlay.rightFovRay[i].yPx)
-                }
-                drawPath(reusablePath, color = HUD_COLOR_FOV, style = fovStroke)
-            }
-
-            // Draw Radar Center Boresight Line (0° Azimuth extending till 120m)
-            if (rangeOverlay.boresightRay.size >= 2) {
-                reusablePath.reset()
-                reusablePath.moveTo(rangeOverlay.boresightRay[0].xPx, rangeOverlay.boresightRay[0].yPx)
-                for (i in 1 until rangeOverlay.boresightRay.size) {
-                    reusablePath.lineTo(rangeOverlay.boresightRay[i].xPx, rangeOverlay.boresightRay[i].yPx)
-                }
-                drawPath(reusablePath, color = HUD_COLOR_BORESIGHT, style = boresightStroke)
-            }
-
-            // Draw Concentric Range Arcs (10m, 30m, 60m, 120m) and Distance Labels
-            labelPaint.textSize = 8.5f * density
-
-            for (arc in rangeOverlay.arcs) {
-                if (arc.points.size >= 2) {
-                    reusablePath.reset()
-                    reusablePath.moveTo(arc.points[0].xPx, arc.points[0].yPx)
-                    for (i in 1 until arc.points.size) {
-                        reusablePath.lineTo(arc.points[i].xPx, arc.points[i].yPx)
+                val bmp = ImageBitmap(w, h)
+                projectionCache.arcsDrawScope.draw(
+                    density = this,
+                    layoutDirection = layoutDirection,
+                    canvas = androidx.compose.ui.graphics.Canvas(bmp),
+                    size = size
+                ) {
+                    if (rangeOverlay.leftFovRay.size >= 2) {
+                        reusablePath.reset()
+                        reusablePath.moveTo(rangeOverlay.leftFovRay[0].xPx, rangeOverlay.leftFovRay[0].yPx)
+                        for (i in 1 until rangeOverlay.leftFovRay.size) {
+                            reusablePath.lineTo(rangeOverlay.leftFovRay[i].xPx, rangeOverlay.leftFovRay[i].yPx)
+                        }
+                        drawPath(reusablePath, color = HUD_COLOR_FOV, style = fovStroke)
                     }
-                    drawPath(reusablePath, color = HUD_COLOR_ARC, style = arcStroke)
+                    if (rangeOverlay.rightFovRay.size >= 2) {
+                        reusablePath.reset()
+                        reusablePath.moveTo(rangeOverlay.rightFovRay[0].xPx, rangeOverlay.rightFovRay[0].yPx)
+                        for (i in 1 until rangeOverlay.rightFovRay.size) {
+                            reusablePath.lineTo(rangeOverlay.rightFovRay[i].xPx, rangeOverlay.rightFovRay[i].yPx)
+                        }
+                        drawPath(reusablePath, color = HUD_COLOR_FOV, style = fovStroke)
+                    }
+                    if (rangeOverlay.boresightRay.size >= 2) {
+                        reusablePath.reset()
+                        reusablePath.moveTo(rangeOverlay.boresightRay[0].xPx, rangeOverlay.boresightRay[0].yPx)
+                        for (i in 1 until rangeOverlay.boresightRay.size) {
+                            reusablePath.lineTo(rangeOverlay.boresightRay[i].xPx, rangeOverlay.boresightRay[i].yPx)
+                        }
+                        drawPath(reusablePath, color = HUD_COLOR_BORESIGHT, style = boresightStroke)
+                    }
+                    labelPaint.textSize = 8.5f * density
+                    for (arc in rangeOverlay.arcs) {
+                        if (arc.points.size >= 2) {
+                            reusablePath.reset()
+                            reusablePath.moveTo(arc.points[0].xPx, arc.points[0].yPx)
+                            for (i in 1 until arc.points.size) {
+                                reusablePath.lineTo(arc.points[i].xPx, arc.points[i].yPx)
+                            }
+                            drawPath(reusablePath, color = HUD_COLOR_ARC, style = arcStroke)
+                        }
+                        arc.labelPoint?.let { lp ->
+                            drawContext.canvas.nativeCanvas.drawText(
+                                arc.label,
+                                lp.xPx + 6f * density,
+                                lp.yPx - 3f * density,
+                                labelPaint
+                            )
+                        }
+                    }
                 }
-
-                arc.labelPoint?.let { lp ->
-                    drawContext.canvas.nativeCanvas.drawText(
-                        arc.label,
-                        lp.xPx + 6f * density,
-                        lp.yPx - 3f * density,
-                        labelPaint
-                    )
-                }
+                projectionCache.cachedArcsBitmap = bmp
             }
+            projectionCache.cachedArcsBitmap?.let { drawImage(it) }
             android.os.Trace.endSection()
         }
 

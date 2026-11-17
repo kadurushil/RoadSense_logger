@@ -16,6 +16,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
@@ -76,6 +78,12 @@ private class BevGeometryCache {
     val triPath = Path()
     var cachedEgoW = -1f
     var cachedEgoH = -1f
+    var cachedGridBitmap: ImageBitmap? = null
+    var cachedGridW = -1
+    var cachedGridH = -1
+    var cachedGridRange = -1f
+    var cachedGridShow = false
+    val gridDrawScope = CanvasDrawScope()
 }
 
 private class BevDrawTimingState {
@@ -495,98 +503,98 @@ private fun RadarBevCanvas(
             // 1:1 Metric Scale (pixels per meter)
             val scale = usableHeight / maxRangeMeters
 
-            if (showGrid) {
-                // 1. Draw Field of View (FOV) cone lines (+-60 degrees)
-                val fovRad = Math.toRadians(60.0).toFloat()
-                val fovLen = usableHeight * 1.15f
-                val fovLeftX = originX - sin(fovRad) * fovLen
-                val fovLeftY = originY - cos(fovRad) * fovLen
-                val fovRightX = originX + sin(fovRad) * fovLen
-                val fovRightY = originY - cos(fovRad) * fovLen
+            // 1-5. Static Grid, Range Rings & Ego Marker (cached into offscreen ImageBitmap once per resize/range)
+            val wInt = canvasWidth.toInt()
+            val hInt = canvasHeight.toInt()
+            if (wInt > 0 && hInt > 0) {
+                if (geometry.cachedGridBitmap == null ||
+                    geometry.cachedGridW != wInt ||
+                    geometry.cachedGridH != hInt ||
+                    geometry.cachedGridRange != maxRangeMeters ||
+                    geometry.cachedGridShow != showGrid
+                ) {
+                    val bmp = ImageBitmap(wInt, hInt)
+                    geometry.gridDrawScope.draw(
+                        density = this,
+                        layoutDirection = layoutDirection,
+                        canvas = androidx.compose.ui.graphics.Canvas(bmp),
+                        size = size
+                    ) {
+                        if (showGrid) {
+                            val fovRad = Math.toRadians(60.0).toFloat()
+                            val fovLen = usableHeight * 1.15f
+                            val fovLeftX = originX - sin(fovRad) * fovLen
+                            val fovLeftY = originY - cos(fovRad) * fovLen
+                            val fovRightX = originX + sin(fovRad) * fovLen
+                            val fovRightY = originY - cos(fovRad) * fovLen
 
-                drawLine(BEV_COLOR_FOV, Offset(originX, originY), Offset(fovLeftX, fovLeftY), strokeWidth = 1.5f)
-                drawLine(BEV_COLOR_FOV, Offset(originX, originY), Offset(fovRightX, fovRightY), strokeWidth = 1.5f)
+                            drawLine(BEV_COLOR_FOV, Offset(originX, originY), Offset(fovLeftX, fovLeftY), strokeWidth = 1.5f)
+                            drawLine(BEV_COLOR_FOV, Offset(originX, originY), Offset(fovRightX, fovRightY), strokeWidth = 1.5f)
+                            drawLine(
+                                color = BEV_COLOR_CENTERLINE,
+                                start = Offset(originX, originY),
+                                end = Offset(originX, 10f),
+                                strokeWidth = 1.5f
+                            )
 
-                // 2. Draw Longitudinal Centerline (Ego Forward Vector)
-                drawLine(
-                    color = BEV_COLOR_CENTERLINE,
-                    start = Offset(originX, originY),
-                    end = Offset(originX, 10f),
-                    strokeWidth = 1.5f
-                )
+                            val ringStep = when (maxRangeMeters) {
+                                15f -> 5f
+                                30f -> 10f
+                                60f -> 15f
+                                else -> 25f
+                            }
+                            var ringDist = ringStep
+                            while (ringDist <= maxRangeMeters) {
+                                val radius = ringDist * scale
+                                val top = originY - radius
+                                val left = originX - radius
+                                val diameter = radius * 2
+                                drawArc(
+                                    color = BEV_COLOR_RING,
+                                    startAngle = 180f,
+                                    sweepAngle = 180f,
+                                    useCenter = false,
+                                    topLeft = Offset(left, top),
+                                    size = Size(diameter, diameter),
+                                    style = BEV_STROKE_RING
+                                )
+                                drawContext.canvas.nativeCanvas.drawText(
+                                    "${ringDist.toInt()}m",
+                                    originX,
+                                    top + 28f,
+                                    textPaint
+                                )
+                                ringDist += ringStep
+                            }
 
-                // 3. Draw Range Rings & Labels (pre-allocated Stroke)
-                val ringStep = when (maxRangeMeters) {
-                    15f -> 5f
-                    30f -> 10f
-                    60f -> 15f
-                    else -> 25f
+                            val lateralStep = 5f
+                            var latX = lateralStep
+                            while (latX * scale < (canvasWidth / 2f) - 20f) {
+                                val screenRightX = originX + latX * scale
+                                val screenLeftX = originX - latX * scale
+                                drawLine(BEV_COLOR_GRID, Offset(screenRightX, originY), Offset(screenRightX, originY - 12f), strokeWidth = 1f)
+                                drawLine(BEV_COLOR_GRID, Offset(screenLeftX, originY), Offset(screenLeftX, originY - 12f), strokeWidth = 1f)
+                                latX += lateralStep
+                            }
+                        }
+
+                        val egoWidth = 24f
+                        val egoHeight = 32f
+                        geometry.egoPath.reset()
+                        geometry.egoPath.moveTo(originX, originY - egoHeight)
+                        geometry.egoPath.lineTo(originX + egoWidth / 2f, originY)
+                        geometry.egoPath.lineTo(originX - egoWidth / 2f, originY)
+                        geometry.egoPath.close()
+                        drawPath(path = geometry.egoPath, color = BEV_COLOR_EGO)
+                    }
+                    geometry.cachedGridBitmap = bmp
+                    geometry.cachedGridW = wInt
+                    geometry.cachedGridH = hInt
+                    geometry.cachedGridRange = maxRangeMeters
+                    geometry.cachedGridShow = showGrid
                 }
-
-                var ringDist = ringStep
-                while (ringDist <= maxRangeMeters) {
-                    val radius = ringDist * scale
-                    val top = originY - radius
-                    val left = originX - radius
-                    val diameter = radius * 2
-
-                    drawArc(
-                        color = BEV_COLOR_RING,
-                        startAngle = 180f,
-                        sweepAngle = 180f,
-                        useCenter = false,
-                        topLeft = Offset(left, top),
-                        size = Size(diameter, diameter),
-                        style = BEV_STROKE_RING
-                    )
-
-                    drawContext.canvas.nativeCanvas.drawText(
-                        "${ringDist.toInt()}m",
-                        originX,
-                        top + 28f,
-                        textPaint
-                    )
-
-                    ringDist += ringStep
-                }
-
-                // 4. Draw Lateral Markers (+-5m, +-10m)
-                val lateralStep = 5f
-                var latX = lateralStep
-                while (latX * scale < (canvasWidth / 2f) - 20f) {
-                    val screenRightX = originX + latX * scale
-                    val screenLeftX = originX - latX * scale
-
-                    drawLine(
-                        color = BEV_COLOR_GRID,
-                        start = Offset(screenRightX, originY),
-                        end = Offset(screenRightX, originY - 12f),
-                        strokeWidth = 1f
-                    )
-                    drawLine(
-                        color = BEV_COLOR_GRID,
-                        start = Offset(screenLeftX, originY),
-                        end = Offset(screenLeftX, originY - 12f),
-                        strokeWidth = 1f
-                    )
-
-                    latX += lateralStep
-                }
+                geometry.cachedGridBitmap?.let { drawImage(it) }
             }
-
-            // 5. Draw Ego Vehicle Marker (cached Path rebuilt only when Canvas dimensions change)
-            if (geometry.cachedEgoW != canvasWidth || geometry.cachedEgoH != canvasHeight) {
-                val egoWidth = 24f
-                val egoHeight = 32f
-                geometry.egoPath.reset()
-                geometry.egoPath.moveTo(originX, originY - egoHeight)
-                geometry.egoPath.lineTo(originX + egoWidth / 2f, originY)
-                geometry.egoPath.lineTo(originX - egoWidth / 2f, originY)
-                geometry.egoPath.close()
-                geometry.cachedEgoW = canvasWidth
-                geometry.cachedEgoH = canvasHeight
-            }
-            drawPath(path = geometry.egoPath, color = BEV_COLOR_EGO)
 
             // 6. Draw Clusters (TLV Type 2)
             if (showClusters) {
