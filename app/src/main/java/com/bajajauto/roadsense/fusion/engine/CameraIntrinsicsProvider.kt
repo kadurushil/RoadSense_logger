@@ -261,10 +261,16 @@ object CameraIntrinsicsProvider {
                 // 1. Calibrated intrinsics from HAL (API 23+)
                 val lensCalib = chars.get(CameraCharacteristics.LENS_INTRINSIC_CALIBRATION)
                 val activeRect = chars.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
-                if (lensCalib != null && lensCalib.size >= 5 && lensCalib[0] > 0f && activeRect != null) {
-                    val cropW = activeRect.width().toFloat()
-                    val cropX = activeRect.left.toFloat()
-                    val cropY = activeRect.top.toFloat()
+                if (lensCalib != null && lensCalib.size >= 4 && lensCalib[0] > 0f && activeRect != null && activeRect.width() > 0 && activeRect.height() > 0) {
+                    val sensorW = activeRect.width().toFloat()
+                    val sensorH = activeRect.height().toFloat()
+                    val sensorAspect = sensorW / sensorH
+                    val streamAspect = safeStreamW.toFloat() / safeStreamH.toFloat()
+
+                    val cropW = if (streamAspect >= sensorAspect) sensorW else sensorH * streamAspect
+                    val cropH = if (streamAspect >= sensorAspect) sensorW / streamAspect else sensorH
+                    val cropX = activeRect.left.toFloat() + (sensorW - cropW) / 2f
+                    val cropY = activeRect.top.toFloat() + (sensorH - cropH) / 2f
 
                     val scaleToStream = safeStreamW.toFloat() / cropW
                     val fxStream = lensCalib[0] * scaleToStream

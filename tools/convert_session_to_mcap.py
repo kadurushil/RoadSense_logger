@@ -697,18 +697,19 @@ def parse_camera_video_frames(video_mp4_path, frames_csv_path, sync_master=None,
     using GPU hardware acceleration (NVDEC h264_cuvid + NVENC h264_nvenc) when available,
     or software CPU libx264 as fallback.
     """
-    if not HAS_PYAV or not os.path.isfile(video_mp4_path) or not os.path.isfile(frames_csv_path):
+    if not HAS_PYAV or not os.path.isfile(video_mp4_path):
         return
 
     import csv
     shutter_timestamps = []
-    with open(frames_csv_path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            try:
-                shutter_timestamps.append(int(row["shutter_monotonic_ns"]))
-            except (ValueError, KeyError):
-                continue
+    if frames_csv_path and os.path.isfile(frames_csv_path):
+        with open(frames_csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                try:
+                    shutter_timestamps.append(int(row["shutter_monotonic_ns"]))
+                except (ValueError, KeyError):
+                    continue
 
     if not shutter_timestamps and sync_master is None:
         return
@@ -1944,7 +1945,7 @@ def convert_session_to_mcap(
                 count_msg("/imu/pose")
 
         # Ingest Camera Video Bitstream (H.264 Annex B)
-        if include_video and os.path.isfile(video_mp4) and os.path.isfile(frames_csv):
+        if include_video and os.path.isfile(video_mp4) and (sync_master is not None or os.path.isfile(frames_csv)):
             if flip_video:
                 print(f"    - Demuxing & Rotating (180° Inversion) H.264 Video Stream: {video_mp4}")
             else:
