@@ -122,3 +122,16 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
+
+tasks.register("unitTestClasses") {
+    description = "Alias task to compile unit test sources for Android Studio."
+    group = "verification"
+    dependsOn(tasks.matching { it.name.startsWith("compile") && it.name.endsWith("UnitTestSources") })
+}
+
+tasks.register("testClasses") {
+    description = "Alias task to compile unit test sources."
+    group = "verification"
+    dependsOn(tasks.matching { it.name.startsWith("compile") && it.name.endsWith("UnitTestSources") })
+}
+
