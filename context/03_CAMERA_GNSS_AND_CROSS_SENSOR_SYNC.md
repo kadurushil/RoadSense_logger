@@ -41,8 +41,8 @@ sequenceDiagram
 * **Video Encoding:** Hardware-accelerated H.264 (AVC) in MP4 container at 1080p (1920x1080) or 720p (1280x720) at 30 fps.
 * **Output File:** `session_YYYYMMDD_HHMMSS/camera/camera_video.mp4`.
 
-### 2.2 Per-Frame Monotonic Index (`camera_frames.csv`)
-Because MP4 containers store presentation timestamps (PTS) relative to video start rather than absolute monotonic system clocks, RoadSense captures each frame's exact monotonic timestamp at exposure/encoding:
+### 2.2 Per-Frame Monotonic Index (`session_timeline.csv` / Legacy `camera_frames.csv`)
+Because MP4 containers store presentation timestamps (PTS) relative to video start rather than absolute monotonic system clocks, RoadSense logs each frame's exact monotonic shutter timestamp in `session_timeline.csv` (`sensor = "CAMERA", event = "FRAME"`, skipping redundant `camera_frames.csv` disk writes; PC scripts and `SessionSyncAuditor` retain `camera_frames.csv` fallback for older archives):
 ```csv
 frameIndex,ptsUs,elapsedRealtimeNs,wallTimeMs,width,height
 1,1000,128459240000000,1789105441040,1920,1080
@@ -69,10 +69,12 @@ This enables the PC Python pipeline (`tools/sync_and_process_sessions.py`) to pe
    * Sets a localized `MeteringRectangle` (12% sensor footprint) for both AF and AE, triggers an active focus sweep, and locks both AF and AE state machines (`CONTROL_AF_MODE_AUTO`, `CONTROL_AE_LOCK = true`).
    * Displays an interactive yellow reticle overlay with `[Reset Lock]` to revert to continuous road tracking.
 
-### 2.5 Autonomous Dual-Zone Luminance Analysis (Dynamic Road AE)
+### 2.5 Autonomous Dual-Zone Luminance Analysis (Dynamic Road AE — Disabled for Performance)
 Forward-facing vehicle cameras suffer from **Sky-Bloom**: high dynamic range daylight sky dominates the top 35% of the sensor, driving the ISP's global matrix metering to underexpose the lower road surface, vehicles, and road hazards into deep shadow.
 
-RoadSense implements **Approach 3: Autonomous Dual-Zone Photometric Analysis**:
+*(Note: `CameraEngine.startLuminanceAnalyzer()` is currently disabled as a no-op with default `RoadAeMode.FULL_MATRIX` to eliminate `14–22 ms` GPU readback stalls from `TextureView.getBitmap(32, 24)` and allow `SurfaceView` direct hardware composition.)*
+
+RoadSense originally designed **Approach 3: Autonomous Dual-Zone Photometric Analysis**:
 * **Real-Time 4 Hz Analyzer:** Samples a downsampled $32 \times 24$ thumbnail bitmap directly from the active preview `TextureView` on `Dispatchers.Default` (zero Camera HAL stream overhead; avoids HAL concurrent surface limit crashes).
 * **Dual-Zone Photometric Luminance:** Computes ITU-R BT.601 perceived luminance ($Y = 0.299R + 0.587G + 0.114B$):
   $$\bar{L}_{\text{sky}} = \frac{1}{|\mathcal{Z}_{\text{sky}}|} \sum_{(x,y) \in \mathcal{Z}_{\text{sky}}} Y(x,y) \quad (\text{top } 35\%)$$
@@ -93,7 +95,9 @@ RoadSense implements **Approach 3: Autonomous Dual-Zone Photometric Analysis**:
 2. **Pager Swipe Lock for Interaction Stability:**
    * In `MainActivity.kt`, the cockpit's `HorizontalPager` is configured with `userScrollEnabled = false`.
    * Prevents accidental tab navigation while the user is dragging calibration reticles, adjusting camera sliders, or tapping to focus. Tab switching is strictly driven by the top navigation bar.
-3. **Surface Re-attachment & Anti-Pause Guard (`isSurfaceAttached`):**
+3. **Single Persistent `SurfaceView` Host (`AutoFitSurfaceView` + `PersistentCameraViewportHost`):**
+   * Replaced per-tab `AutoFitTextureView` instances with a single persistent `AutoFitSurfaceView` mounted in `MainActivity.kt` (`SurfaceFlinger` HWC overlay plane, 0 ms HWUI GPU copy).
+   * Active slots (`CameraDashboardCard`, `SbsDashboardCard`, `FullscreenCameraPreview`, `FullscreenCalibrationStudio`) report window bounds via `Modifier.bindPersistentCameraViewport(...)`. Non-camera tabs park the `SurfaceView` at `1×1 px` behind opaque content and call `CameraEngine.setPreviewPaused(true)`, pausing `stopRepeating()` only when idle and preserving `MediaRecorder` at **0 dropped frames** across tab/fullscreen switches (`restarts=0`).
    * *Problem:* Exiting menus, toggling fullscreen, or navigating between cards previously caused transient surface swaps where the engine momentarily dropped to `CameraEngineState.Closed`, falsely displaying a "PAUSED" banner over an active stream.
    * *Solution:* `CameraEngine.isSurfaceAttached(surfaceTexture)` actively verifies if the incoming texture is already driving the active HAL session. If attached, it updates viewport dimensions without destroying the HAL request loop.
    * On resolution change, `previewSurfaceTexture.setDefaultBufferSize(res.width, res.height)` and surface recreation are sequenced with a 150 ms backoff cooldown to prevent HAL buffer starvation crashes.

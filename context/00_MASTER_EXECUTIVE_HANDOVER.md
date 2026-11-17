@@ -55,6 +55,9 @@ As of September 29, 2026, the following major architectural milestones have been
 | **Embedded Layout Container Attachments** | **Production Ready** (Auto-embeds `RoadSense_Cockpit_Layout.json`) | `tools/convert_session_to_mcap.py`, Foxglove attachments tab |
 | **UI Stutter Eradication & Canvas HUD** | **Production Ready** (0.28ms ticks, 0% idle CPU, KeepAliveTabSlot) | `LiveMetricsCanvasHud.kt`, `KeepAliveTabSlot`, `MainActivity.kt` |
 | **Physical Horizon Earth-Locking** | **Production Ready** (Roll sign inverted across 4 orientations) | `ImuManager.kt`, `ImuSample.kt`, `SpatialProjectionEngine.kt` |
+| **Persistent `SurfaceView` & Single-Tab UI** | **Production Ready** (`restarts=0`, 0-drop tab/fullscreen recording) | `AutoFitSurfaceView.kt`, `PersistentCameraViewportHost.kt`, `MainActivity.kt` |
+| **Background Disk Priorities & Fast Canvas** | **Production Ready** (`DRAW_BEV` 0.36–1.10 ms, `DRAW_OVERLAY` 0.38–0.41 ms) | `SpatialProjectionEngine.kt`, `RadarBevPlot.kt`, `ViewfinderRadarOverlay.kt` |
+| **Adaptive `Choreographer` VSync Pacer** | **Production Ready** (Locked `50.0 ms` / `33.3 ms` across 10–60 Hz radar) | `RadarDisplayPacer.kt` |
 
 ---
 

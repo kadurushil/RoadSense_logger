@@ -82,3 +82,13 @@ python tools/sync_and_process_sessions.py --sync-only
 # Destination on PC:
 # logs/app_logs/app_run_YYYYMMDD_HHMMSS/app_system.log
 ```
+
+---
+
+## 6. Runtime Bench Diagnostics (`DebugToggles`)
+
+`DebugToggles.kt` provides a centralized kill-switch (`DEFAULT_MASTER_DEBUG = false`) toggled at runtime via the **`Log ON` / `Log OFF`** UI button:
+- **`isCanvasTimingActive`:** Emits `[DRAW_BEV]` and `[DRAW_OVERLAY]` per-frame `durationMs` and `deltaDrawMs` timings.
+- **`isDisplayPacerVerboseActive`:** Emits `[ENQUEUE]`, `[EMIT]`, and `[VSYNC_RATE_ADAPT]` (`20 Hz` / `30 Hz` hysteresis) events from `RadarDisplayPacer`.
+- **`isDiskWriterPriorityLogsActive`:** Verifies all 7 buffered disk-writer threads start at `Process.THREAD_PRIORITY_BACKGROUND` (`OS=10, Java=5`) so they never preempt UI/RenderThread or UART capture.
+- **`[SURFACE_VIEWPORT]`:** Logs persistent `AutoFitSurfaceView` slot transitions (`CameraLandscape`, `CameraPortrait`, `Sbs`, `FullscreenCamera`, `FullscreenCalibration`, or `parked 1x1`).

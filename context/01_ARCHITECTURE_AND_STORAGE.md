@@ -40,7 +40,7 @@ graph TD
 | **Session Control** | `recording/SessionManager.kt`<br>`recording/SessionInfo.kt`<br>`recording/SessionTimelineWriter.kt` | Manages active recording sessions, folder initialization, metadata generation, and nanosecond monotonic timestamp events. |
 | **Radar Ingestion** | `radar/service/RadarSerialService.kt`<br>`radar/parser/RadarPacketParser.kt`<br>`radar/model/RadarFrame.kt` | Custom USB FTDI/CDC serial driver operating at 3.125 Mbps. Rings buffers and decodes TLV binary frames into point clouds and clusters. |
 | **IMU & Vehicle Dynamics** | `imu/ImuManager.kt`<br>`imu/ImuSample.kt`<br>`imu/ImuSamplingBenchmark.kt`<br>`ui/screens/ImuDashboardCard.kt` | High-rate 100 Hz STMicroelectronics LSM6DSL 6-DOF IMU, Linear Acceleration without $g$, and Game Rotation Vector. Acquired via dedicated background `HandlerThread` with live empirical rate and timing jitter profiling. |
-| **Camera Capture** | `camera/CameraEngine.kt`<br>`camera/CameraSessionRecorder.kt`<br>`ui/screens/CameraDashboardCard.kt` | Camera2 video recording, smart infinity focus lock, tap-to-focus/AE lock, nanosecond frame logging (`camera_frames.csv`), autonomous dual-zone Road AE, and robust SurfaceTexture lifecycle handoffs. |
+| **Camera Capture** | `camera/CameraEngine.kt`<br>`camera/AutoFitSurfaceView.kt`<br>`camera/CameraSessionRecorder.kt`<br>`ui/components/PersistentCameraViewportHost.kt` | Camera2 video recording, smart infinity focus lock, tap-to-focus/AE lock, timeline-indexed frame logging (`session_timeline.csv`), and single persistent `SurfaceView` lifecycle across tabs/fullscreen. |
 | **Sensor Fusion & Spatial Calibration** | `fusion/engine/SpatialProjectionEngine.kt`<br>`fusion/engine/CameraIntrinsicsProvider.kt`<br>`fusion/model/CalibrationParameters.kt`<br>`fusion/storage/CalibrationStorageManager.kt`<br>`ui/components/ViewfinderRadarOverlay.kt` | 6-DOF extrinsic rigid transform ($[\mathbf{R} \mid \mathbf{T}]$), Camera2 intrinsic matrix ($K$), real-time closed-form touch reverse solver, ground plane contact footprint projection, hybrid RViz-style radar lollipops, concentric range arcs, and Painter's algorithm depth-sorting. |
 | **GNSS Tracking** | `gnss/GnssManager.kt`<br>`ui/screens/GnssDashboardCard.kt` | FusedLocationProviderClient + NMEA sentence parsing. Generates synchronized `gnss_track.csv`. |
 | **CANedge2 Sync** | `canedge/ingestion/CanedgeIngestionManager.kt`<br>`canedge/repository/CanedgeRepository.kt`<br>`canedge/network/CanedgeHttpClient.kt` | ESP32 REST client, persistent staging pool (`canedge_pool/`), deferred drive sync, smart auto-pruning engine, and OneDrive-style unified file explorer. |
@@ -82,8 +82,7 @@ All persistent logs, calibration profiles, and active sessions are stored inside
            │    └── radar_frames.bin               <-- Decoded binary framed packets (ROAD magic)
            │
            ├── camera/
-           │    ├── camera_video.mp4               <-- Recorded H.264 video file
-           │    └── camera_frames.csv              <-- Per-frame PTS & monotonic capture timestamps
+           │    └── camera_video.mp4               <-- Recorded H.264 video file (frame timestamps indexed in session_timeline.csv)
            │
            ├── gnss/
            │    └── gnss_track.csv                 <-- Lat, lon, alt, speed, bearing, accuracy

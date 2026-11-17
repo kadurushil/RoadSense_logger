@@ -166,4 +166,6 @@
 | 98 | 2026-11-16 | `06_UI_AND_PERFORMANCE` | [`98_phase_5_calibration_studio_imu_decoupling_plan.md`](06_UI_AND_PERFORMANCE/98_phase_5_calibration_studio_imu_decoupling_plan.md) | `7e4dd84` |
 | 99 | 2026-11-16 | `08_HANDOVER_AND_DOCS` | [`99_intel_implementations_reorganization_plan.md`](08_HANDOVER_AND_DOCS/99_intel_implementations_reorganization_plan.md) | `new` |
 
-| 100 | 2026-11-16 | `06_UI_AND_PERFORMANCE` | [`100_high_performance_ui_and_threading_overhaul_plan.md`](06_UI_AND_PERFORMANCE/100_high_performance_ui_and_threading_overhaul_plan.md) | `active` |
+| 100 | 2026-11-16 | `06_UI_AND_PERFORMANCE` | [`100_high_performance_ui_and_threading_overhaul_plan.md`](06_UI_AND_PERFORMANCE/100_high_performance_ui_and_threading_overhaul_plan.md) | `26cd3dc` |
+| 101 | 2026-11-17 | `06_UI_AND_PERFORMANCE` | [`101_surfaceview_and_overlay_dedup_plan.md`](06_UI_AND_PERFORMANCE/101_surfaceview_and_overlay_dedup_plan.md) | `0c5e146` |
+| 102 | 2026-11-17 | `06_UI_AND_PERFORMANCE` | [`102_ui_surfaceview_and_vsync_overhaul_walkthrough.md`](06_UI_AND_PERFORMANCE/102_ui_surfaceview_and_vsync_overhaul_walkthrough.md) | `b866676` |
