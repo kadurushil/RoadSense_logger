@@ -304,7 +304,13 @@ fun RoadSenseCockpitScreen(
                 Box(modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp, vertical = 2.dp)) {
                     LiveMetricsBar(
                         viewModel = viewModel,
-                        onSyncClick = { showSyncDialog = true }
+                        onSyncClick = { showSyncDialog = true },
+                        onCanClick = {
+                            if (currentTabIndex != CockpitTab.CANEDGE.ordinal) {
+                                currentTabIndex = CockpitTab.CANEDGE.ordinal
+                                AppLogger.i("UI", "HUD CAN tapped -> switched to CANedge tab")
+                            }
+                        }
                     )
                 }
 

@@ -33,6 +33,8 @@ class AppPreferences(context: Context) {
 
         private const val KEY_CANEDGE_LAST_IP = "canedge_last_ip"
         private const val KEY_CANEDGE_DEVICE_ID = "canedge_device_id"
+        private const val KEY_CANEDGE_LAST_CLOCK_OFFSET_MS = "canedge_last_clock_offset_ms"
+        private const val KEY_CANEDGE_LAST_CLOCK_MEASURED_AT_MS = "canedge_last_clock_measured_at_ms"
     }
 
     var canedgeLastIp: String
@@ -42,6 +44,19 @@ class AppPreferences(context: Context) {
     var canedgeDeviceId: String
         get() = prefs.getString(KEY_CANEDGE_DEVICE_ID, "7AC5E17F") ?: "7AC5E17F"
         set(value) = prefs.edit().putString(KEY_CANEDGE_DEVICE_ID, value).apply()
+
+    /**
+     * Last measured CANedge2 RTC drift relative to Android wall-clock time:
+     * clockOffsetMs = phoneWallMs - canedgeEpochMs.
+     * Positive means CANedge RTC lags behind Android wall clock.
+     */
+    var canedgeLastClockOffsetMs: Long
+        get() = prefs.getLong(KEY_CANEDGE_LAST_CLOCK_OFFSET_MS, 0L)
+        set(value) = prefs.edit().putLong(KEY_CANEDGE_LAST_CLOCK_OFFSET_MS, value).apply()
+
+    var canedgeLastClockMeasuredAtMs: Long
+        get() = prefs.getLong(KEY_CANEDGE_LAST_CLOCK_MEASURED_AT_MS, 0L)
+        set(value) = prefs.edit().putLong(KEY_CANEDGE_LAST_CLOCK_MEASURED_AT_MS, value).apply()
 
     var radarMaxRange: Float
         get() = prefs.getFloat(KEY_RADAR_MAX_RANGE, 30f).let { if (it == 130f) 150f else it }

@@ -19,6 +19,18 @@ data class CanedgeFile(
 
     val lastWrittenMs: Long
         get() = lastWrittenEpochSec * 1000L
+
+    val folderName: String
+        get() {
+            val parts = path.trim('/').split('/')
+            return if (parts.size >= 2) parts[parts.size - 2] else "root"
+        }
+
+    val localName: String
+        get() {
+            val parts = path.trim('/').split('/')
+            return if (parts.size >= 2) "${parts[parts.size - 2]}_${parts.last()}" else name
+        }
 }
 
 /**
@@ -48,9 +60,23 @@ data class CanedgeUnifiedFileItem(
 /**
  * High-level statistics displayed on the CANedge UI card.
  */
+/**
+ * High-level CANedge2 ingestion lifecycle phase surfaced in the HUD and dashboard.
+ */
+enum class CanedgeHudPhase {
+    OFFLINE,
+    OFFLINE_PENDING,
+    SCANNING,
+    CONNECTED_SYNCED,
+    SYNCING,
+    PAUSED_RECORDING,
+    WAITING_FINAL_CHUNK,
+    ERROR
+}
+
 @Immutable
 data class CanedgeSyncStats(
-    val targetScopeFiles: Int = 0,            // Total planned files in 2-folder scope
+    val targetScopeFiles: Int = 0,            // Total planned files in recent-folder scope
     val poolSyncedFiles: Int = 0,             // Total files synced in local pool within scope
     val poolFilesCount: Int = 0,              // Total distinct MF4 files cached in local pool
     val currentSessionFiles: Int = 0,         // Files currently copied into this session
@@ -66,7 +92,16 @@ data class CanedgeSyncStats(
     val activeFileTotalBytes: Long = 0L,
     val activeFileProgress: Float = 0f,
     val transferSpeedBytesPerSec: Long = 0L,
-    val etaSeconds: Int = 0
+    val etaSeconds: Int = 0,
+
+    // Continuous watchdog, multi-session reconciliation & clock-skew telemetry
+    val hudPhase: CanedgeHudPhase = CanedgeHudPhase.OFFLINE,
+    val pendingSessionsCount: Int = 0,
+    val measuredClockOffsetMs: Long? = null,
+    val queueCompletedFiles: Int = 0,
+    val queueTotalFiles: Int = 0,
+    val isPausedDuringRecording: Boolean = false,
+    val isWaitingFinalChunk: Boolean = false
 ) {
     // Backwards compatibility accessors
     val totalFilesOnDevice: Int get() = targetScopeFiles

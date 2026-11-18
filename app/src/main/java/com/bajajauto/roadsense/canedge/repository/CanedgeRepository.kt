@@ -19,10 +19,14 @@ class CanedgeRepository(
     companion object {
         private const val TAG = "CanedgeRepository"
         private const val FILE_STABILITY_AGE_MS = 12_000L // 12 seconds (> 10s split)
+        private const val NEWEST_CHUNK_IDLE_AGE_MS = 75_000L // Guards active 60s chunk + residual RTC skew
+        private const val SIZE_STABILITY_MIN_INTERVAL_MS = 3_000L
     }
 
-    // Cache of (remotePath -> observed size) to detect growth
-    private val lastObservedSizes = mutableMapOf<String, Long>()
+    private data class ObservedSizeSample(val sizeBytes: Long, val observedAtMs: Long)
+
+    // Cache of (remotePath -> observed size & timestamp) to detect active file growth across polls
+    private val lastObservedSizes = mutableMapOf<String, ObservedSizeSample>()
 
     /**
      * Lists files and folders directly inside `path` on the CANedge2 SD card.
@@ -118,10 +122,10 @@ class CanedgeRepository(
 
     /**
      * Discovers MF4 log files across the top recent session folders on the device
-     * under /LOG/<DEVICE_ID>/ (e.g. top 5 folders descending).
-     * This captures power-cycled segments while avoiding scanning dozens of historical archives.
+     * under /LOG/<DEVICE_ID>/ (default top 10 folders descending).
+     * Captures multi-session / delayed reconnections without scanning the entire SD card.
      */
-    suspend fun listRecentSessionMf4Files(device: CanedgeDevice, maxFolders: Int = 5): List<CanedgeFile> =
+    suspend fun listRecentSessionMf4Files(device: CanedgeDevice, maxFolders: Int = 10): List<CanedgeFile> =
         withContext(Dispatchers.IO) {
             val logEntries = listDirectory(device, "/LOG/")
             val deviceDir = logEntries.firstOrNull { it.isDirectory && (it.name.equals(device.deviceId, ignoreCase = true) || it.name.length == 8) }
@@ -162,7 +166,19 @@ class CanedgeRepository(
      * Rule 2 (Age): If its lastWritten timestamp is older than FILE_STABILITY_AGE_MS, it is finished.
      * Rule 3 (Size stability): If size > 0 and unchanged across poll cycles.
      */
-    fun isFileStable(file: CanedgeFile, allFilesInSession: List<CanedgeFile>): Boolean {
+    /**
+     * Determines whether an MF4 file is safe to download (i.e. not actively being written).
+     * Rule 1 (Sibling): Another MF4 file exists in the same folder with higher timestamp or name.
+     * Rule 2 (Skew-adjusted age): If compensated age exceeds the stability threshold (75s for the
+     *         newest chunk in the newest folder to tolerate CANedge RTC lag, 12s otherwise).
+     * Rule 3 (Timed size stability): Size > 0 and unchanged across two polls >= 3s apart.
+     */
+    fun isFileStable(
+        file: CanedgeFile,
+        allFilesInSession: List<CanedgeFile>,
+        estimatedClockOffsetMs: Long = 0L,
+        nowWallMs: Long = System.currentTimeMillis()
+    ): Boolean {
         if (file.sizeBytes <= 0) return false
 
         // Rule 1: Sibling check within the same directory
@@ -175,17 +191,24 @@ class CanedgeRepository(
             return true
         }
 
-        // Rule 2: Age check
-        val nowMs = System.currentTimeMillis()
-        val fileAgeMs = nowMs - file.lastWrittenMs
-        if (fileAgeMs > FILE_STABILITY_AGE_MS) {
+        // Rule 2: Clock-offset-compensated age check
+        val newestFolderPath = allFilesInSession.filter { it.isMf4 }
+            .maxOfOrNull { it.path.substringBeforeLast('/') }
+        val isInNewestFolder = newestFolderPath == null || parentDir == newestFolderPath
+        val requiredAgeMs = if (isInNewestFolder) NEWEST_CHUNK_IDLE_AGE_MS else FILE_STABILITY_AGE_MS
+        val correctedWrittenMs = file.lastWrittenMs + estimatedClockOffsetMs
+        val fileAgeMs = nowWallMs - correctedWrittenMs
+        if (fileAgeMs > requiredAgeMs) {
             return true
         }
 
-        // Rule 3: Size stability across checks
-        val previousSize = lastObservedSizes[file.path]
-        lastObservedSizes[file.path] = file.sizeBytes
-        if (previousSize != null && previousSize == file.sizeBytes && previousSize > 0) {
+        // Rule 3: Size stability across two spaced checks (>= 3s apart)
+        val previous = lastObservedSizes[file.path]
+        if (previous == null || previous.sizeBytes != file.sizeBytes) {
+            lastObservedSizes[file.path] = ObservedSizeSample(file.sizeBytes, nowWallMs)
+            return false
+        }
+        if (previous.sizeBytes > 0 && (nowWallMs - previous.observedAtMs) >= SIZE_STABILITY_MIN_INTERVAL_MS) {
             return true
         }
 

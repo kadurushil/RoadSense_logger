@@ -89,7 +89,9 @@ data class LiveMetricsSnapshot(
     val cpuTempC: Float? = null,
     val syncGrade: String = "IDLE",
     val syncDeltaMs: Float = 0.0f,
-    val isSyncActive: Boolean = false
+    val isSyncActive: Boolean = false,
+    val canHudPhase: com.bajajauto.roadsense.canedge.model.CanedgeHudPhase = com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.OFFLINE,
+    val canHudLabel: String = "OFF"
 )
 
 @androidx.compose.runtime.Stable
@@ -134,8 +136,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         discovery = canedgeDiscovery,
         repository = canedgeRepository,
         httpClient = canedgeHttpClient,
-        sessionManager = sessionManager
-    )
+        sessionManager = sessionManager,
+        appPreferences = appPreferences
+    ).also { it.startWatchdog() }
 
     val canedgeConnectionState: StateFlow<CanedgeConnectionState> = canedgeDiscovery.connectionState
     val canedgeSyncStats: StateFlow<CanedgeSyncStats> = canedgeIngestionManager.stats
@@ -388,6 +391,20 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
                 val fix = gnssLocationManager.latestFix.value
                 val sync = syncAssociator.liveSyncTelemetry.value
+                val can = canedgeSyncStats.value
+                val canLabel = when (can.hudPhase) {
+                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.OFFLINE -> "OFF"
+                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.OFFLINE_PENDING -> "${can.pendingSessionsCount}P"
+                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.SCANNING -> "SCAN"
+                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.CONNECTED_SYNCED -> "OK"
+                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.SYNCING -> {
+                        val pct = (can.activeFileProgress * 100).toInt().coerceIn(0, 99)
+                        if (can.queueTotalFiles > 1) "$pct% ${can.queueCompletedFiles + 1}/${can.queueTotalFiles}" else "$pct%"
+                    }
+                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.PAUSED_RECORDING -> "PAUSE"
+                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.WAITING_FINAL_CHUNK -> "WAIT"
+                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.ERROR -> "ERR"
+                }
                 val newSnapshot = LiveMetricsSnapshot(
                     radarHz = rHz,
                     cameraFps = cFps,
@@ -402,7 +419,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                     cpuTempC = cTemp,
                     syncGrade = sync.liveGrade,
                     syncDeltaMs = sync.camToImuDeltaMs,
-                    isSyncActive = sync.isCameraActive && sync.isImuActive
+                    isSyncActive = sync.isCameraActive && sync.isImuActive,
+                    canHudPhase = can.hudPhase,
+                    canHudLabel = canLabel
                 )
                 if (_liveMetricsSnapshot.value != newSnapshot) {
                     _liveMetricsSnapshot.value = newSnapshot
@@ -808,7 +827,6 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         sessionRecorder.currentSession?.let { activeSession ->
             sessionManager.saveSessionCalibration(activeSession, _calibrationParams.value)
         }
-        canedgeIngestionManager.onSessionStopped()
         cameraEngine.stopVideoRecording()
         cameraSessionRecorder.stopRecording()
         gnssSessionRecorder.stopRecording()
@@ -816,6 +834,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         imuManager.stopSessionRecording()
         sessionRecorder.currentSession?.totalImuFrames = imuFrames
         val stopped = sessionRecorder.stopSession()
+        canedgeIngestionManager.onSessionStopped(stopped)
         val totalRecorded = stopped?.totalRadarFrames ?: 0L
         com.bajajauto.roadsense.logging.AppLogger.i(
             "RadarSession",
@@ -830,6 +849,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun startCanedgeDiscovery() {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User triggered CANedge discovery")
+        canedgeIngestionManager.setAutoReconnectEnabled(true)
         canedgeDiscovery.startDiscovery { success ->
             if (success) {
                 canedgeIngestionManager.triggerSync()
@@ -839,6 +859,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
     fun disconnectCanedge() {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User disconnected CANedge")
+        canedgeIngestionManager.setAutoReconnectEnabled(false)
         canedgeDiscovery.disconnect()
     }
 
@@ -1227,6 +1248,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         displayPacer.release()
         imuSessionRecorder.stopRecording()
         imuManager.release()
+        canedgeIngestionManager.shutdown()
         canedgeDiscovery.disconnect()
         cameraEngine.release()
         cameraSessionRecorder.release()

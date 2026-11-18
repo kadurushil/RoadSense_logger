@@ -31,7 +31,9 @@ data class SessionInfo(
     var totalCameraFrames: Long = 0L,
     var totalImuFrames: Long = 0L,
     var crossSensorSyncJson: JSONObject? = null,
-    var syncAuditResult: SessionSyncAuditor.AuditResult? = null
+    var syncAuditResult: SessionSyncAuditor.AuditResult? = null,
+    var canSyncStatus: String? = null,
+    var canClockOffsetMs: Long? = null
 ) {
     fun toJson(): String {
         val json = JSONObject()
@@ -100,12 +102,14 @@ data class SessionInfo(
             streamsArray.put("sync/sync_keyframes.csv")
         }
         val canFiles = canDir.listFiles { _, name -> name.endsWith(".mf4", ignoreCase = true) }
-        if (!canFiles.isNullOrEmpty()) {
+        if (!canFiles.isNullOrEmpty() || canSyncStatus != null) {
             val canObj = JSONObject()
             canObj.put("sensor", "CSS Electronics CANedge2")
-            canObj.put("totalFiles", canFiles.size)
+            canObj.put("totalFiles", canFiles?.size ?: 0)
+            if (canSyncStatus != null) canObj.put("syncStatus", canSyncStatus)
+            if (canClockOffsetMs != null) canObj.put("clockOffsetMs", canClockOffsetMs)
             json.put("can", canObj)
-            for (cf in canFiles) {
+            canFiles?.forEach { cf ->
                 streamsArray.put("can/${cf.name}")
             }
         }

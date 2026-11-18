@@ -1,0 +1,2616 @@
+VERSION ""
+
+
+NS_ : 
+	NS_DESC_
+	CM_
+	BA_DEF_
+	BA_
+	VAL_
+	CAT_DEF_
+	CAT_
+	FILTER
+	BA_DEF_DEF_
+	EV_DATA_
+	ENVVAR_DATA_
+	SGTYPE_
+	SGTYPE_VAL_
+	BA_DEF_SGTYPE_
+	BA_SGTYPE_
+	SIG_TYPE_REF_
+	VAL_TABLE_
+	SIG_GROUP_
+	SIG_VALTYPE_
+	SIGTYPE_VALTYPE_
+	BO_TX_BU_
+	BA_DEF_REL_
+	BA_REL_
+	BA_DEF_DEF_REL_
+	BU_SG_REL_
+	BU_EV_REL_
+	BU_BO_REL_
+	SG_MUL_VAL_
+
+BS_:
+
+BU_: TST VCU MCU CHG ICL TEL BMS BMG CMP
+
+BO_ 157 VCU_CruiseControl_Analysis: 8 VCU
+ SG_ ETS_VCU_CC_state_ID_enum : 30|8@0+ (1,0) [0|255] "B"  TST
+ SG_ ETS_VCU_CC_Armed_Flag_B : 38|1@0+ (1,0) [0|1] "B"  TST
+ SG_ ETS_VCU_CC_Engaged_Flag_B : 37|1@0+ (1,0) [0|1] "B"  TST
+ SG_ ETS_VCU_CC_Locked_Speed_kph : 36|11@0+ (0.1,0) [0|204.7] "kmph"  TST
+ SG_ ETS_VCU_CC_spdErr_kph : 7|11@0+ (0.1,-100) [-100|104.7] "kmph"  TST
+ SG_ ETS_VCU_CC_MotTrq_Cmd_Nm : 41|14@0+ (0.01,-50) [-50|113.83] "Nm"  TST
+ SG_ ETS_VCU_CC_Brake_Err_B : 59|1@0+ (1,0) [0|1] "B"  TST
+ SG_ ETS_VCU_CC_Reset_Reason_enum : 58|3@0+ (1,0) [0|7] "enum"  TST
+ SG_ ETS_VCU_CC_RLS_Trq_Nm : 12|14@0+ (0.01,-50) [-50|113.83] "Nm"  TST
+
+BO_ 800 FCW_Warning_Info: 8 RADAR
+ SG_ FCW_Stage_St_enum : 7|8@0+ (1,0) [0|7] "enum" TEL,ICL,VCU
+ SG_ FCW_TrackID_Act_ID : 15|16@0+ (1,0) [0|65535] "ID" TEL,ICL,VCU
+ SG_ FCW_TTC_Act_sec : 31|8@0+ (0.1,0) [0|25.5] "sec" TEL,ICL,VCU
+ SG_ FCW_TargetY_Act_m : 39|8@0+ (0.5,0) [0|125] "m" TEL,ICL,VCU
+ SG_ FCW_TargetX_Act_m : 47|8@0+ (0.2,-25.6) [-25.6|25.4] "m" TEL,ICL,VCU
+ SG_ FCW_TargetVy_mps : 55|8@0+ (0.5,-64) [-64|63.5] "mps" TEL,ICL,VCU
+ SG_ FCW_TargetVx_mps : 63|8@0+ (0.2,-25.6) [-25.6|25.4] "mps" TEL,ICL,VCU
+ 
+ BO_ 801 RADAR_BSD_Info: 8 RADAR
+ SG_ RADAR_BSD_Left_Active_St_B : 0|1@0+ (1,0) [0|1] "B"  TEL,ICL,VCU
+ SG_ RADAR_BSD_Right_Active_St_B : 1|1@0+ (1,0) [0|1] "B"  TEL,ICL,VCU
+ SG_ RADAR_BSD_Left_TrackID_Act : 15|8@0+ (1,0) [0|255] "ID"  TEL,ICL,VCU
+ SG_ RADAR_BSD_Right_TrackID_Act : 23|8@0+ (1,0) [0|255] "ID"  TEL,ICL,VCU
+ SG_ RADAR_BSD_Left_Y_Act_m : 31|8@0+ (0.5,0) [0|80] "m"  TEL,ICL,VCU
+ SG_ RADAR_BSD_Right_Y_Act_m : 39|8@0+ (0.5,0) [0|80] "m"  TEL,ICL,VCU
+ SG_ RADAR_BSD_Left_X_Act_m : 47|8@0+ (0.1,-12.8) [-12.8|12.7] "m"  TEL,ICL,VCU
+ SG_ RADAR_BSD_Right_X_Act_m : 55|8@0+ (0.1,-12.8) [-12.8|12.7] "m"  TEL,ICL,VCU
+
+BO_ 802 Track_Data_1: 8 RADAR
+ SG_ Track1_TrackID : 7|8@0+ (1,0) [0|255] "ID" TEL,ICL,VCU
+ SG_ Track1_Y_Distance : 15|8@0+ (0.5,0) [0|127.5] "m" TEL,ICL,VCU
+ SG_ Track1_X_Distance : 23|8@0+ (0.2,-25.6) [-25.6|25.4] "m" TEL,ICL,VCU
+ SG_ Track1_Vy_Velocity : 31|8@0+ (0.5,-64) [-64|63.5] "mps" TEL,ICL,VCU
+ SG_ Track2_TrackID : 39|8@0+ (1,0) [0|255] "ID" TEL,ICL,VCU
+ SG_ Track2_Y_Distance : 47|8@0+ (0.5,0) [0|127.5] "m" TEL,ICL,VCU
+ SG_ Track2_X_Distance : 55|8@0+ (0.2,-25.6) [-25.6|25.4] "m" TEL,ICL,VCU
+ SG_ Track2_Vy_Velocity : 63|8@0+ (0.5,-64) [-64|63.5] "mps" TEL,ICL,VCU
+
+BO_ 803 Track_Data_2: 8 RADAR
+ SG_ Track3_TrackID : 7|8@0+ (1,0) [0|255] "ID" TEL,ICL,VCU
+ SG_ Track3_Y_Distance : 15|8@0+ (0.5,0) [0|127.5] "m" TEL,ICL,VCU
+ SG_ Track3_X_Distance : 23|8@0+ (0.2,-25.6) [-25.6|25.4] "m" TEL,ICL,VCU
+ SG_ Track3_Vy_Velocity : 31|8@0+ (0.5,-64) [-64|63.5] "mps" TEL,ICL,VCU
+ SG_ Track4_TrackID : 39|8@0+ (1,0) [0|255] "ID" TEL,ICL,VCU
+ SG_ Track4_Y_Distance : 47|8@0+ (0.5,0) [0|127.5] "m" TEL,ICL,VCU
+ SG_ Track4_X_Distance : 55|8@0+ (0.2,-25.6) [-25.6|25.4] "m" TEL,ICL,VCU
+ SG_ Track4_Vy_Velocity : 63|8@0+ (0.5,-64) [-64|63.5] "mps" TEL,ICL,VCU
+
+BO_ 804 Track_Data_3: 8 RADAR
+ SG_ Track5_TrackID : 7|8@0+ (1,0) [0|255] "ID" TEL,ICL,VCU
+ SG_ Track5_Y_Distance : 15|8@0+ (0.5,0) [0|127.5] "m" TEL,ICL,VCU
+ SG_ Track5_X_Distance : 23|8@0+ (0.2,-25.6) [-25.6|25.4] "m" TEL,ICL,VCU
+ SG_ Track5_Vy_Velocity : 31|8@0+ (0.5,-64) [-64|63.5] "mps" TEL,ICL,VCU
+ SG_ Track6_TrackID : 39|8@0+ (1,0) [0|255] "ID" TEL,ICL,VCU
+ SG_ Track6_Y_Distance : 47|8@0+ (0.5,0) [0|127.5] "m" TEL,ICL,VCU
+ SG_ Track6_X_Distance : 55|8@0+ (0.2,-25.6) [-25.6|25.4] "m" TEL,ICL,VCU
+ SG_ Track6_Vy_Velocity : 63|8@0+ (0.5,-64) [-64|63.5] "mps" TEL,ICL,VCU
+
+BO_ 805 Track_Data_4: 8 RADAR
+ SG_ Track7_TrackID : 7|8@0+ (1,0) [0|255] "ID" TEL,ICL,VCU
+ SG_ Track7_Y_Distance : 15|8@0+ (0.5,0) [0|127.5] "m" TEL,ICL,VCU
+ SG_ Track7_X_Distance : 23|8@0+ (0.2,-25.6) [-25.6|25.4] "m" TEL,ICL,VCU
+ SG_ Track7_Vy_Velocity : 31|8@0+ (0.5,-64) [-64|63.5] "mps" TEL,ICL,VCU
+ SG_ Track8_TrackID : 39|8@0+ (1,0) [0|255] "ID" TEL,ICL,VCU
+ SG_ Track8_Y_Distance : 47|8@0+ (0.5,0) [0|127.5] "m" TEL,ICL,VCU
+ SG_ Track8_X_Distance : 55|8@0+ (0.2,-25.6) [-25.6|25.4] "m" TEL,ICL,VCU
+ SG_ Track8_Vy_Velocity : 63|8@0+ (0.5,-64) [-64|63.5] "mps" TEL,ICL,VCU
+
+BO_ 806 Track_Data_5: 8 RADAR
+ SG_ Track9_TrackID : 7|8@0+ (1,0) [0|255] "ID" TEL,ICL
+ SG_ Track9_Y_Distance : 15|8@0+ (0.5,0) [0|127.5] "m" TEL,ICL
+ SG_ Track9_X_Distance : 23|8@0+ (0.2,-25.6) [-25.6|25.4] "m" TEL,ICL
+ SG_ Track9_Vy_Velocity : 31|8@0+ (0.5,-64) [-64|63.5] "mps" TEL,ICL
+ SG_ Track10_TrackID : 39|8@0+ (1,0) [0|255] "ID" TEL,ICL
+ SG_ Track10_Y_Distance : 47|8@0+ (0.5,0) [0|127.5] "m" TEL,ICL
+ SG_ Track10_X_Distance : 55|8@0+ (0.2,-25.6) [-25.6|25.4] "m" TEL,ICL
+ SG_ Track10_Vy_Velocity : 63|8@0+ (0.5,-64) [-64|63.5] "mps" TEL,ICL
+
+BO_ 807 ACC_Params_Info: 8 RADAR
+ SG_ ACC_POI_ID : 7|16@0+ (1,0) [0|65535] "ID" TEL,ICL,VCU
+ SG_ ACC_TargetY_Act_m : 23|8@0+ (0.5,0) [0|127.5] "m" TEL,ICL,VCU
+ SG_ ACC_TargetX_Act_m : 31|8@0+ (0.2,-25.6) [-25.6|25.4] "m" TEL,ICL,VCU
+ SG_ ACC_TargetVy_mps : 39|8@0+ (0.5,-64) [-64|63.5] "mps" TEL,ICL,VCU
+ SG_ ACC_TTI_Act_sec : 47|8@0+ (0.1,0) [0|25.5] "sec" TEL,ICL,VCU
+ SG_ ACC_VSafe_mps : 55|8@0+ (0.1,0) [0|25.5] "mps" TEL,ICL,VCU
+ SG_ ACC_ADAS_FSM_State_St_enum : 63|8@0+ (1,0) [0|3] "enum" TEL,ICL,VCU
+
+BO_ 213 RADAR_Debug_Info: 8 RADAR
+ SG_ FrameNumber_Act : 7|16@0+ (1,0) [0|65535] "" TEL,ICL,VCU
+ SG_ TrackProcessTime_ms : 23|8@0+ (1,0) [0|255] "ms" TEL,ICL,VCU
+ SG_ PointCloudCount_Act : 31|8@0+ (1,0) [0|255] "" TEL,ICL,VCU
+ SG_ TrackerCount_Act : 39|8@0+ (1,0) [0|255] "" TEL,ICL,VCU
+ SG_ DSP_CPUCycles_Act : 47|16@0+ (1,0) [0|65535] "" TEL,ICL,VCU
+ SG_ ClusterCount_Act : 63|8@0+ (1,0) [0|255] "" TEL,ICL,VCU
+
+BO_ 214 RADAR_Version_Info: 8 RADAR
+ SG_ DSS_Version_Major : 7|4@0+ (1,0) [0|15] "" TEL,ICL,VCU
+ SG_ DSS_Version_Minor : 3|4@0+ (1,0) [0|15] "" TEL,ICL,VCU
+ SG_ DSS_Version_Patch : 15|8@0+ (1,0) [0|255] "" TEL,ICL,VCU
+ SG_ MSS_Version_Major : 23|4@0+ (1,0) [0|15] "" TEL,ICL,VCU
+ SG_ MSS_Version_Minor : 19|4@0+ (1,0) [0|15] "" TEL,ICL,VCU
+ SG_ MSS_Version_Patch : 31|8@0+ (1,0) [0|255] "" TEL,ICL,VCU
+ SG_ Tracking_Version_Major : 39|4@0+ (1,0) [0|15] "" TEL,ICL,VCU
+ SG_ Tracking_Version_Minor : 35|4@0+ (1,0) [0|15] "" TEL,ICL,VCU
+ SG_ Tracking_Version_Patch : 47|8@0+ (1,0) [0|255] "" TEL,ICL,VCU
+ SG_ Tracking_Version_Part : 55|8@0+ (1,0) [0|255] "" TEL,ICL,VCU
+ SG_ Reserved : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+
+
+BO_ 153 VCU_Analog_Info_1: 8 VCU
+ SG_ ETS_VCU_DCCPowerGoodVolt_Act_V : 63|8@0+ (0.025,0) [0|6.375] "V"  TST,TEL
+ SG_ ETS_VCU_AmbTempSenseVolt_Act_V : 39|8@0+ (0.025,0) [0|6.375] "V"  TST,TEL
+ SG_ ETS_VCU_DrvSenseVolt_Act_V : 31|8@0+ (0.025,0) [0|6.375] "V"  TST,TEL
+ SG_ ETS_VCU_RevSenseVolt_Act_V : 23|8@0+ (0.025,0) [0|6.375] "V"  TST,TEL
+ SG_ ETS_VCU_AccPedal2SenseVolt_Act_V : 15|8@0+ (0.025,0) [0|6.375] "V"  TST,TEL
+ SG_ ETS_VCU_AccPedal1SenseVolt_Act_V : 7|8@0+ (0.025,0) [0|6.375] "V"  TST,TEL
+ SG_ ETS_VCU_PrkBrkVolt_Act_V : 47|8@0+ (0.025,0) [0|6.375] "V"  TST,TEL
+ SG_ ETS_VCU_ChargePlugVolt_Act_V : 55|8@0+ (0.025,0) [0|6.375] "V"  TST,TEL
+
+BO_ 154 VCU_APP_TEST_MSG: 8 VCU
+ SG_ ETS_VCU_VSS_RESET_CALC_ST_B : 60|1@0+ (1,0) [0|1] "BOOL" Vector__XXX
+ SG_ ETS_VCU_HVBatFETOpnReq_St_B : 24|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_ProhibitTrqMode_St_B : 16|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_ActivateLimpMode_St_B : 55|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_RegenInhibitFlag_St_B : 54|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_ChgInhibitFlag_St_B : 53|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_IntrnlChgState_St_enum : 31|4@0+ (1,0) [0|7] "enum"  TST,TEL
+ SG_ ETS_VCU_ChgExitReason_St_enum : 52|4@0+ (1,0) [0|7] "enum"  TST,TEL
+ SG_ ETS_VCU_AppShutdownRqst_Req_B : 8|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_VehStateMachineID_Act_ID : 39|8@0+ (1,0) [0|255] "ID"  TST,TEL
+ SG_ ETS_VCU_VeritableCANwkup_St_B : 0|1@0+ (1,0) [0|255] "B"  TST,TEL
+ SG_ ETS_VCU_WakeupReason_St_enum : 27|3@0+ (1,0) [0|7] "enum"  TST,TEL
+ SG_ ETS_VCU_DCM_Target_Pos_mm : 15|7@0+ (0.125,0) [0|15.875] "mm"  TST,TEL
+ SG_ ETS_VCU_DCM_Pres_Gear_Pos_mm : 7|7@0+ (0.125,0) [0|15.875] "mm"  TST,TEL
+ SG_ ETS_VCU_Gear_Pos_mm : 47|8@0+ (0.1,0) [0|25.5] "mm"  TST,TEL
+ SG_ ETS_VCU_Gear_Engaged_St_enum : 57|2@0+ (1,0) [0|3] "enum"  TST,TEL
+ SG_ ETS_VCU_Ignition_Status_St_B : 17|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_TSC_State_ID_Act_ID : 23|6@0+ (1,0) [0|255] "ID"  TST,TEL
+ SG_ ETS_VCU_MCUenable_FBPin_St_B : 59|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_BMS_Ver_Identifier_St_B : 61|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_FOTA_Source_St_enum : 63|2@0+ (1,0) [0|3] "enum"  TST,TEL
+ SG_ ETS_VCU_OS_FOTA_Complete_flag : 58|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_OS_raised_FOTA_flag : 48|1@0+ (1,0) [0|1] "B"  TST,TEL
+
+
+BO_ 881 VCU_APP_TEST_MSG_03: 8 VCU
+ SG_ ETS_VCU_Evap_SenseUnFilt_Act_V : 7|8@0+ (0.025,0) [0|6.375] "V"  TST
+ SG_ ETS_VCU_Evap_SenseFilt_Act_V : 15|8@0+ (0.025,0) [0|6.375] "V"  TST
+ SG_ ETS_VCU_Evap_Temp_Act_DegC : 23|13@0+ (0.01,-30) [-30|51.91] "degC"  TST
+ SG_ ETS_VCU_Evap_Cabin_Knob_Act_V : 26|8@0+ (0.025,0) [0|6.375] "V"  TST
+ SG_ ETS_VCU_Evap_Cabin_Knob_Cnt : 34|4@0+ (1,0) [0|15] "enum"  TST
+ SG_ ETS_VCU_Evap_AC_Rqst_St_B : 46|1@0+ (1,0) [0|1] "B"  TST
+ SG_ ETS_VCU_Evap_Prss_Swtch_St_B : 45|1@0+ (1,0) [0|1] "B"  TST
+ SG_ ETS_VCU_Evap_Comp_Rly_St_B : 44|1@0+ (1,0) [0|1] "B"  TST
+ SG_ ETS_VCU_Evap_Cond_Rly_St_B : 43|1@0+ (1,0) [0|1] "B"  TST
+ SG_ ETS_VCU_Evap_CMP_Info_Rx_CNT : 42|3@0+ (1,0) [0|7] "enum"  TST
+ SG_ ETS_VCU_Insuff_Batt_Pow_B : 55|1@0+ (1,0) [0|1] "enum"  TST
+ SG_ ETS_VCU_Radar_numPts : 63|8@0+ (1,0) [0|255] "cnt"  TST,TEL
+ 
+BO_ 1984 VCU2MCU_Bnet_WrDataRqst: 8 VCU
+ SG_ Cmd_Byte_1993 : 7|8@0+ (1,0) [0|255] "NA"  TST
+ SG_ VarVaultObjID : 15|16@0+ (1,0) [0|65535] "ID"  TST
+ SG_ VarVal : 31|32@0- (1,0) [-2147483648|2147483647] "NA"  TST
+ SG_ ChkByte : 63|8@0+ (1,0) [0|255] "NA"  TST
+
+BO_ 1996 MCU2VCU_Bnet_ReadResp: 8 MCU
+ SG_ Cmd_Byte_1996 : 7|8@0+ (1,0) [0|255] "NA"  TST,VCU
+ SG_ MCU2VCU_RqstVarVaultObj_A : 15|16@0+ (1,0) [0|65535] "NA"  TST,VCU
+ SG_ MCU2VCU_RqstVarVaultObj_B : 31|16@0+ (1,0) [0|65535] "NA"  TST,VCU
+ SG_ MCU2VCU_RqstVarVaultObj_C : 47|24@0+ (1,0) [0|65535] "NA"  TST,VCU
+
+BO_ 1985 VCU2MCU_Bnet_ReadRqst: 7 VCU
+ SG_ Cmd_Byte_1985 : 7|8@0+ (1,0) [0|255] "NA"  TST
+ SG_ VCU2MCU_RqstVarVaultObj_A : 15|16@0+ (1,0) [0|65535] "NA"  TST
+ SG_ VCU2MCU_RqstVarVaultObj_B : 31|16@0+ (1,0) [0|65535] "NA"  TST
+ SG_ VCU2MCU_RqstVarVaultObj_C : 47|16@0+ (1,0) [0|65535] "NA"  TST
+
+BO_ 1991 MCU2VCU_Bnet_MeasData_80ms: 6 MCU
+ SG_ RespVarVaultObj : 7|16@0+ (1,0) [0|65535] "NA"  VCU
+ SG_ VarVal : 23|32@0+ (1,0) [0|4294967295] "NA"  VCU
+
+BO_ 1136 TEL_FOTA: 8 TEL
+ SG_ CNS_TEL_FOTAstatusBM1_St_enum : 7|4@0+ (1,0) [0|15] "enum"  VCU
+ SG_ CNS_TEL_FOTAstatusBM2_St_enum : 3|4@0+ (1,0) [0|15] "enum"  VCU
+ SG_ CNS_TEL_FOTAstatusBM3_St_enum : 15|4@0+ (1,0) [0|15] "enum"  VCU
+ SG_ CNS_TEL_FOTAstatusBM4_St_enum : 11|4@0+ (1,0) [0|15] "enum"  VCU
+ SG_ CNS_TEL_FOTAstatusBM5_St_enum : 23|4@0+ (1,0) [0|15] "enum"  VCU
+ SG_ CNS_TEL_FOTAstatusBM6_St_enum : 19|4@0+ (1,0) [0|15] "enum"  VCU
+ SG_ CNS_TEL_FOTAstatusTEL_St_enum : 31|4@0+ (1,0) [0|15] "enum"  VCU
+ SG_ CNS_TEL_FOTAstatusVCU_St_enum : 27|4@0+ (1,0) [0|15] "enum"  VCU
+ SG_ CNS_TEL_FOTAstatusMCU_St_enum : 39|4@0+ (1,0) [0|15] "enum"  VCU
+ SG_ CNS_TEL_FOTAstatusCHG_St_enum : 35|4@0+ (1,0) [0|15] "enum"  VCU
+ SG_ CNS_TEL_FOTAstatusICL_St_enum : 55|4@0+ (1,0) [0|15] "enum"  VCU
+ SG_ CNS_TEL_FOTAstatusRsv_St_enum : 51|4@0+ (1,0) [0|15] "enum"  VCU
+ SG_ APP_Estimated_FlashingTime_Secs : 63|6@0+ (10,0) [0|31] "sec"  VCU
+ SG_ APP_Rqst_Update : 57|2@0+ (1,0) [0|3] "enum"  VCU
+ SG_ TEL_Reserved1 : 43|4@0+ (1,0) [0|15] "enum"  VCU
+
+BO_ 36 VCU_Event: 8 VCU
+ SG_ ETS_VCU_EventMultiplx_Act_ID M : 7|8@0+ (1,0) [0|255] "ID"  TST,ICL,TEL
+ SG_ ETS_VCU_ODO_Ref_m m10 : 15|24@0+ (100,0) [0|1677721500] "m"  ICL,TEL
+ SG_ ETS_VCU_FOTApermission_Ack_B m20 : 15|1@0+ (1,0) [0|1] "B"  TEL
+
+BO_ 135 TEL_SecretLearn: 8 TEL
+ SG_ PATtoVCU_64_bit_Word_0 : 7|16@0+ (1,0) [0|65535] "NA"  VCU
+ SG_ PATtoVCU_64_bit_Word_1 : 23|16@0+ (1,0) [0|65535] "NA"  VCU
+ SG_ PATtoVCU_64_bit_Word_2 : 39|16@0+ (1,0) [0|65535] "NA"  VCU
+ SG_ PATtoVCU_64_bit_Word_3 : 55|16@0+ (1,0) [0|65535] "NA"  VCU
+
+BO_ 134 TEL_VCU_AuthResponse: 8 TEL
+ SG_ AESDecrypted_Word_0_4 : 7|16@0+ (1,0) [0|65535] "NA"  VCU
+ SG_ AESDecrypted_Word_1_5 : 23|16@0+ (1,0) [0|65535] "NA"  VCU
+ SG_ AESDecrypted_Word_2_6 : 39|16@0+ (1,0) [0|65535] "NA"  VCU
+ SG_ AESDecrypted_Word_3_7 : 55|16@0+ (1,0) [0|65535] "NA"  VCU
+
+BO_ 33 VCU_TEL_AuthRequest: 8 VCU
+ SG_ AESEncrypted_Word_0_4 : 7|16@0+ (1,0) [0|65535] "NA"  TEL
+ SG_ AESEncrypted_Word_1_5 : 23|16@0+ (1,0) [0|65535] "NA"  TEL
+ SG_ AESEncrypted_Word_2_6 : 39|16@0+ (1,0) [0|65535] "NA"  TEL
+ SG_ AESEncrypted_Word_3_7 : 55|16@0+ (1,0) [0|65535] "NA"  TEL
+
+BO_ 34 VCU_SecretTeach: 8 VCU
+ SG_ PATtoTEL_64_bit_Word_0 : 7|16@0+ (1,0) [0|65535] "NA"  TEL
+ SG_ PATtoTEL_64_bit_Word_1 : 23|16@0+ (1,0) [0|65535] "NA"  TEL
+ SG_ PATtoTEL_64_bit_Word_2 : 39|16@0+ (1,0) [0|65535] "NA"  TEL
+ SG_ PATtoTEL_64_bit_Word_3 : 55|16@0+ (1,0) [0|65535] "NA"  TEL
+
+BO_ 1418 VCU_Analytics_04: 8 VCU
+ SG_ ETS_VCU_FETfailCnt_Act_count : 43|7@0+ (1,0) [0|127] "count"  TEL
+ SG_ ETS_VCU_L2InterruptCnt_Act_count : 34|7@0+ (1,0) [0|127] "count"  TEL
+ SG_ ETS_VCU_CANwakeupCnt_Act_count : 9|7@0+ (1,0) [0|127] "count"  TEL
+ SG_ ETS_VCU_NeutralInitTime_Act_sec : 7|10@0+ (0.1,0) [0|102.3] "sec"  TEL
+ SG_ ETS_VCU_FOTA_State_enum : 13|4@0+ (1,0) [0|16] "enum"  TEL
+ SG_ ETS_VCU_bridgedBALStsBrick : 18|16@0+ (1,0) [0|65535] ""  TEL
+ SG_ ETS_VCU_bridged_vLoad_Act_V : 52|13@0+ (0.01,0) [0|81.91] "V"  TEL
+
+BO_ 794 VCU_Analytics_03: 8 VCU
+ SG_ ETS_VCU_AvgMotTrqPos_Est_Nm : 50|9@0+ (0.1,-25) [-25|26.1] "Nm"  TEL
+ SG_ ETS_VCU_AvgMotTrqNeg_Est_Nm : 43|9@0+ (0.1,-25) [-25|26.1] "Nm"  TEL
+ SG_ ETS_VCU_AuxLoadCons_Act_A : 34|7@0+ (0.1,0) [0|0] "A"  TEL
+ SG_ ETS_VCU_LoadIndex_Est_count : 25|7@0+ (0.01,0) [0|1.27] "count"  TEL
+ SG_ ETS_VCU_RegenEnergy_Act_Wh : 8|15@0+ (1,-15000) [-15000|17767] "Wh"  TEL
+ SG_ ETS_VCU_DriveEnergy_Act_Wh : 7|15@0+ (1,-15000) [-15000|17767] "Wh"  TEL
+ SG_ ETS_VCU_ChargeInterrupt_St_B : 57|1@0+ (1,0) [0|1] "B"  TEL
+
+BO_ 795 VCU_Analytics_02: 8 VCU
+ SG_ ETS_VCU_DriveEff_Est_Whpkm : 49|10@0+ (0.1,0) [0|102.3] "Whpkm"  TEL
+ SG_ ETS_VCU_AvgDCresistance_Act_ohm : 47|14@0+ (0.01,0) [0|163.83] "ohm"  TEL
+ SG_ ETS_VCU_MaxCurrChg_Max_A : 25|10@0+ (1,0) [0|1023] "A"  TEL
+ SG_ ETS_VCU_AvgCurrChg_Act_A : 19|10@0+ (1,0) [0|1023] "A"  TEL
+ SG_ ETS_VCU_MaxCurrDchg_Max_A : 13|10@0+ (1,0) [0|1023] "A"  TEL
+ SG_ ETS_VCU_AvgCurrDchg_Act_A : 7|10@0+ (1,0) [0|1023] "A"  TEL
+
+BO_ 796 VCU_Analytics_01: 8 VCU
+ SG_ ETS_VCU_AvgAccPedal_Act_perc : 49|10@0+ (0.1,0) [0|102.3] "perc"  TEL
+ SG_ ETS_VCU_BrakeOverAccIntg_Act_sec : 42|9@0+ (1,0) [0|511] "sec"  TEL
+ SG_ ETS_VCU_BrakeInteg_Act_sec : 35|9@0+ (1,0) [0|511] "sec"  TEL
+ SG_ ETS_VCU_MaxSpeed_Max_kmph : 26|7@0+ (1,0) [0|127] "kmph"  TEL
+ SG_ ETS_VCU_AvgSpeed_Act_kmph : 17|7@0+ (1,0) [0|127] "kmph"  TEL
+ SG_ ETS_VCU_LongAccel_Max_mpss : 12|11@0+ (0.1,0) [0|204.7] "mpss"  TEL
+ SG_ ETS_VCU_LongAccel_Min_mpss : 7|11@0+ (0.1,-194.7) [-194.7|10] "mpss"  TEL
+
+BO_ 32 VINTeach: 8 VCU
+ SG_ VEH_VEH_SeqNumMultiplx_Act_ID M : 7|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_VINmsb16_Act_ID m10 : 15|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVINmsb15_Act_ID m10 : 23|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN14_Act_ID m10 : 31|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN13_Act_ID m10 : 39|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN12_Act_ID m10 : 47|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN11_Act_ID m10 : 55|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN10_Act_ID m10 : 63|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN9_Act_ID m20 : 15|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN8_Act_ID m20 : 23|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN7_Act_ID m20 : 31|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN6_Act_ID m20 : 39|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN5_Act_ID m20 : 47|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN4_Act_ID m20 : 55|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN3_Act_ID m20 : 63|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN2_Act_ID m30 : 15|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVIN1_Act_ID m30 : 23|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_EncodedVINlsb0_Act_ID m30 : 31|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_Lvl3SeedMSB3_Act_ID m30 : 39|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_Lvl3Seed2_Act_ID m30 : 47|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_Lvl3Seed1_Act_ID m30 : 55|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+ SG_ VEH_VEH_Lvl3SeedLSB0_Act_ID m30 : 63|8@0+ (1,0) [0|255] "ID"  MCU,TEL
+
+BO_ 1651 VCU_TriggerNodeClaim: 5 VCU
+ SG_ ETS_VCU_CmdByte_Cmd_ID M : 7|8@0+ (1,0) [0|255] "ID"  BMG
+ SG_ ETS_VCU_SeedVal_Act_ID m1 : 15|32@0+ (1,0) [0|4294967295] "ID"  BMG
+ SG_ ETS_VCU_SeedValR_Act_ID m2 : 15|32@0+ (1,0) [0|4294967295] "ID"  BMG
+ SG_ ETS_VCU_AuthSts_St_enum m3 : 15|8@0+ (1,0) [0|255] "enum"  BMG
+ SG_ ETS_VCU_BmsNode_ID m3 : 23|8@0+ (1,0) [0|255] "ID"  BMG
+ SG_ ETS_VCU_trigger_nodeTransition m4 : 15|8@0+ (1,0) [0|255] ""  BMG
+
+BO_ 886 TEL_Operation_Info: 3 TEL
+ SG_ CNS_TEL_BTwriteNVMfail_St_B : 17|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_BTreadNVMfail_St_B : 18|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_BTmia_St_B : 19|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_BTgetAdNameFail_St_B : 20|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_GSMresponseFault_St_B : 21|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_GSMnetRegFail_St_B : 11|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_GSMsimPinFault_St_B : 12|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_GNSScrcFault_St_B : 13|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_NoSupplyTooLong_St_B : 22|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_UndervoltFault_St_B : 9|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_OvervoltFault_St_B : 10|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_GSMactivGPRSfail_St_B : 8|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_GNSSresponseFault_St_B : 23|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_STGfault_St_B : 14|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_STBfault_St_B : 15|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_OpenFault_St_B : 0|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_BackupBatteryVolt_Act_V : 7|6@0+ (0.1,0) [0|6.3] "V"  TST
+ SG_ CNS_TEL_BackupBatteryMode_St_B : 1|1@0+ (1,0) [0|1] "B"  TST
+
+BO_ 1135 TEL_GPS_Position: 8 TEL
+ SG_ CNS_TEL_GPSlongitude_Est_count : 27|28@0+ (1E-006,0) [0|268.435455] "count"  TST
+ SG_ CNS_TEL_GPSlongitudeDirn_Est_B : 63|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_GPSlatitudeDirn_Est_B : 28|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_GPSlatitude_Est_count : 7|27@0+ (1E-006,0) [0|134.217727] "count"  TST
+
+BO_ 789 VCU_Display_Inputs: 8 VCU
+ SG_ ETS_VCU_BeeperRPSL_Cmd_St_enum : 25|4@0+ (1,0) [0|15] "enum"  ICL,TEL
+ SG_ ETS_VCU_BeeperRPSR_Cmd_St_en : 29|4@0+ (1,0) [0|15] "enum"  ICL,TEL
+ SG_ Reserved_156_59 : 61|3@0+ (1,0) [0|7] "NA"  TST
+ SG_ ETS_VCU_LowBattVoltage_Cmd_enum : 54|2@0+ (1,0) [0|3] "enum"  ICL,TEL
+ SG_ ETS_VCU_DisplayScreen_Cmd_enum : 37|3@0+ (1,0) [0|7] "enum"  ICL
+ SG_ ETS_VCU_Buzzer_Cmd_B : 58|3@0+ (1,0) [0|7] "enum"  ICL,TEL
+ SG_ ETS_VCU_RemoteImmoDisp_St_B : 48|1@0+ (1,0) [0|1] "B"  ICL,TEL
+ SG_ ETS_VCU_RemainingMileage_Est_m : 34|12@0+ (100,0) [0|409500] "m"  ICL,TEL
+ SG_ ETS_VCU_GenAlarmInd_St_enum : 63|2@0+ (1,0) [0|3] "enum"  ICL,TEL
+ SG_ ETS_VCU_LimitedPerformInd_St_B : 52|1@0+ (1,0) [0|1] "B"  ICL,TEL
+ SG_ ETS_VCU_DriverScore_Act_count : 23|8@0+ (1,0) [0|255] "count"  ICL,TEL
+ SG_ ETS_VCU_ThermalRunawayInd_St_B : 49|1@0+ (1,0) [0|1] "B"  ICL,TEL
+ SG_ ETS_VCU_Seek_ASW_FOTA_Approval : 15|8@0+ (1,0) [0|255] "enum"  TST,ICL,TEL
+
+BO_ 781 VCU_Charger_Command_Info: 7 VCU
+ SG_ ETS_VCU_ChargerCtrlMode_St_enum : 55|2@0+ (1,0) [0|3] "enum"  CHG,TEL
+ SG_ ETS_VCU_ChargerCommCtrl_St_enum : 41|2@0+ (1,0) [0|3] "enum"  CHG,TEL
+ SG_ ETS_VCU_ChargerOpReq_Cmd_enum : 43|2@0+ (1,0) [0|3] "enum"  CHG,TEL
+ SG_ ETS_VCU_ChargerCurrSetpt_Ref_A : 27|16@0+ (0.005,0) [0|327.675] "A"  CHG,TEL
+ SG_ ETS_VCU_ChargerVoltSetpt_Ref_V : 11|16@0+ (0.005,0) [0|327.675] "V"  CHG,TEL
+ SG_ CTROLL_781 : 15|4@0+ (1,0) [0|15] "count"  CHG,TEL
+ SG_ CKSUM1_781 : 7|8@0+ (1,0) [0|255] "NA"  CHG,TEL
+
+BO_ 156 VCU_Trq_Command_1: 8 VCU
+ SG_ CRCST_156 : 7|8@0+ (1,0) [0|255] "NA"  MCU,TEL
+ SG_ CTROLL_156 : 15|4@0+ (1,0) [0|15] "count"  MCU,TEL
+ SG_ ETS_VCU_MotDemandTrq_Cmd_Nm : 11|14@0+ (0.01,-50) [-50|113.83] "Nm"  MCU,TEL
+ SG_ ETS_VCU_MCUenableStatus_St_enum : 46|2@0+ (1,0) [0|3] "enum"  MCU,TEL
+ SG_ ETS_VCU_MCU_veh_mode_req_enum : 44|2@0+ (1,0) [0|3] "enum"  MCU,TEL
+ SG_ ETS_VCU_CommandSpeed_Cmd_rpm : 29|15@0+ (1,-15000) [-15000|17767] "rpm"  MCU,TEL
+ SG_ ETS_VCU_MCU_Veh_Model_Sel : 42|8@0+ (1,0) [0|60] "enum"  MCU,TEL
+ SG_ ETS_VCU_Shift_ASD_St_Enum : 50|3@0+ (1,0) [0|7] "enum"  MCU,TEL
+
+BO_ 158 VCU_CurrentLimitsToMCU: 8 VCU
+ SG_ ETS_VCU_EstimatedGrade_Est_Deg : 63|6@0+ (1,0) [0|63] "Deg"  MCU,TEL
+ SG_ ETS_VCU_GearEngaged_Act_enum : 33|2@0+ (1,0) [0|3] "enum"  MCU,TEL
+ SG_ ETS_VCU_HillHoldEnable_St_B : 34|1@0+ (1,0) [0|1] "B"  MCU,TEL
+ SG_ CRCST_158 : 7|8@0+ (1,0) [0|255] "NA"  MCU
+ SG_ CTROLL_158 : 15|4@0+ (1,0) [0|15] "count"  MCU
+ SG_ ETS_VCU_ActiveShrtCkt_Cmd_B : 31|1@0+ (1,0) [0|1] "B"  MCU,TEL
+ SG_ ETS_VCU_DchgCurrLimit_Ref_A : 11|12@0+ (0.1,0) [0|409.5] "A"  MCU,TEL
+ SG_ ETS_VCU_ChgCurrLimit_Ref_A : 30|12@0+ (0.1,-250) [-250|159.5] "A"  MCU,TEL
+
+BO_ 782 VCU_Status: 8 VCU
+ SG_ ETS_VCU_TEL2Cloud_DataOff_St_B : 11|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ Reserved_782_25 : 28|4@0+ (1,0) [0|15] "NA"  TST
+ SG_ Reserved_782_31 : 19|5@0+ (1,0) [0|31] "NA"  TST
+ SG_ ETS_VCU_BrakePressStatus_St_enum : 29|1@0+ (1,0) [0|1] "enum"  MCU,TEL
+ SG_ ETS_VCU_TELCANTxEnable_Req_enum : 24|2@0+ (1,0) [0|3] "enum"  TEL
+ SG_ ETS_VCU_MPRDRelayStatus_St_enum : 30|1@0+ (1,0) [0|1] "enum"  MCU,TEL
+ SG_ ETS_VCU_DrivetrainStatus_St_enum : 5|4@0+ (1,0) [0|15] "enum"  MCU,TEL
+ SG_ ETS_VCU_MCUCANTxEnable_Req_enum : 7|2@0+ (1,0) [0|3] "enum"  MCU,TEL
+ SG_ ETS_VCU_DrvMode_St_enum : 15|3@0+ (1,0) [0|7] "enum"  MCU,ICL,TEL
+ SG_ ETS_VCU_AmbientTemp_Act_degC : 10|7@0+ (1,-40) [-40|87] "degC"  MCU,CHG,ICL,TEL
+ SG_ ETS_VCU_KeyONstatus_St_B : 12|1@0+ (1,0) [0|1] "B"  ICL,TEL
+ SG_ ETS_VCU_ShiftMOTDriveDir_St_enum : 38|2@0+ (1,0) [0|3] "enum"  TST,TEL
+ SG_ ETS_VCU_MotorRPM_Act_rpm : 32|15@0+ (1,-15000) [-15000|17767] "rpm"  TST,TEL
+ SG_ ETS_VCU_Display_Inputs_2 : 36|4@0+ (1,0) [0|15] "enum"  TST,ICL,TEL
+ SG_ Reserved_782_37 : 1|2@0+ (1,0) [0|3] "NA"  TEL
+ SG_ ETS_VCU_AutoHazard_St_B : 49|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_LoadRelayStatus_St_B : 48|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_FOTA_Approval_St_enum : 63|8@0+ (1,0) [0|255] "enum"  TST,MCU,CHG,ICL,TEL
+
+BO_ 783 VCU_Vehicle_Info1: 8 VCU
+ SG_ ETS_VCU_AUTO_SHTDWN_ACTV_ST_B : 30|1@0+ (1,0) [0|1] "BOOL" Vector__XXX
+ SG_ ETS_VCU_FORCD_DWNSHFT_CLMB_ST_B : 31|1@0+ (1,0) [0|1] "BOOL" Vector__XXX
+ SG_ VCU_ahr_final_val : 29|7@0+ (0.01,0) [0|1.27] "Ah"  TST,TEL
+ SG_ ETS_VCU_Mcu_CanB_Enabled_St_B : 17|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_CHG_Stat_InfoMsg_St_Enum : 12|3@0+ (1,0) [0|3] "enum"  TST,TEL
+ SG_ ETS_VCU_Creep_St_B : 16|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_FaultStatus_St_enum : 61|2@0+ (1,0) [0|3] "enum"  TEL
+ SG_ ETS_VCU_VehSpeed_Act_kmph : 7|11@0+ (0.1,0) [0|204.7] "kmph"  ICL,TEL
+ SG_ ETS_VCU_ChargingStatus_St_enum : 23|3@0+ (1,0) [0|7] "enum"  ICL,TEL
+ SG_ ETS_VCU_ChrgPlug_St_enum : 19|2@0+ (1,0) [0|3] "enum"  ICL,TEL
+ SG_ ETS_VCU_RegenBraking_St_B : 20|1@0+ (1,0) [0|1] "B"  ICL,TEL
+ SG_ ETS_VCU_HighBatteryTemp_St_B : 9|2@0+ (1,0) [0|3] "B"  ICL,TEL
+ SG_ ETS_VCU_SOCbatt_Est_perc : 38|7@0+ (1,0) [0|127] "perc"  ICL,TEL
+ SG_ ETS_VCU_VoltAuxBatt_Act_V : 47|8@0+ (0.1,0) [0|25.5] "V"  TEL
+ SG_ ETS_VCU_TimeToChargeBatt_Est_min : 55|10@0+ (1,0) [0|1023] "min"  ICL,TEL
+ SG_ ETS_VCU_ParkBrake_St_enum : 57|2@0+ (1,0) [0|3] "enum"  ICL,TEL
+ SG_ ETS_VCU_MOTFanRelay_St_enum : 59|2@0+ (1,0) [0|3] "enum"  TEL
+
+BO_ 784 VCU_Vehicle_Info2: 8 VCU
+ SG_ ETS_VCU_Chg_CommErr_Flag_St_B : 9|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ Reserved_784_23 : 23|1@0+ (1,0) [0|1] "NA"  TST
+ SG_ ETS_VCU_AuxBattChgTime_Est_min : 37|8@0+ (1,0) [0|255] "min"  TEL
+ SG_ ETS_VCU_BrakeLampStatus_St_enum : 43|1@0+ (1,0) [0|1] "enum"  TST,TEL
+ SG_ ETS_VCU_LimpModeReason_St_enum : 45|2@0+ (1,0) [0|3] "enum"  TEL
+ SG_ ETS_VCU_DrvDisableReason_St_enum : 22|2@0+ (1,0) [0|3] "enum"  TEL
+ SG_ ETS_VCU_MotorFANduty_Act_perc : 51|7@0+ (1,0) [0|127] "perc"  TEL
+ SG_ ETS_VCU_RollSenseStatus_St_enum : 20|1@0+ (1,0) [0|1] "enum"  TEL
+ SG_ ETS_VCU_ChargerEnrgyCons_Act_kW : 7|14@0+ (0.001,0) [0|16.383] "kWh"  TEL
+ SG_ ETS_VCU_VCUlimpMode_St_enum : 8|1@0+ (1,0) [0|1] "enum"  TEL
+ SG_ ETS_VCU_AccelPedal_Act_perc : 19|7@0+ (1,0) [0|127] "perc"  MCU,TEL
+ SG_ ETS_VCU_BrakePedal_Act_perc : 42|7@0+ (1,0) [0|127] "perc"  TEL
+ SG_ ETS_VCU_FOTA_APP_OR_TEL_St_Enum : 27|6@0+ (1,0) [0|63] "enum"  TST,TEL
+
+BO_ 791 VCU_Vehicle_Info3: 8 VCU
+ SG_ Reserved_791_16 : 17|2@0+ (1,0) [0|3] "NA"  TST
+ SG_ Reserved_791_20 : 21|2@0+ (1,0) [0|3] "NA"  TST
+ SG_ VCU_ahr_per_km_long_val : 15|8@0+ (0.01,0) [0|2.55] "Ahpkm"  TST,TEL
+ SG_ VCU_ahr_per_km_inst_val : 7|8@0+ (0.01,0) [0|2.55] "Ahpkm"  TST,TEL
+ SG_ ETS_VCU_AuxChrgingStatus_St_enum : 31|2@0+ (1,0) [0|3] "enum"  TEL
+ SG_ ETS_VCU_DCDCStatus_St_enum : 19|2@0+ (1,0) [0|3] "enum"  TEL
+ SG_ ETS_VCU_RevLampRelay_St_enum : 39|2@0+ (1,0) [0|3] "enum"  TEL
+ SG_ ETS_VCU_KillSwitch_St_enum : 37|2@0+ (1,0) [0|3] "enum"  TST,TEL
+ SG_ ETS_VCU_KillTimerRelay_St_enum : 35|2@0+ (1,0) [0|3] "enum"  TST,TEL
+ SG_ VCU_cnt_num_of_aux_chg_wkups : 29|6@0+ (1,0) [0|63] "count"  TST,TEL
+ SG_ ETS_VCU_vBrickUnder_St_B : 33|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_vBrickUnder_Act_count : 32|8@0+ (1,0) [0|255] "count"  TEL
+ SG_ ETS_VCU_cnt_inst_plaus_count : 62|3@0+ (1,0) [0|7] "count"  TEL
+ SG_ ETS_VCU_inst_whlSpeed_Flt_B : 59|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_trueWheel_Speed_kph : 40|10@0+ (0.1,0) [0|102.3] "kph"  TEL
+
+BO_ 173 MCU_Power_Info: 8 MCU
+ SG_ CKSUM1_173 : 7|8@0+ (1,0) [0|255] "NA"  VCU,TEL
+ SG_ CTROLL_173 : 15|4@0+ (1,0) [0|15] "count"  VCU,TEL
+ SG_ ETS_MCU_DCCurrent_Act_A : 11|13@0+ (0.1,-250) [-250|569.1] "A"  VCU,TEL
+ SG_ ETS_MCU_DCVoltage_Act_V : 30|10@0+ (0.1,0) [0|102.3] "V"  VCU,TEL
+ SG_ ETS_MCU_RequestedTorque_Act_Nm : 54|14@0+ (0.01,-50) [-50|113.83] "Nm"  VCU,TEL
+ SG_ ETS_MOT_ShaftTorque_Est_Nm : 36|14@0+ (0.01,-50) [-50|113.83] "Nm"  VCU,TEL
+ SG_ MCU_SW_PhShort_St_B : 56|1@0+ (1,0) [0|1] "B"  VCU,TEL
+
+BO_ 174 MCU_Speed_Info: 8 MCU
+ SG_ CRCST_174 : 7|8@0+ (1,0) [0|255] "NA"  VCU,TEL
+ SG_ CTROLL_174 : 15|4@0+ (1,0) [0|15] "count"  VCU,TEL
+ SG_ ETS_MOT_MotorRPM_Act_rpm : 11|15@0+ (1,-15000) [-15000|17767] "rpm"  VCU,TEL
+ SG_ ETS_MOT_Acceleration_Act_rpss : 28|7@0+ (0.1,-5) [-5|7.7] "rpss"  VCU
+ SG_ ETS_MOT_Angle_Act_Deg : 37|9@0+ (1,0) [0|511] "Deg"  VCU,TEL
+ SG_ ETS_MCU_RPSInput_St_B : 44|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_ReqOpenMainSwi_Req_enum : 43|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ ETS_MCU_MotorMaxTrqLimit_Ref_Nm : 41|9@0+ (0.1,0) [0|51.1] "enum"  VCU,TEL
+ SG_ ETS_MCU_MotorMinTrqLimit_Ref_Nm : 48|9@0+ (0.1,-51.1) [-51.1|0] "enum"  VCU,TEL
+
+BO_ 797 MCU_Status_Info: 8 MCU
+ SG_ ETS_MCU_MotorControlMode_St_enum : 45|3@0+ (1,0) [0|7] "enum"  VCU,TEL
+ SG_ ETS_MCU_HillAssist_St_B : 0|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_ChgInhibit_St_B : 15|1@0+ (1,0) [0|1] "B"  TST,VCU,TEL
+ SG_ ETS_MCU_OffsetCAL_St_enum : 58|3@0+ (1,0) [0|7] "enum"  VCU,TEL
+ SG_ ETS_MCU_ASCcmdAck_St_B : 32|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_OffsetCalComplete_St_B : 47|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_hwASCactive_St_B : 46|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_StatusBits_St_enum : 7|3@0+ (1,0) [0|7] "enum"  VCU,TEL
+ SG_ ETS_MCU_MotDrvRdyStatus_St_enum : 4|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ ETS_MCU_ActShrtCktStatus_St_enum : 2|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ ETS_MCU_EnableStatus_St_enum : 14|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ ETS_MCU_Sleep_Ack_enum : 12|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ ETS_MCU_ASDStatus_St_enum : 10|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ ETS_MCU_MCUTemp_Act_degC : 8|8@0+ (1,-50) [-50|205] "degC"  VCU,TEL
+ SG_ ETS_MOT_StatorTemp_Act_degC : 16|8@0+ (1,-50) [-50|205] "degC"  VCU,TEL
+ SG_ ETS_MOT_MagnetPredTemp_Est_degC : 24|8@0+ (1,-50) [-50|205] "degC"  VCU,TEL
+ SG_ ETS_MCU_SupplyRelayStatus_St_B : 42|2@0+ (1,0) [0|3] "B"  VCU,TEL
+ SG_ ETS_MCU_FinalTorque_Act_Nm : 40|14@0+ (0.01,-50) [-50|113.83] "Nm"  VCU,TEL
+
+BO_ 798 MCU_Fault_Info: 8 MCU
+ SG_ ETS_MCU_CRCMismatchFault_St_B : 36|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_SnsrSplyFault_St_B : 37|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MOT_PhPhShrtCktFault_St_B : 35|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MOT_OpenPhaseFault_St_B : 34|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MOT_PhGndShrtCktFault_St_B : 33|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_OverCurrentFault_St_B : 58|3@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MOT_SpeedFault_St_enum : 47|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ ETS_MCU_UndervoltFault_St_enum : 45|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ ETS_MOT_MotorTempFault_St_enum : 43|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ ETS_MCU_MCUtempFault_St_enum : 41|3@0+ (1,0) [0|7] "enum"  VCU,TEL
+ SG_ ETS_MCU_VCUCANTimeoutFault_St_B : 54|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_DeratingReason_St_enum : 25|4@0+ (1,0) [0|15] "enum"  VCU,TEL
+ SG_ ETS_MOT_FaultStatus_St_B : 26|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_FaultStatus_St_B : 27|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_OvervoltFault_St_enum : 29|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ ETS_MOT_TempSensorFault_St_enum : 7|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ ETS_MCU_TempSensorFault_St_enum : 5|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ ETS_MOT_EncoderFault_St_enum : 1|6@0+ (1,0) [0|63] "enum"  VCU,TEL
+ SG_ ETS_MCU_DCvoltSensorFault_St_B : 3|2@0+ (1,0) [0|3] "B"  VCU,TEL
+ SG_ ETS_MCU_DCcurrSensorFault_St_B : 61|3@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_UPhVoltSensorFault_St_B : 11|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_VPhVoltSensorFault_St_B : 10|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_WPhVoltSensorFault_St_B : 9|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_UVWPh_IsnsrFault_St_enum : 53|6@0+ (1,0) [0|63] "enum"  VCU,TEL
+ SG_ ETS_MOT_DemagFault_St_B : 32|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_MotorOffsetMismatch_St_B : 8|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_InternalHWfault_St_enum : 23|3@0+ (1,0) [0|7] "enum"  VCU,TEL
+ SG_ ETS_MOT_StallProtect_St_B : 20|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_HW_PhShortFault_St_B : 19|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_MOSFETFault_St_B : 18|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_FastVdcdropFault_St_B : 17|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_DCDCConverterFault_St_B : 16|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_DrvTrqCommViolation_St_B : 31|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_RgnTrqCommViolation_St_B : 30|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ETS_MCU_FocFault_St_enum : 63|2@0+ (1,0) [0|3] "B"  VCU,TEL
+
+BO_ 175 MCU_Debug_Info: 8 MCU
+ SG_ ETS_MCU_DbgInfoMultiplx_Act_ID M : 7|8@0+ (1,0) [0|255] "ID"  TST,TEL
+ SG_ ETS_MCU_IdRef_Ref_A m1 : 15|14@0+ (0.1,-650) [-650|988.3] "A"  TST,TEL
+ SG_ ETS_MCU_IqRef_Ref_A m1 : 17|14@0+ (0.1,-650) [-650|988.3] "A"  TST,TEL
+ SG_ ETS_MCU_IdAct_Act_A m1 : 35|14@0+ (0.1,-650) [-650|988.3] "A"  TST,TEL
+ SG_ ETS_MCU_IqAct_Act_A m1 : 53|14@0+ (0.1,-650) [-650|988.3] "A"  TST,TEL
+ SG_ ETS_MCU_InstIa_Act_A m2 : 15|14@0+ (0.1,-650) [-650|988.3] "A"  TST,TEL
+ SG_ ETS_MCU_InstIb_Act_A m2 : 17|14@0+ (0.1,-650) [-650|988.3] "A"  TST,TEL
+ SG_ ETS_MCU_InstIc_Act_A m2 : 35|14@0+ (0.1,-650) [-650|988.3] "A"  TST,TEL
+ SG_ DemagControlerTrq_Act_Nm m2 : 53|11@0+ (0.1,-60) [-60|144.7] "Nm"  TST,TEL
+ SG_ Reserved_MCU_Debug_2 m2 : 58|3@0+ (1,0) [0|7] "NA"  TST,TEL
+ SG_ ETS_MCU_Vq_Act_V m3 : 15|14@0+ (0.01,-50) [-50|113.83] "V"  TST,TEL
+ SG_ ETS_MCU_Vd_Act_V m3 : 17|14@0+ (0.01,-50) [-50|113.83] "V"  TST,TEL
+ SG_ ETS_MCU_HillholdTrq_Ref_Nm m3 : 35|11@0+ (0.1,-60) [-60|144.7] "Nm"  TST,TEL
+ SG_ Reserved_MCU_Debug_3 m3 : 40|1@0+ (1,0) [0|1] "NA"  TST,TEL
+ SG_ ETS_MCU_EncoderAngOffset_Act_Val m3 : 55|16@0+ (1,0) [0|65535] "Deg"  TST,TEL
+ SG_ ETS_MCU_MotDerateMaxTrq_Act_Nm m4 : 15|11@0+ (0.1,-60) [-60|144.7] "Nm"  TST,TEL
+ SG_ ETS_MCU_MCUDerateMaxTrq_Act_Nm m4 : 20|11@0+ (0.1,-60) [-60|144.7] "Nm"  TST,TEL
+ SG_ ETS_MCU_MotDerateTrqLimit_Ref_Nm m4 : 46|11@0+ (0.1,-60) [-60|144.7] "Nm"  TST,TEL
+ SG_ ETS_MCU_MCUDerateTrqLimit_Ref_Nm m4 : 25|11@0+ (0.1,-60) [-60|144.7] "Nm"  TST,TEL
+ SG_ SpeedControlerTrq_Act_Nm m4 : 51|11@0+ (0.1,-60) [-60|144.7] "Nm"  TST,TEL
+ SG_ Reserved_MCU_Debug_4 m4 : 56|1@0+ (1,0) [0|1] "NA"  TST,TEL
+ SG_ ETS_MCU_EncoderSinMin_Act_Val m5 : 15|12@0+ (1,0) [0|4095] "V"  TST,TEL
+ SG_ ETS_MCU_EncoderSinMax_Act_Val m5 : 19|12@0+ (1,0) [0|4095] "V"  TST,TEL
+ SG_ ETS_MCU_EncoderCosMin_Act_Val m5 : 39|12@0+ (1,0) [0|4095] "V"  TST,TEL
+ SG_ ETS_MCU_EncoderCosMax_Act_Val m5 : 43|12@0+ (1,0) [0|4095] "V"  TST,TEL
+ SG_ ETS_MCU_EncoderOffsetCal_St_enum m5 : 63|4@0+ (1,0) [0|15] "enum"  TST,TEL
+ SG_ Reserved_MCU_Debug_5 m5 : 59|4@0+ (1,0) [0|15] "NA"  TST,TEL
+ SG_ ETS_MCU_RMSVoltagePhaseU_Act_V m6 : 15|9@0+ (0.1,0) [0|51.1] "V"  TST,TEL
+ SG_ ETS_MCU_RMSVoltagePhaseV_Act_V m6 : 22|9@0+ (0.1,0) [0|51.1] "V"  TST,TEL
+ SG_ ETS_MCU_RMSVoltagePhaseW_Act_V m6 : 29|9@0+ (0.1,0) [0|51.1] "V"  TST,TEL
+ SG_ ETS_MCU_RMSCurrentPhaseW_Act_A m6 : 36|9@0+ (1,0) [0|511] "A"  TST,TEL
+ SG_ ETS_MCU_RMSCurrentPhaseV_Act_A m6 : 43|9@0+ (1,0) [0|511] "A"  TST,TEL
+ SG_ ETS_MCU_RMSCurrentPhaseU_Act_A m6 : 50|9@0+ (1,0) [0|511] "A"  TST,TEL
+ SG_ ETS_MCU_HillHoldSelect_St_B m6 : 57|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ Reserved_MCU_Debug_6 m6 : 56|1@0+ (1,0) [0|1] "NA"  TST,TEL
+
+BO_ 162 VCU_IMU_Processed_Angular_Msg: 8 VCU
+ SG_ ETS_VCU_imuProc_pitchCF : 12|11@0+ (0.1,-102) [-102|102.7] "deg" TST
+ SG_ ETS_VCU_imuProc_pitchRate : 45|9@0+ (0.01,-2) [-2|3.11] "rps" TST
+ SG_ ETS_VCU_imuProc_rollCF : 7|11@0+ (0.1,-102) [-102|102.7] "deg" TST
+ SG_ ETS_VCU_imuProc_rollRate : 38|9@0+ (0.01,-2) [-2|3.11] "rps" TST
+ SG_ ETS_VCU_imuProc_yawCF : 17|11@0+ (0.1,-102) [-102|102.7] "deg" TST
+ SG_ ETS_VCU_imuProc_yawRate : 52|9@0+ (0.01,-2) [-2|3.11] "rps" TST
+
+BO_ 161 VCU_IMU_Processed_Cal_Msg: 8 VCU
+ SG_ ETS_VCU_imuProc_pitchCalAngle : 15|8@0+ (0.01,-1) [-1|1.55] "rad" TST
+ SG_ ETS_VCU_imuProc_rollCalAngle : 7|8@0+ (0.01,-1) [-1|1.55] "rad" TST
+ SG_ ETS_VCU_imuProc_RollPitchCal_B : 24|1@0+ (1,0) [0|1] "B" TST
+ SG_ ETS_VCU_imuProc_YawCal_B : 25|1@0+ (1,0) [0|1] "B" TST
+ SG_ ETS_VCU_imuProc_yawCalAngle : 23|8@0+ (0.01,-1) [-1|1.55] "rad" TST
+ SG_ ETS_VCU_imuProc_pitchCalAngleEEP : 39|10@0+ (0.2,-102) [-102|102.6] "Deg" TST
+ SG_ ETS_VCU_imuProc_rollCalAngleEEP : 45|10@0+ (0.2,-102) [-102|102.6] "Deg" TST
+ SG_ ETS_VCU_imuProc_yawCalAngleEEP : 51|10@0+ (0.2,-102) [-102|102.6] "Deg" TST
+ SG_ ETS_VCU_imuProc_imuStuck_B : 31|1@0+ (1,0) [0|1] "B" TST
+ SG_ ETS_VCU_imuProc_WhlLocked_B : 30|1@0+ (1,0) [0|1] "B" TST
+ SG_ ETS_VCU_imuProc_WhlFree_B : 29|1@0+ (1,0) [0|1] "B" TST
+ SG_ ETS_VCU_imuProc_allwHH_fwd_B : 28|1@0+ (1,0) [0|1] "B" TST
+ SG_ ETS_VCU_imuProc_allwHH_rev_B : 27|1@0+ (1,0) [0|1] "B" TST
+ SG_ ETS_VCU_imuProc_speedBump_B : 26|1@0+ (1,0) [0|1] "B" TST
+
+
+BO_ 160 VCU_IMU_Processed_Accel_Msg: 8 VCU
+ SG_ ETS_VCU_imuProc_xaccel : 7|12@0+ (0.01,-20) [-20|20.95] "mpss" TST
+ SG_ ETS_VCU_imuProc_yaccel : 11|12@0+ (0.01,-20) [-20|20.95] "mpss" TST
+ SG_ ETS_VCU_imuProc_zaccel : 31|12@0+ (0.01,-20) [-20|20.95] "mpss" TST
+ SG_ ETS_VCU_imuProc_delRollAngle : 35|8@0+ (0.02,-2) [-2|3.1] "Deg" TST
+ SG_ ETS_VCU_imuProc_delPitchAngle : 43|8@0+ (0.02,-2) [-2|3.1] "Deg" TST
+ SG_ ETS_VCU_EstimatedGrade_Est_Deg : 51|10@0+ (0.1,-51) [-51|51.3] "deg" TST
+
+BO_ 384 TEL_IMU_Z_Axis_Raw: 8 TEL
+ SG_ CNS_TEL_ACCL_Z_RAW : 7|32@0- (1,0) [-2147483648|2147483647] "" TST,VCU
+ SG_ CNS_TEL_GYRO_Z_RAW : 39|32@0- (1,0) [-2147483648|2147483647] "" TST,VCU
+
+BO_ 385 TEL_IMU_Y_Axis_Raw: 8 TEL
+ SG_ CNS_TEL_ACCL_Y_RAW : 7|32@0- (1,0) [-2147483648|2147483647] "" TST,VCU
+ SG_ CNS_TEL_GYRO_Y_RAW : 39|32@0- (1,0) [-2147483648|2147483647] "" TST,VCU
+
+BO_ 386 TEL_IMU_X_Axis_Raw: 8 TEL
+ SG_ CNS_TEL_ACCL_X_RAW : 7|32@0- (1,0) [-2147483648|2147483647] "" TST,VCU
+ SG_ CNS_TEL_GYRO_X_RAW : 39|32@0- (1,0) [-2147483648|2147483647] "" TST,VCU
+
+
+
+BO_ 848 Charger_Status_Info: 7 CHG
+ SG_ EVC_CHG_Status_St_enum : 7|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ EVC_CHG_CycleStatus_St_enum : 5|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ EVC_CHG_OperatingMode_St_enum : 3|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ EVC_CHG_ACInputSupplyStatus_St_B : 1|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_CktTemp_Act_degC : 0|8@0+ (1,-45) [-45|210] "degC"  VCU,TEL
+ SG_ EVC_CHG_HousingTemp_Act_degC : 8|8@0+ (1,-45) [-45|210] "degC"  VCU,TEL
+ SG_ EVC_CHG_ACRMSVoltage_Act_V : 16|9@0+ (1,0) [0|511] "V"  VCU,TEL
+ SG_ EVC_CHG_Fan1DutyCycle_Act_perc : 39|7@0+ (1,0) [0|127] "perc"  VCU,TEL
+ SG_ EVC_CHG_Fan2DutyCycle_Act_perc : 32|7@0+ (1,0) [0|127] "perc"  VCU,TEL
+ SG_ EVC_CHG_ACRMScurrent_Act_A : 41|8@0+ (0.08,0) [0|20] "A"  TST,TEL
+
+BO_ 851 Charger_Status_Info1: 4 CHG
+ SG_ EVC_CHG_PSFBXmer_Act_degC : 7|8@0+ (1,-45) [-45|210] "degC"  TST
+ SG_ EVC_CHG_PSFBFets_Act_degC : 15|8@0+ (1,-45) [-45|210] "degC"  TST
+ SG_ EVC_CHG_OutputDiodes_Act_degC : 23|8@0+ (1,-45) [-45|210] "degC"  TST
+ SG_ EVC_CHG_PFCFets_Act_degC : 31|8@0+ (1,-45) [-45|210] "degC"  TST
+
+BO_ 849 Charger_FaultStatus_Info: 5 CHG
+ SG_ Reserved_849_39 : 39|3@0+ (1,0) [0|7] "NA"  TST
+ SG_ EVC_CHG_FaultStatus_St_B : 8|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_DeratingStatus_St_enum : 3|4@0+ (1,0) [0|15] "enum"  VCU,TEL
+ SG_ EVC_CHG_TempSensorFault_St_B : 4|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_DCvoltSensorFault_St_B : 5|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_DCcurrSensorFault_St_B : 6|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_ACvoltSensorFault_St_B : 7|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_InternalFuseFault_St_B : 16|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_ACVoltageFault_St_enum : 13|3@0+ (1,0) [0|7] "enum"  VCU,TEL
+ SG_ EVC_CHG_DCVoltageFault_St_enum : 23|3@0+ (1,0) [0|7] "enum"  VCU,TEL
+ SG_ EVC_CHG_ACCurrentFault_St_enum : 10|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ EVC_CHG_DCCurrentFault_St_enum : 34|3@0+ (1,0) [0|7] "enum"  VCU,TEL
+ SG_ EVC_CHG_ChargerCRCViolation_St_B : 20|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_OutRevPolarityFault_St_B : 19|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_VCUCANcommTimeout_St_B : 18|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_SetPointViolation_St_B : 17|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_TempFault_St_B : 31|3@0+ (1,0) [0|7] "B"  VCU,TEL
+ SG_ EVC_CHG_Fan1Fault_St_B : 28|2@0+ (1,0) [0|3] "B"  VCU,TEL
+ SG_ EVC_CHG_Fan2Fault_St_B : 26|2@0+ (1,0) [0|3] "B"  VCU,TEL
+ SG_ EVC_CHG_MOVFault_St_B : 24|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_ACcurrSensorFault_St_B : 35|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_ChecksumError_St_B : 14|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_EEPROMError_St_B : 15|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ EVC_CHG_PFC_Fault_St_B : 36|1@0+ (1,0) [0|1] "B"  VCU,TEL
+
+BO_ 850 Charger_Power_Info: 8 CHG
+ SG_ EVC_CHG_InputEnergyCount_Act_kWh : 39|14@0+ (0.002,0) [0|32.766] "kWh"  VCU,TEL
+ SG_ EVC_CHG_MaxAvailablePower_Act_W : 41|12@0+ (1,0) [0|4095] "W"  VCU,TEL
+ SG_ EVC_CHG_DCCurrent_Act_A : 23|16@0+ (0.005,-100) [-100|227.675] "A"  VCU,TEL
+ SG_ EVC_CHG_DCVoltage_Act_V : 7|16@0+ (0.002,0) [0|131.07] "V"  VCU,TEL
+
+BO_ 865 ICL_Info: 8 ICL
+ SG_ Reserved_865_12 : 3|8@0+ (1,0) [0|255] "NA"  TST
+ SG_ Reserved_865_5 : 7|3@0+ (1,0) [0|7] "NA"  TST
+ SG_ HMI_ICL_BrakeFluid_error_B : 11|2@0+ (1,0) [0|3] "enum"  TEL
+ SG_ HMI_ICL_Fault1_St_B : 4|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ HMI_ICL_ModeButtonStatus_St_B : 9|2@0+ (1,0) [0|3] "B"  VCU,TEL
+ SG_ HMI_ICL_ODO_Act_m : 23|24@0+ (100,0) [0|1677721500] "m"  VCU,TEL
+
+BO_ 1130 TEL_Security: 8 TEL
+ SG_ CNS_TEL_FOTAstatus_St_enum : 39|4@0+ (1,0) [0|15] "enum"  VCU
+ SG_ CNS_TEL_VehStateLivelog_St_enum : 25|2@0+ (1,0) [0|3] "enum"  TST,VCU
+ SG_ CNS_TEL_IntBattLowV_St_B : 30|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ CNS_TEL_UsrDfMaxVehSpd_Ref_kmph : 29|4@0+ (5,25) [25|100] "kmph"  VCU
+ SG_ CNS_TEL_FaultType_St_enum : 16|2@0+ (1,0) [0|3] "enum"  VCU
+ SG_ CNS_TEL_OperationMode_St_enum : 19|3@0+ (1,0) [0|7] "enum"  VCU
+ SG_ CNS_TEL_UsrDfMaxChrgSOC_Ref_enum : 22|3@0+ (1,0) [0|7] "enum"  VCU
+ SG_ CKSUM1_1130 : 7|8@0+ (1,0) [0|255] "NA"  VCU
+ SG_ CTROLL_1130 : 15|4@0+ (1,0) [0|15] "count"  VCU
+ SG_ CNS_TEL_RemoteImmoSVBenable_St_B : 11|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ CNS_TEL_GeofncSVBenable_St_B : 10|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ CNS_TEL_GeofncSVBstatus_St_enum : 9|2@0+ (1,0) [0|3] "enum"  VCU
+ SG_ CNS_TEL_TheftSVBstatus_St_enum : 23|1@0+ (1,0) [0|1] "enum"  VCU
+
+BO_ 1131 TEL_GPS_Timestamp: 8 TEL
+ SG_ CNS_TEL_GPSaltitude_Est_m : 49|10@0+ (10,-1000) [-1000|9230] "m"  TST
+ SG_ CNS_TEL_GPShdop_Act_count : 40|7@0+ (0.1,0) [0|12.7] "count"  TST
+ SG_ CNS_TEL_GPSpdop_Act_count : 47|7@0+ (0.1,0) [0|12.7] "count"  TST
+ SG_ CNS_TEL_Nsatellites_Act_count : 7|5@0+ (1,0) [0|31] "count"  TST
+ SG_ CNS_TEL_GPSfix_Act_enum : 2|2@0+ (1,0) [0|3] "enum"  TST
+ SG_ CNS_TEL_GPSyear_Act_count : 0|7@0+ (1,2000) [2000|2127] "count"  TST
+ SG_ CNS_TEL_GPSmonth_Act_count : 9|4@0+ (1,0) [0|15] "count"  TST
+ SG_ CNS_TEL_GPSdate_Act_count : 21|5@0+ (1,0) [0|31] "count"  TST
+ SG_ CNS_TEL_GPShour_Act_hr : 16|5@0+ (1,0) [0|31] "hr"  TST
+ SG_ CNS_TEL_GPSminute_Act_min : 27|6@0+ (1,0) [0|63] "min"  TST
+ SG_ CNS_TEL_GPSsecond_Act_sec : 37|6@0+ (1,0) [0|63] "sec"  TST
+
+BO_ 1132 TEL_Cloud_Connectivity: 8 TEL
+ SG_ CNS_TEL_GSMsigType_St_enum : 23|2@0+ (1,0) [0|3] "enum"  TST
+ SG_ CNS_TEL_GSMfault_St_enum : 11|2@0+ (1,0) [0|3] "enum"  TST
+ SG_ CNS_TEL_GPRSfault_St_enum : 9|2@0+ (1,0) [0|3] "enum"  TST
+ SG_ CNS_TEL_ModemReady_St_B : 7|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_GSMnwRegnStatus_St_B : 6|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_GSMsigStrength_Act_count : 5|8@0+ (1,0) [0|255] "count"  TST
+ SG_ CNS_TEL_PDNactivationStatus_St_B : 13|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_ServerConnectStatus_St_B : 12|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_FlushPayload_Act_kB : 21|16@0+ (1,0) [0|65535] "kB"  TST
+ SG_ CNS_TEL_GSM_rcv_qual_St_enum : 37|7@0+ (1,0) [0|99] "enum"  TST
+
+BO_ 1650 VCU_CommandNodeID: 8 VCU
+ SG_ ETS_VCU_BINudw_Act_ID : 7|32@0+ (1,0) [0|4294967295] "ID"  BMG
+ SG_ ETS_VCU_BINldw_Act_ID : 39|32@0+ (1,0) [0|4294967295] "ID"  BMG
+
+BO_ 2163146497 BMS_AddClaimAck: 8 BMG
+ SG_ ESS_BMS_Claimed_BIN_UDW : 7|32@0+ (1,0) [0|4294967295] "ID"  VCU
+ SG_ ESS_BMS_Claimed_BIN_LDW : 39|32@0+ (1,0) [0|4294967295] "ID"  VCU
+
+BO_ 787 VCU_Command_BMS: 8 VCU
+ SG_ ETS_VCU_UsrDfMaxChrgSOC_Ref_enum : 60|3@0+ (1,0) [0|7] "enum"  TEL,BMS
+ SG_ ETS_VCU_BMStimeoutCAN_St_B : 61|1@0+ (1,0) [0|1] "B"  TEL,BMS
+ SG_ ETS_VCU_BMSsoftMismatch_St_B : 62|1@0+ (1,0) [0|1] "B"  TEL,BMS
+ SG_ ETS_VCU_BMSauthError_St_B : 63|1@0+ (1,0) [0|1] "B"  TEL,BMS
+ SG_ CKSUM1_787 : 7|8@0+ (1,0) [0|255] "NA"  TEL,BMS
+ SG_ CTROLL_787 : 15|4@0+ (1,0) [0|15] "count"  TEL,BMS
+ SG_ ETS_VCU_VCUBMSReqMode_Req_enum : 11|2@0+ (1,0) [0|3] "enum"  TEL,BMS
+ SG_ ETS_VCU_VCUDchgPwrExp_Act_W : 9|16@0+ (1,0) [0|65535] "W"  TEL,BMS
+ SG_ ETS_VCU_VCULoadCurrent_Act_A : 25|12@0+ (0.125,-256) [-256|255.875] "A"  TEL,BMS
+ SG_ ETS_VCU_VCUChargerPwrLimit_Act_A : 45|12@0+ (0.1,0) [0|409.5] "A"  TEL,BMS
+ SG_ ETS_VCU_VCUErrEmerOff_Req_enum : 49|2@0+ (1,0) [0|3] "enum"  TEL,BMS
+ SG_ ETS_VCU_BMSCommCtrl_St_enum : 56|1@0+ (1,0) [0|1] "B"  TEL,BMS
+ SG_ ETS_VCU_BMSSendBattBIN_St_B : 57|1@0+ (1,0) [0|1] "B"  TEL,BMS
+
+BO_ 1708 VCU_Version_Info: 8 VCU
+ SG_ ETS_VCU_SwPartVersion_Revision : 7|8@0+ (1,0) [0|255] "ID"  TST,TEL
+ SG_ ETS_VCU_ApplVersion_Major : 15|8@0+ (1,0) [0|255] "ID"  TST,TEL
+ SG_ ETS_VCU_ApplVersion_Minor : 23|8@0+ (1,0) [0|255] "ID"  TST,TEL
+ SG_ ETS_VCU_ApplVersion_Revision : 31|8@0+ (1,0) [0|255] "ID"  TST,TEL
+ SG_ ETS_VCU_CalVersion_Major : 39|8@0+ (1,0) [0|255] "ID"  TST,TEL
+ SG_ ETS_VCU_CalVersion_Minor : 47|8@0+ (1,0) [0|255] "ID"  TST,TEL
+ SG_ ETS_VCU_CalVersion_Revision : 55|8@0+ (1,0) [0|255] "ID"  TST,TEL
+ SG_ ETS_VCU_ConfigVersion_Revision : 63|8@0+ (1,0) [0|255] "ID"  TST,TEL
+
+BO_ 1544 BMS_FaultEventMatrix: 8 BMS
+ SG_ ESS_BMS_TempDchgUnderWar_St_B : 56|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_TempDchgUnderSev_St_B : 57|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_TempDchgUnderMod_St_B : 58|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_TempDchgOverWar_St_B : 59|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_TempDchgOverSev_St_B : 60|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_TempDchgOverMod_St_B : 61|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_PrechgLoadShort_St_B : 62|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_BrickTempShort_St_B : 17|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_BrickTempOpen_St_B : 18|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_FETopenReqVCU_St_B : 7|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_DchFETshorted_St_B : 6|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_DchFETfailClose_St_B : 4|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_PrechgTimeout_St_B : 3|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_PrechgFETFailClose_St_B : 1|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_extFuseBlown_St_B : 0|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_CapPackLow_St_B : 15|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_BrickOverdischarge_St_B : 14|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_BrickOvercharge_St_B : 13|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_AFEcommError_St_B : 11|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_FEToverheat_St_B : 10|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_iOverdischarge_St_B : 9|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_iOvercharge_St_B : 23|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_iUndercharge_St_B : 22|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_VCUCmdMsgTimeout_St_B : 20|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_AFEfault_St_B : 19|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_ChgFETshorted_St_B : 5|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_PowerpackInsuffErr_St_B : 16|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_SensePackVoltError_St_B : 31|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_iOverRegen_St_B : 8|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_iOverHardware_St_B : 30|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_SenseBrickVoltError_St_B : 25|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_SenseLoadVoltError_St_B : 24|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_SenseCurrentError_St_B : 38|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_TempChgUnderSev_St_B : 37|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_TempChgUnderMod_St_B : 36|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_TempChgOverWar_St_B : 32|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_TempChgOverSev_St_B : 34|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_TempChgOverMod_St_B : 33|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_TempBrickImbalance_St_B : 47|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_ChgFETfailClose_St_B : 27|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_vBrickOverWar_St_B : 43|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_vBrickOverSev_St_B : 45|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_vBrickOverMod_St_B : 44|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_vBrickImbalance_St_B : 46|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_TempChgUnderWar_St_B : 35|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_vBrickUnderWar_St_B : 40|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_vBrickUnderSev_St_B : 42|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ESS_BMS_vBrickUnderMod_St_B : 41|1@0+ (1,0) [0|1] "B"  TEL
+
+BO_ 1543 BMS_Throughput: 7 BMS
+ SG_ CTROLL_1640 : 15|4@0+ (1,0) [0|15] "count"  TEL
+ SG_ CKSUM1_1640 : 7|8@0+ (1,0) [0|255] "NA"  TEL
+ SG_ ESS_BMS_AccChgEnergy_Est_kWh : 11|20@0+ (0.01,0) [0|10485.75] "kWh"  TEL
+ SG_ ESS_BMS_AccDchgEnergy_Est_kWh : 39|20@0+ (0.01,0) [0|10485.75] "kWh"  TEL
+
+BO_ 1536 BMS_Overview: 8 BMS
+ SG_ ESS_BMS_vBrickOverMod_St_B : 61|1@0+ (1,0) [0|1] "B"  VCU,MCU
+ SG_ ESS_BMS_vBrickOverSev_St_B : 60|1@0+ (1,0) [0|1] "B"  VCU,MCU
+ SG_ ESS_BMS_vBrickOverWar_St_B : 62|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ ESS_BMS_vBrickUnderMod_St_B : 57|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ ESS_BMS_vBrickUnderSev_St_B : 56|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ ESS_BMS_vBrickUnderWar_St_B : 58|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ CKSUM1_1536 : 7|8@0+ (1,0) [0|255] "NA"  VCU,MCU,TEL
+ SG_ CTROLL_1536 : 15|4@0+ (1,0) [0|15] "count"  VCU,MCU,TEL
+ SG_ ESS_BMS_State_St_enum : 11|3@0+ (1,0) [0|7] "enum"  VCU,MCU,TEL
+ SG_ ESS_BMS_MainFETState_St_B : 8|1@0+ (1,0) [0|1] "B"  VCU,MCU,TEL
+ SG_ ESS_BMS_PreChgFETState_St_B : 23|1@0+ (1,0) [0|1] "B"  VCU,TEL
+ SG_ ESS_BMS_Voltage_Act_V : 22|13@0+ (0.01,0) [0|81.91] "V"  VCU,MCU,CHG,TEL
+ SG_ ESS_BMS_iPack_Act_A : 25|17@0+ (0.01,-655) [-655|655.71] "A"  VCU,MCU,CHG,TEL
+ SG_ ESS_BMS_Temperature_Act_degC : 40|9@0+ (0.25,-30) [-30|97.75] "degC"  VCU,TEL
+
+BO_ 1537 BMS_Charge: 8 BMS
+ SG_ CKSUM1_1537 : 7|8@0+ (1,0) [0|255] "NA"  VCU,TEL
+ SG_ CTROLL_1537 : 15|4@0+ (1,0) [0|15] "count"  VCU,TEL
+ SG_ ESS_BMS_ChgLimitPeak_Max_A : 36|13@0+ (0.1,0) [0|819.1] "A"  VCU,TEL
+ SG_ ESS_BMS_ChgLimit_Max_V : 11|10@0+ (0.1,0) [0|102.3] "V"  VCU,TEL
+ SG_ ESS_BMS_ChgLimitCont_Max_A : 17|13@0+ (0.1,0) [0|819.1] "A"  VCU,TEL
+ SG_ ESS_BMS_ChgMode_St_enum : 55|3@0+ (1,0) [0|7] "enum"  VCU,TEL
+ SG_ ESS_BMS_ChgEnable_St_B : 52|1@0+ (1,0) [0|1] "enum"  VCU,TEL
+ SG_ ESS_BMS_ChgRemainingTime_Est_min : 51|9@0+ (2,0) [0|1022] "min"  VCU,TEL
+ SG_ ESS_BMS_ChgDerateReason_St_enum : 58|3@0+ (1,0) [0|7] "enum"  VCU,TEL
+
+BO_ 1538 BMS_Discharge: 8 BMS
+ SG_ ESS_BMS_DchgLimit_Max_kW : 52|13@0+ (0.01,0) [0|81.91] "kW"  VCU,TEL
+ SG_ CTROLL_1538 : 15|4@0+ (1,0) [0|15] "count"  VCU,TEL
+ SG_ CKSUM1_1538 : 7|8@0+ (1,0) [0|255] "NA"  VCU,TEL
+ SG_ ESS_BMS_DchgDerateReason_St_enum : 55|3@0+ (1,0) [0|7] "enum"  VCU,TEL
+ SG_ ESS_BMS_DchgLimit_Min_V : 11|10@0+ (0.1,0) [0|102.3] "V"  VCU,TEL
+ SG_ ESS_BMS_DchgLimitCont_Max_A : 17|13@0+ (0.1,0) [0|819.1] "A"  VCU,TEL
+ SG_ ESS_BMS_DchgLimitPeak_Max_A : 36|13@0+ (0.1,0) [0|819.1] "A"  VCU,TEL
+
+BO_ 1539 BMS_Sox: 8 BMS
+ SG_ ESS_BMS_MinDchgSOC_Act_perc : 62|7@0+ (1,0) [0|127] "perc"  VCU,TEL
+ SG_ CTROLL_1539 : 15|4@0+ (1,0) [0|15] "count"  VCU,TEL
+ SG_ CKSUM1_1539 : 7|8@0+ (1,0) [0|255] "NA"  VCU,TEL
+ SG_ ESS_BMS_BalErr_Act_perc : 43|8@0+ (0.25,0) [0|63.75] "perc"  VCU,TEL
+ SG_ ESS_BMS_Soc_Est_perc : 11|8@0+ (0.5,0) [0|127.5] "perc"  VCU,TEL
+ SG_ ESS_BMS_Sohc_Est_perc : 19|8@0+ (0.5,0) [0|127.5] "perc"  VCU,TEL
+ SG_ ESS_BMS_Sohr_Est_perc : 27|8@0+ (0.5,0) [0|127.5] "perc"  VCU,TEL
+ SG_ ESS_BMS_Soe_Est_perc : 35|8@0+ (0.5,0) [0|127.5] "perc"  VCU,TEL
+
+BO_ 1540 BMS_TerminalState: 8 BMS
+ SG_ ESS_BMS_WakeUpReason_St_enum : 57|2@0+ (1,0) [0|3] "enum"  VCU,TEL
+ SG_ ESS_BMS_ExtWakeUp_Act_V : 24|6@0+ (0.25,0) [0|15.75] "V"  VCU,TEL
+ SG_ CTROLL_1540 : 15|4@0+ (1,0) [0|15] "count"  VCU,TEL
+ SG_ CKSUM1_1540 : 7|8@0+ (1,0) [0|255] "NA"  VCU,TEL
+ SG_ ESS_BMS_CapAvailable_Est_Ah : 55|12@0+ (0.1,0) [0|409.5] "Ah"  VCU,TEL
+ SG_ ESS_BMS_EnergyAvailable_Est_kWh : 34|11@0+ (0.01,0) [0|20.47] "kWh"  VCU,TEL
+ SG_ ESS_BMS_roctPerMin_Act_degC : 11|6@0+ (1,-32) [-32|31] "degC"  VCU,TEL
+ SG_ ESS_BMS_vLoad_Act_V : 21|13@0+ (0.01,0) [0|81.91] "V"  VCU,TEL
+ SG_ ESS_BMS_ThermRunaway_St_B : 59|1@0+ (1,0) [0|1] "B"  VCU,TEL
+
+BO_ 1542 BMS_MinMaxState: 8 BMS
+ SG_ ESS_BMS_nBal_Act_count : 59|4@0+ (1,0) [0|15] "count"  VCU,TEL
+ SG_ ESS_BMS_MinCell_Act_V : 7|13@0+ (0.001,0) [0|8.191] "V"  VCU,TEL
+ SG_ ESS_BMS_MaxCell_Act_V : 10|13@0+ (0.001,0) [0|8.191] "V"  VCU,TEL
+ SG_ ESS_BMS_MinVCell_Act_ID : 29|4@0+ (1,1) [1|16] "ID"  VCU,TEL
+ SG_ ESS_BMS_MaxVCell_Act_ID : 25|4@0+ (1,1) [1|16] "ID"  VCU,TEL
+ SG_ ESS_BMS_TempMin_Act_degC : 37|9@0+ (0.25,-30) [-30|97.75] "degC"  VCU,TEL
+ SG_ ESS_BMS_TempMax_Act_degC : 44|9@0+ (0.25,-30) [-30|97.75] "degC"  VCU,TEL
+ SG_ ESS_BMS_MinTempCell_Act_ID : 51|4@0+ (1,1) [1|16] "ID"  VCU,TEL
+ SG_ ESS_BMS_MaxTempCell_Act_ID : 63|4@0+ (1,1) [1|16] "ID"  VCU,TEL
+
+BO_ 1541 BMS_Health: 8 BMS
+ SG_ ESS_BMS_PcbTemp_Act_degC : 25|7@0+ (1,-30) [-30|97] "degC"  TST,TEL
+ SG_ ESS_BMS_CapFulCharge_Est_Ah : 12|12@0+ (0.1,0) [0|409.5] "Ah"  TST,TEL
+ SG_ ESS_BMS_InitImpedance_Act_mohm : 34|8@0+ (0.1,0) [0|25.5] "mohm"  TST
+ SG_ ESS_BMS_CurrImpedance_Act_mohm : 42|8@0+ (0.1,0) [0|25.5] "mohm"  TST
+ SG_ ESS_BMS_ShortCircuit_Act_count : 16|7@0+ (1,0) [0|127] "count"  TST,TEL
+ SG_ ESS_BMS_ChgCycle_Act_count : 50|11@0+ (1,0) [0|2047] "count"  TST,TEL
+ SG_ ESS_BMS_EnergyFulCharge_Est_kWh : 7|11@0+ (0.01,0) [0|20.47] "kWh"  TST,TEL
+
+BO_ 1514 TEL_Debug_01: 8 TEL
+ SG_ CNS_TEL_epochSVByear_Act_count : 7|7@0+ (1,2000) [2000|2127] "count"  TST
+ SG_ CNS_TEL_epochSVBmonth_Act_count : 0|4@0+ (1,0) [0|15] "count"  TST
+ SG_ CNS_TEL_epochSVBdate_Act_count : 12|5@0+ (1,0) [0|31] "count"  TST
+ SG_ CNS_TEL_epochSVBhour_Act_hr : 23|5@0+ (1,0) [0|31] "hr"  TST
+ SG_ CNS_TEL_epochSVBminute_Act_min : 18|6@0+ (1,0) [0|63] "min"  TST
+ SG_ CNS_TEL_epochSVBsecond_Act_sec : 28|6@0+ (1,0) [0|63] "sec"  TST
+ SG_ CNS_TEL_MQTTprovision_St_enum : 38|3@0+ (1,0) [0|7] "enum"  TST
+ SG_ CNS_TEL_UptaneProvision_St_enum : 35|4@0+ (1,0) [0|15] "enum"  TST
+ SG_ CNS_TEL_DeepUpdaterState_St_enum : 47|5@0+ (1,0) [0|15] "enum"  TST
+ SG_ CNS_TEL_DeepLoggerState_St_enum : 42|4@0+ (1,0) [0|15] "enum"  TST
+ SG_ CNS_TEL_ProvErrorState_St_enum : 63|5@0+ (1,0) [0|31] "enum"  TST
+ SG_ CNS_TEL_ProvState_St_enum : 51|3@0+ (1,0) [0|7] "enum"  TST
+ SG_ CNS_TEL_PreconState_St_enum : 54|3@0+ (1,0) [0|7] "enum"  TST
+
+BO_ 1515 TEL_Debug_02: 8 TEL
+ SG_ CNS_TEL_uptimeHi_Act_ms : 7|32@0+ (1,0) [0|4294967295] "ms"  TST
+ SG_ CNS_TEL_uptimeLo_Act_ms : 39|32@0+ (1,0) [0|4294967295] "ms"  TST
+
+BO_ 1516 TEL_Trip_Timestamp: 8 TEL
+ SG_ CNS_TEL_epochTripStart_Act_sec : 7|32@0+ (1,0) [0|4294967295] "sec"  TST
+ SG_ CNS_TEL_epochTripEnd_Act_sec : 39|32@0+ (1,0) [0|4294967295] "sec"  TST
+
+BO_ 1517 TEL_Debug_04: 8 TEL
+ SG_ CNS_TEL_ExtFlashWrPt_Act_count : 7|10@0+ (1,0) [0|1023] "count"  TST
+ SG_ CNS_TEL_ExtFlashRdPt_Act_count : 13|10@0+ (1,0) [0|1023] "count"  TST
+ SG_ CNS_TEL_RAMbufferOccDL_Act_kB : 19|8@0+ (0.1,0) [0|25.5] "kB"  TST
+ SG_ CNS_TEL_FlashbufferOccDL_Act_kB : 27|14@0+ (1,0) [0|16383] "kB"  TST
+ SG_ CNS_TEL_ViaRAMpubThrDL_Act_kB : 45|8@0+ (0.1,0) [0|25.5] "kB"  TST
+ SG_ CNS_TEL_ViaPrtbfPubThrDL_Act_kB : 53|14@0+ (1,0) [0|16383] "kB"  TST
+
+BO_ 1518 TEL_Debug_05: 8 TEL
+ SG_ CNS_TEL_epochRTC_Act_sec : 7|32@0+ (1,0) [0|4294967295] "sec"  TST
+ SG_ CNS_TEL_MccMnc_Act_ID : 39|20@0+ (1,0) [0|1048575] "ID"  TST
+ SG_ CNS_TEL_FlushFrequency_Act_sec : 51|8@0+ (10,0) [0|2550] "sec"  TST
+ SG_ CNS_TEL_LivePubStat_St_enum : 59|2@0+ (1,0) [0|3] "enum"  TST
+ SG_ CNS_TEL_HistPubStat_St_enum : 57|2@0+ (1,0) [0|3] "enum"  TST
+
+BO_ 1519 TEL_Debug_06: 8 TEL
+ SG_ CNS_TEL_ExtFlashRdStat_St_enum : 7|2@0+ (1,0) [0|3] "enum"  TST
+ SG_ CNS_TEL_ExtFlashWrStat_St_enum : 5|2@0+ (1,0) [0|3] "enum"  TST
+ SG_ CNS_TEL_IGNdetect_Act_B : 3|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_ModemReset_Cmd_B : 2|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_SubStatDL_St_B : 1|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_LogCfgEnableStat_St_B : 0|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_LogCfgHashValidity_St_B : 15|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_LogCfgSize_Act_kB : 14|7@0+ (0.1,0) [0|12.7] "kB"  TST
+ SG_ CNS_TEL_BufferIndication_St_enum : 23|2@0+ (1,0) [0|3] "enum"  TST
+ SG_ CNS_TEL_AllECUPollDone_St_B : 47|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_SCUPoll_St_B : 46|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_VCUPoll_St_B : 45|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_MCUPoll_St_B : 44|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_CCUPoll_St_B : 43|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_TELPoll_St_B : 42|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_ICLPoll_St_B : 41|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CNS_TEL_BM1Poll_St_B : 40|1@0+ (1,0) [0|1] "B"  TST
+
+BO_ 1568 Tool_Connect_Req: 8 TST
+ SG_ DIA_TST_Pattern1 : 7|32@0+ (1,0) [0|0] "NA"  VCU
+
+BO_ 159 VCU_Analog_Info_2: 8 VCU
+ SG_ ETS_VCU_RPSRIGHTTFREQ_ACT_HZ : 15|8@0+ (5,0) [0|1275] "" Vector__XXX
+ SG_ ETS_VCU_RPSLEFTFREQ_ACT_HZ : 7|8@0+ (5,0) [0|1275] "" Vector__XXX
+ SG_ ETS_VCU_GearPosSenseVolt_Act_V : 23|8@0+ (0.025,0) [0|6.375] "V"  TST,TEL
+ SG_ ETS_VCU_XDRP2_Act_V : 31|9@0+ (0.01,0) [0|5.11] "V"  TEL
+ SG_ ETS_VCU_BrkPedal2SenseVolt_Act_V : 47|8@0+ (0.025,0) [0|6.375] "V"  TEL
+ SG_ ETS_VCU_BrkPedal1SenseVolt_Act_V : 55|8@0+ (0.025,0) [0|6.375] "V"  TEL
+ SG_ ETS_VCU_ChgTimerCapVolt_Act_V : 63|8@0+ (0.02,0) [0|5.1] "V"  TST,TEL
+ SG_ Reserved_159_15 : 38|7@0+ (0.4,0) [0|25.2] "NA"  TST
+
+BO_ 155 VCU_APP_TEST_MSG_02: 8 VCU
+ SG_ ETS_VCU_AccelerationAvg : 7|8@0- (0.1,0) [-12.8|12.7] "mpss"  TEL
+ SG_ ETS_VCU_Rev_Pressed_St_B : 15|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_Neut_Pressed_St_B : 14|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_Drv_Pressed_St_B : 13|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_GearPos_LrnCmplt_St_enum : 12|2@0+ (1,0) [0|1] "enum"  TST,TEL
+ SG_ ETS_VCU_TSC_Upshift_St_enum : 10|3@0+ (1,0) [0|7] "enum"  TST,TEL
+ SG_ ETS_VCU_TSC_Downshift_St_enum : 23|3@0+ (1,0) [0|7] "enum"  TST,TEL
+ SG_ ETS_VCU_ShifterMOTCurr_Act_A : 20|10@0+ (0.1,-51.2) [-51.2|51.1] "A"  TST,TEL
+ SG_ ETS_VCU_ShifterMOTpwm_Act_perc : 26|8@0+ (1,-100) [-100|155] "perc"  TST,TEL
+ SG_ ETS_VCU_GearPos_UpperLearnVolt_V : 34|9@0+ (0.01,0) [0|5.11] "V"  TST,TEL
+ SG_ ETS_VCU_Gear_Pos_ProcdPrev_St_B : 41|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_GearPos_LowerLearnVolt_V : 40|9@0+ (0.01,0) [0|5.11] "V"  TST,TEL
+ SG_ ETS_VCU_Gear_Pos_Learn_St_enum : 63|3@0+ (1,0) [0|7] "enum"  TST,TEL
+ SG_ ETS_VCU_DCM_Shft_complt_St_B : 60|1@0+ (1,0) [0|1] "B"  TST,TEL
+ SG_ ETS_VCU_FOTA_State_enum : 58|3@0+ (1,0) [0|7] "enum"  TST,TEL
+ SG_ ETS_VCU_BMS_low_cell_volt_St_B : 59|1@0+ (1,0) [0|1] "B"  TST,TEL
+
+BO_ 1545 BMS_HwSwVersion: 7 BMS
+ SG_ ESS_BMS_HardwareVersion_Act_ID : 55|8@0+ (1,0) [0|255] "ID"  TST,VCU
+ SG_ ESS_BMS_CalRevision_Act_ID : 47|8@0+ (1,0) [0|255] "ID"  TST,VCU
+ SG_ ESS_BMS_CalMinor_Act_ID : 39|8@0+ (1,0) [0|255] "ID"  TST,VCU
+ SG_ ESS_BMS_CalMajor_Act_ID : 31|8@0+ (1,0) [0|255] "ID"  TST,VCU
+ SG_ ESS_BMS_AppRevision_Act_ID : 23|8@0+ (1,0) [0|255] "ID"  TST,VCU
+ SG_ ESS_BMS_AppMinor_Act_ID : 15|8@0+ (1,0) [0|255] "ID"  TST,VCU
+ SG_ ESS_BMS_AppMajor_Act_ID : 7|8@0+ (1,0) [0|255] "ID"  TST,VCU
+
+BO_ 2550136848 BATT_batteryTemperaturesA_0: 8 BMS
+ SG_ BATT_tModule4 : 55|16@0- (0.1,0) [-40|125] "degC"  TEL
+ SG_ BATT_tModule3 : 39|16@0- (0.1,0) [-40|125] "degC"  TEL
+ SG_ BATT_tModule2 : 23|16@0- (0.1,0) [-40|125] "degC"  TEL
+ SG_ BATT_tModule1 : 7|16@0- (0.1,0) [-40|125] "degC"  TEL
+
+BO_ 2553282576 BATT_boardADC_1_0: 8 BMS
+ SG_ BATT_boardADC_PACK_PF : 55|16@0- (0.01,0) [0|100] "V"  TEL
+ SG_ BATT_boardADC_LOAD : 39|16@0- (0.01,0) [0|100] "V"  TEL
+ SG_ BATT_boardADC_COMMON_DRAIN : 23|16@0- (0.01,0) [0|100] "V"  TEL
+ SG_ BATT_boardADC_PACK : 7|16@0- (0.01,0) [0|100] "V"  TEL
+
+BO_ 2536505360 BATT_diagnosticBalStatusBrick_0: 2 BMS
+ SG_ BATT_balStatusBrick16 : 15|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick15 : 14|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick14 : 13|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick13 : 12|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick12 : 11|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick11 : 10|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick10 : 9|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick09 : 8|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick08 : 7|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick07 : 6|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick06 : 5|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick05 : 4|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick04 : 3|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick03 : 2|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick02 : 1|1@0+ (1,0) [0|0] "B"  VCU,TEL
+ SG_ BATT_balStatusBrick01 : 0|1@0+ (1,0) [0|0] "B"  VCU,TEL
+
+BO_ 1547 BMS_BattManuDate: 3 BMS
+ SG_ ESS_BMS_BattManuYear_Act_yy : 23|8@0+ (1,0) [0|255] "date"  VCU
+ SG_ ESS_BMS_BattManuMonth_Act_mm : 15|8@0+ (1,0) [0|255] "date"  VCU
+ SG_ ESS_BMS_BattManuDay_Act_dd : 7|8@0+ (1,0) [0|255] "date"  VCU
+
+BO_ 1546 BMS_BattBIN: 8 BMS
+ SG_ ESS_BMS_BINudw_Act_ID : 7|32@0+ (1,0) [0|4294967295] "ID"  VCU
+ SG_ ESS_BMS_BINldw_Act_ID : 39|32@0+ (1,0) [0|4294967295] "ID"  VCU
+
+BO_ 1520 TEL_Charging_Timestamp: 8 TEL
+ SG_ CNS_TEL_epochChgEnd_Act_sec : 39|32@0+ (1,0) [0|4294967295] "sec"  TST
+ SG_ CNS_TEL_epochChgStart_Act_sec : 7|32@0+ (1,0) [0|4294967295] "sec"  TST
+
+BO_ 2037 BM1_UDS_res: 8 BMS
+ SG_ BM1_UDS_res_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  TST,TEL
+
+BO_ 1921 ICL_UDS_res: 8 ICL
+ SG_ ICL_UDS_res_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  TST,TEL
+
+BO_ 2035 CHG_UDS_res: 8 CHG
+ SG_ CHG_UDS_res_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  TST,TEL
+
+BO_ 1998 MCU_BALNET_UDS_res: 8 MCU
+ SG_ MCU_Bnet_UDS_res_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  TST,TEL
+
+BO_ 1982 VCU_BALNET_UDS_res: 8 VCU
+ SG_ VCU_Bnet_UDS_res_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  TST,TEL
+
+BO_ 2003 VCU_MCU_UDS_res: 8 VCU
+ SG_ VCU_MCU_UDS_res_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  TEL
+
+BO_ 2036 BM1_UDS_req: 8 TEL
+ SG_ BM1_UDS_req_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  BMS
+
+BO_ 1920 ICL_UDS_req: 8 TEL
+ SG_ ICL_UDS_req_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  ICL
+
+BO_ 2034 CHG_UDS_req: 8 TEL
+ SG_ CHG_UDS_req_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  CHG
+
+BO_ 1997 MCU_BALNET1_UDS_req: 8 TEL
+ SG_ MCU_Bnet1_UDS_req_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  MCU
+
+BO_ 16 VCU_BALNET2_UDS_req: 8 TEL
+ SG_ VCU_Bnet2_UDS_req_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  VCU
+
+BO_ 1981 VCU_BALNET1_UDS_req: 8 TEL
+ SG_ VCU_Bnet1_UDS_req_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  VCU
+
+BO_ 2002 VCU_MCU_UDS_req: 8 TEL
+ SG_ VCU_MCU_UDS_req_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  VCU
+
+BO_ 2534408208 BATT_diagnosticAhTotal_0: 8 BMS
+ SG_ BATT_ahDchTotal : 39|32@0+ (0.1,0) [0|500000] "Ah"  TEL
+ SG_ BATT_ahChgTotal : 7|32@0+ (0.1,0) [0|500000] "Ah"  TEL
+
+BO_ 862 Software_Parameters_1: 8 TST
+ SG_ Debug_nibble : 60|4@1+ (1,0) [0|0] "NA" Vector__XXX
+ SG_ AmbiTemp_Unfilter : 48|12@1+ (1,0) [-45|210] "degC" Vector__XXX
+ SG_ Isetpoint_DAC_Input : 36|12@1+ (0.01,0) [0|0] "A" Vector__XXX
+ SG_ Vsetpoint_DAC_Input : 24|12@1+ (0.1,0) [0|0] "V" Vector__XXX
+ SG_ V_IrefFB : 12|12@1+ (0.001,0) [0|0] "A" Vector__XXX
+ SG_ V_VrefFB : 0|12@1+ (0.001,0) [0|0] "V" Vector__XXX
+
+BO_ 1554 Debug_Msg: 1 TST
+ SG_ HW_UV : 0|8@1+ (1,0) [0|1] "NA" Vector__XXX
+
+BO_ 1042 Energy_Meter_Data: 8 CHG
+ SG_ AC_Power : 48|16@1- (1,0) [0|0] "W"  TST
+ SG_ AC_Voltage : 32|16@1- (1,0) [0|0] "V"  TST
+ SG_ AC_Energy : 16|16@1- (1,0) [0|0] "Wh"  TST
+ SG_ AC_Current : 0|16@1- (1,0) [0|0] "A"  TST
+
+BO_ 864 Software_Parameters: 8 CHG
+ SG_ DacErrCode : 56|8@1- (1,0) [0|0] "enum"  TST
+ SG_ FAN_CTL_Status : 54|1@1+ (1,0) [0|0] "B"  TST
+ SG_ Reverse_polarity : 53|1@1+ (1,0) [0|0] "ID"  TST
+ SG_ Short_ckt : 52|1@1+ (1,0) [0|0] "ID"  TST
+ SG_ Relay_status : 51|1@1+ (1,0) [0|0] "ID"  TST
+ SG_ PSFB_status : 50|1@1+ (1,0) [0|0] "ID"  TST
+ SG_ PFC_status : 49|1@1+ (1,0) [0|0] "ID"  TST
+ SG_ HW_UV_Status : 48|1@1+ (1,0) [0|0] "ID"  TST
+ SG_ V_Isense : 36|12@1+ (0.001,0) [0|0] "ID"  TST
+ SG_ V_Iref : 24|12@1+ (0.001,0) [0|0] "ID"  TST
+ SG_ V_Vsense : 12|12@1+ (0.001,0) [0|0] "ID"  TST
+ SG_ V_Vref : 0|12@1+ (0.001,0) [0|0] "ID"  TST
+
+BO_ 346 AMT_Test_MSG_01: 8 VCU
+ SG_ ETS_VCU_High_Shift_Curr_St_B : 0|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_WheelSpdPlausErr_St_enum : 1|1@0+ (1,0) [0|1] "enum"  TEL
+ SG_ ETS_VCU_nrmlShftrCurrCut_St_B : 2|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_DwnUpClsPWM_Cut_St_B : 3|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_DwnUpClsEntr_St_B : 4|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_cnt_NeuGearCls_St_enum : 7|3@0+ (1,0) [0|7] "enum"  TEL
+ SG_ ETS_VCU_clsh_detect_st_B : 9|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_Clash_State_St_enum : 12|3@0+ (1,0) [0|7] "enum"  TEL
+ SG_ ETS_VCU_Drift_trgt_gear_mm : 16|7@0+ (0.125,0) [0|15.875] "mm"  TEL
+ SG_ ETS_VCU_drft_ShftrCurrCut_St_B : 8|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_Clash_position_mm : 23|7@0+ (0.125,0) [0|15.875] "mm"  TEL
+ SG_ ETS_VCU_trq_bfr_curr_cntrl : 25|10@0- (0.1,0) [-51.2|51.1] "Nm"  TEL
+ SG_ ETS_VCU_drift_cntrl_flg_st : 13|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_Gear_Ideal_St_enum : 15|2@0+ (1,0) [0|3] "enum"  TEL
+ SG_ ETS_VCU_Ideal_Gear_Pos_mm : 47|7@0+ (0.125,0) [0|15.875] "mm"  TEL
+ SG_ ETS_VCU_Neutral_Lrnt_flg_st : 40|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_Neutral_Lrnt_Pos_mm : 55|7@0+ (0.125,0) [0|15.875] "mm"  TEL
+ SG_ ETS_VCU_FrstGearClashPosition_mm : 63|7@0+ (0.125,0) [0|15.875] "mm"  TEL
+ SG_ ETS_VCU_Boost_Mode_Enbl_st_B : 56|1@0+ (1,0) [0|1] "B"  TEL
+ SG_ ETS_VCU_MCU_temp_PHShrt_st_B : 48|1@0+ (1,0) [0|1] "B"  TEL
+
+BO_ 347 AMT_Analytics_01: 8 VCU
+ SG_ ETS_VCU_FirstGr_ClashCount : 7|6@0+ (1,0) [0|63] "count"  TEL
+ SG_ ETS_VCU_SecndGr_ClashCount : 1|6@0+ (1,0) [0|63] "count"  TEL
+ SG_ ETS_VCU_GearShift_Count : 11|9@0+ (1,0) [0|511] "count"  TEL
+ SG_ ETS_VCU_FirstGR_MaxClshTime_Sec : 18|8@0+ (0.01,0) [0|2.55] "sec"  TEL
+ SG_ ETS_VCU_SecndGR_MaxClshTime_Sec : 26|8@0+ (0.01,0) [0|2.55] "sec"  TEL
+ SG_ ETS_VCU_1stGR_Clsh_AvgGearPos_mm : 34|6@0+ (0.25,0) [0|15.75] "mm"  TEL
+ SG_ ETS_VCU_2ndGR_Clsh_AvgGearPos_mm : 44|6@0+ (0.25,0) [0|15.75] "mm"  TEL
+ SG_ ETS_VCU_GearDriftFlg_Count : 54|9@0+ (1,0) [0|511] "count"  TEL
+ SG_ ETS_VCUBoost_modeTimeInteg_sec : 61|6@0+ (1,0) [0|63] "sec"  TEL
+
+BO_ 790 MCU_TEST_MSG: 8 MCU
+ SG_ MCU_Torque_Sum_Nm : 7|14@0+ (0.01,-50) [-50|113.83] "Nm"  TST
+ SG_ MCU_ASD_Torque_Nm : 9|10@0+ (0.01,-5) [-5|5.23] "Nm"  TST
+ SG_ MCU_ASD_Peak_Nm : 31|9@0+ (0.01,0) [0|5.11] "Nm"  TST
+ SG_ MCU_Regen_Torque_Comp_Nm : 38|7@0+ (0.1,-5) [-5|7.7] "Nm"  TST
+ SG_ MCU_EnableDown_St_B : 42|1@0+ (1,0) [0|1] "B"  TST
+ SG_ MCU_Vdc_drop_detected_St_B : 41|1@0+ (1,0) [0|1] "B"  TST
+ SG_ MCU_Speed_Dir_St_B : 43|1@0+ (1,0) [0|1] "B"  TST
+ SG_ MCU_PhShrt_Cnt : 47|4@0+ (1,0) [0|15] "count"  TST
+ SG_ MCU_StateMachine_St_enum : 62|3@0+ (1,0) [0|7] "count"  TST
+ SG_ MCU_ASD_Torque_Comp_Nm : 40|10@0+ (0.1,-50) [-50|52.3] "Nm"  TST
+
+BO_ 1901 BMS_BALNET_req: 8 TEL
+ SG_ BMS_BALNET_req_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  BMS
+
+BO_ 1902 BMS_BALNET_res: 8 BMS
+ SG_ BMS_BALNET_res_sig : 7|64@0+ (1,0) [0|1.84467440737096E+019] "NA"  TEL
+
+BO_ 912 VCU_CMP_Commands: 8 VCU
+ SG_ VCU_CompressorSpeed_rpm : 7|16@0+ (1,0) [0|65535] "rpm"  CMP
+ SG_ VCU_MaxCompressorPower_kW : 23|8@0+ (0.1,0) [0|25.5] "kW"  CMP
+ SG_ VCU_CompressorEnable_enum : 31|2@0+ (1,0) [0|3] "enum"  CMP
+ SG_ CHV_HeaterRelayEnable1_St_B : 29|1@0+ (1,0) [0|1] "B"  ICL
+ SG_ CHV_HeaterRelayEnable2_St_B : 28|1@0+ (1,0) [0|1] "B"  ICL
+ SG_ CHV_HeaterRelayEnable3_St_B : 27|1@0+ (1,0) [0|1] "B"  ICL
+
+BO_ 913 CMP_Info: 8 CMP
+ SG_ CMP_CompressorSpeed_rpm : 7|16@0+ (1,0) [0|65535] "rpm"  VCU
+ SG_ CMP_CompressorRunCurrent_A : 23|8@0+ (1,0) [0|255] "A"  VCU
+ SG_ CMP_DCInputVoltage_V : 31|8@0+ (4,0) [0|1023] "V"  VCU
+ SG_ CMP_CurrentStatus_enum : 39|2@0+ (1,0) [0|3] "enum"  VCU
+ SG_ CMP_OvercurrentFault_St_B : 37|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ CMP_OvervoltageFault_St_B : 36|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ CMP_UndervoltageFault_St_B : 35|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ CMP_StndbyOvervoltageFault_St_B : 34|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ CMP_StndbyUndervoltageFault_St_B : 33|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ CMP_CommunicationError_St_B : 32|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ CMP_OvrCurrFreqDrop_St_B : 47|1@0+ (1,0) [0|1] "B"  VCU
+ SG_ CMP_OvrPwrFreqDrop_St_B : 46|1@0+ (1,0) [0|1] "B"  VCU
+
+BO_ 914 CHV_Status_Info: 8 VCU
+ SG_ CHV_SwitchStatus_St_B : 31|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CHV_PressureSensorFault_St_B : 30|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CHV_EvaporatorTemp_Act_degC : 7|8@0+ (1,0) [0|255] "degC"  TST
+ SG_ CHV_EvaporatorTempSenVolt_Act_V : 15|8@0+ (0.25,0) [0|6.375] "V"  TST
+ SG_ CHV_CondensorRelayStatus_St_B : 29|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CHV_CompressorRelayStatus_St_B : 28|1@0+ (1,0) [0|1] "B"  TST
+ SG_ CHV_OperatingModeState_St_enum : 27|3@0+ (1,0) [0|7] "enum"  TST
+ SG_ CHV_HotColdKnobVoltage_Act_V : 23|8@0+ (0.025,0) [0|6.375] "V"  TST
+ SG_ CHV_FaultStatus_St_B : 24|1@0+ (1,0) [0|1] "B"  TST
+
+
+CM_ BO_ 800 "Forward Collision Warning (FCW) status and primary target tracking telemetry.";
+CM_ SG_ 800 FCW_Stage_St_enum "Current active FCW threat stage (0=Safe, 1=Warning, 2=Critical).";
+CM_ SG_ 800 FCW_TrackID_Act_ID "Hardware tracker ID of the primary collision threat (16-bit contiguous).";
+CM_ SG_ 800 FCW_TTC_Act_sec "Calculated Time-To-Collision (TTC) in seconds.";
+CM_ SG_ 800 FCW_TargetY_Act_m "Longitudinal (Y) position of the primary threat relative to the host vehicle.";
+CM_ SG_ 800 FCW_TargetX_Act_m "Lateral (X) position of the primary threat relative to the host vehicle.";
+CM_ SG_ 800 FCW_TargetVy_mps "Longitudinal velocity (Vy) of the target.";
+CM_ SG_ 800 FCW_TargetVx_mps "Lateral velocity (Vx) of the target.";
+CM_ BO_ 802 "Multiplexed Radar Tracking Data for Targets 1 and 2.";
+CM_ BO_ 803 "Multiplexed Radar Tracking Data for Targets 3 and 4.";
+CM_ BO_ 804 "Multiplexed Radar Tracking Data for Targets 5 and 6.";
+CM_ BO_ 805 "Multiplexed Radar Tracking Data for Targets 7 and 8.";
+CM_ BO_ 806 "Multiplexed Radar Tracking Data for Targets 9 and 10.";
+CM_ BO_ 807 "Adaptive Cruise Control (ACC) lead target tracking and safe velocity profile telemetry.";
+CM_ SG_ 807 ACC_POI_ID "Hardware tracker ID of the primary lead target selected for ACC headway regulation.";
+CM_ SG_ 807 ACC_TargetY_Act_m "Longitudinal distance to ACC lead vehicle.";
+CM_ SG_ 807 ACC_TargetX_Act_m "Lateral position offset of ACC lead vehicle.";
+CM_ SG_ 807 ACC_TargetVy_mps "Longitudinal relative velocity of ACC lead vehicle.";
+CM_ SG_ 807 ACC_TTI_Act_sec "Calculated Time-To-Impact with ACC lead vehicle.";
+CM_ SG_ 807 ACC_VSafe_mps "Always-on safe velocity ceiling bounded by vehicle speed limit (55 km/h).";
+CM_ SG_ 807 ACC_ADAS_FSM_State_St_enum "Current active Forward ADAS state machine operational state (0=IDLE, 1=FCW, 2=ACC, 3=AEB).";
+CM_ BO_ 213 "Radar internal performance and debug telemetry.";
+CM_ BO_ 214 "Radar Subsystems (DSS, MSS, Tracking) software semantic versions.";
+CM_ SG_ 213 FrameNumber_Act "Current frame number being processed.";
+CM_ SG_ 213 TrackProcessTime_ms "Time taken for the tracker to process the current frame, truncated to 8-bit, in milliseconds.";
+CM_ SG_ 213 PointCloudCount_Act "Total number of valid point cloud reflections detected in the current frame, truncated to 8-bit.";
+CM_ SG_ 213 TrackerCount_Act "Total number of actively tracked objects (custom tracker).";
+CM_ SG_ 213 DSP_CPUCycles_Act "DSP CPU cycles consumed.";
+CM_ SG_ 213 ClusterCount_Act "Total number of custom clusters identified.";
+
+CM_ BO_ 801 "Combined Blind Spot Detection (BSD) status and zone occupancy telemetry.";
+CM_ SG_ 801 RADAR_BSD_Left_Active_St_B "Indicates if a valid target is actively occupying the LEFT blind spot zone.";
+CM_ SG_ 801 RADAR_BSD_Right_Active_St_B "Indicates if a valid target is actively occupying the RIGHT blind spot zone.";
+CM_ SG_ 801 RADAR_BSD_Left_TrackID_Act "Tracker ID of the closest target in the left blind spot.";
+CM_ SG_ 801 RADAR_BSD_Right_TrackID_Act "Tracker ID of the closest target in the right blind spot.";
+CM_ SG_ 801 RADAR_BSD_Left_Y_Act_m "Longitudinal (Y) distance to the closest target in the left blind spot.";
+CM_ SG_ 801 RADAR_BSD_Right_Y_Act_m "Longitudinal (Y) distance to the closest target in the right blind spot.";
+CM_ SG_ 801 RADAR_BSD_Left_X_Act_m "Lateral (X) distance to the closest target in the left blind spot.";
+CM_ SG_ 801 RADAR_BSD_Right_X_Act_m "Lateral (X) distance to the closest target in the right blind spot.";
+
+CM_ SG_ 153 ETS_VCU_DCCPowerGoodVolt_Act_V "Voltage at DC DC power good input pin on VCU.";
+CM_ SG_ 153 ETS_VCU_AmbTempSenseVolt_Act_V "Voltage at ambient temperature sensor input pin on VCU.";
+CM_ SG_ 153 ETS_VCU_DrvSenseVolt_Act_V "Voltage at drive switch input pin on VCU.";
+CM_ SG_ 153 ETS_VCU_RevSenseVolt_Act_V "Voltage at reverse switch input pin on VCU.";
+CM_ SG_ 153 ETS_VCU_AccPedal2SenseVolt_Act_V "Voltage at accelerator 1 input pin on VCU.";
+CM_ SG_ 153 ETS_VCU_AccPedal1SenseVolt_Act_V "Voltage at accelerator 2 input pin on VCU.";
+CM_ SG_ 153 ETS_VCU_PrkBrkVolt_Act_V "Voltage at park brake input pin on VCU.";
+CM_ SG_ 153 ETS_VCU_ChargePlugVolt_Act_V "Voltage at charge plug input pin on VCU.";
+CM_ SG_ 154 ETS_VCU_VSS_RESET_CALC_ST_B "VSS Clock count reset ";
+CM_ SG_ 154 ETS_VCU_HVBatFETOpnReq_St_B "VCU goes in error mode due to high voltage MCU faults & opens up HV Batt Contactor";
+CM_ SG_ 154 ETS_VCU_ProhibitTrqMode_St_B "VCU goes in error mode due to I/O faults & inhibits the torque demand";
+CM_ SG_ 154 ETS_VCU_ActivateLimpMode_St_B "VCU goes in limp mode due to I/O faults & inhibits the full driving capability of vehicle ";
+CM_ SG_ 154 ETS_VCU_RegenInhibitFlag_St_B "VCU goes in limp mode due to I/O faults & inhibits the regen capability of vehicle ";
+CM_ SG_ 154 ETS_VCU_ChgInhibitFlag_St_B "VCU goes in error mode due to I/O faults & inhibits the charging capability of vehicle ";
+CM_ SG_ 154 ETS_VCU_IntrnlChgState_St_enum "Internal charging state in VCU.";
+CM_ SG_ 154 ETS_VCU_ChgExitReason_St_enum "Exit reason to come out of charging state";
+CM_ SG_ 154 ETS_VCU_AppShutdownRqst_Req_B "CPU Shut down request from Application to OS";
+CM_ SG_ 154 ETS_VCU_VehStateMachineID_Act_ID "State id of the vehicle state machine";
+CM_ SG_ 154 ETS_VCU_VeritableCANwkup_St_B "Legitimate CAN message received for switching on the controller.";
+CM_ SG_ 154 ETS_VCU_WakeupReason_St_enum "VCU wake up reason";
+CM_ SG_ 154 ETS_VCU_DCM_Target_Pos_mm "Target Gear Position in mm";
+CM_ SG_ 154 ETS_VCU_DCM_Pres_Gear_Pos_mm "Present Gear Position Displacement in mm";
+CM_ SG_ 154 ETS_VCU_Gear_Pos_mm "Gear position in mm";
+CM_ SG_ 154 ETS_VCU_Gear_Engaged_St_enum "Gear engage in Count";
+CM_ SG_ 154 ETS_VCU_Ignition_Status_St_B "Mechanical Ignition ON status";
+CM_ SG_ 154 ETS_VCU_TSC_State_ID_Act_ID "State id of transmission state control";
+CM_ SG_ 154 ETS_VCU_MCUenable_FBPin_St_B "MCU Enable feedback pin.";
+CM_ SG_ 154 ETS_VCU_BMS_Ver_Identifier_St_B "BMS board version identifier v1.5 or v1.6";
+CM_ SG_ 154 ETS_VCU_FOTA_Source_St_enum "It indicates whether flashing is done over FOTA or BALnostix App.";
+CM_ SG_ 154 ETS_VCU_OS_FOTA_Complete_flag "OS flag for FOTA_PROGRAMMING_COMPLETE";
+CM_ SG_ 154 ETS_VCU_OS_raised_FOTA_flag "Approval from OS to start the FOTA process";
+CM_ SG_ 162 ETS_VCU_imuProc_pitchCF "Pitch angle (deg)";
+CM_ SG_ 162 ETS_VCU_imuProc_pitchRate "Pitch rate (rad/s)";
+CM_ SG_ 162 ETS_VCU_imuProc_rollCF "Roll angle (deg)";
+CM_ SG_ 162 ETS_VCU_imuProc_rollRate "Roll rate (rad/s)";
+CM_ SG_ 162 ETS_VCU_imuProc_yawCF "Yaw angle (deg)";
+CM_ SG_ 162 ETS_VCU_imuProc_yawRate "Yaw rate (rad/s)";
+CM_ SG_ 161 ETS_VCU_imuProc_pitchCalAngle "Pitch-calibration angle (rad)";
+CM_ SG_ 161 ETS_VCU_imuProc_rollCalAngle "Roll-calibration angle (rad)";
+CM_ SG_ 161 ETS_VCU_imuProc_RollPitchCal_B "Roll-pitch cal flag (bool)";
+CM_ SG_ 161 ETS_VCU_imuProc_YawCal_B "Yaw-cal flag (bool)";
+CM_ SG_ 161 ETS_VCU_imuProc_yawCalAngle "Yaw-calibration angle (rad)";
+CM_ SG_ 160 ETS_VCU_imuProc_xaccel "x-accel (mpss)";
+CM_ SG_ 160 ETS_VCU_imuProc_yaccel "y-accel (mpss)";
+CM_ SG_ 160 ETS_VCU_imuProc_zaccel "z-accel (mpss)";
+CM_ BO_ 384 "This message holds 6 -DOF IMU raw data for Z axis ";
+CM_ SG_ 384 CNS_TEL_ACCL_Z_RAW "This is the raw data of Accelerometer Z axis";
+CM_ SG_ 384 CNS_TEL_GYRO_Z_RAW "This is the raw data of Gyroscope Z axis";
+CM_ BO_ 385 "This message holds 6 -DOF IMU raw data for Z axis ";
+CM_ SG_ 385 CNS_TEL_ACCL_Y_RAW "This is the raw data of Accelerometer Z axis";
+CM_ SG_ 385 CNS_TEL_GYRO_Y_RAW "This is the raw data of Gyroscope Z axis";
+CM_ BO_ 386 "This message holds 6 -DOF IMU raw data for Z axis ";
+CM_ SG_ 386 CNS_TEL_ACCL_X_RAW "This is the raw data of Accelerometer Z axis";
+CM_ SG_ 386 CNS_TEL_GYRO_X_RAW "This is the raw data of Gyroscope Z axis";
+CM_ SG_ 1991 RespVarVaultObj "Variable vault object DID";
+CM_ SG_ 1991 VarVal "Response for variable vault object requested";
+CM_ BO_ 1136 "Intimation about firmware update status on vehicle for utilization in next power cycle.";
+CM_ SG_ 1136 CNS_TEL_FOTAstatusBM1_St_enum "Firmware update status of BM1 received from TEL for the recently-deployed firmware package.";
+CM_ SG_ 1136 CNS_TEL_FOTAstatusBM2_St_enum "Firmware update status of BM2 received from TEL for the recently-deployed firmware package.";
+CM_ SG_ 1136 CNS_TEL_FOTAstatusBM3_St_enum "Firmware update status of BM3 received from TEL for the recently-deployed firmware package.";
+CM_ SG_ 1136 CNS_TEL_FOTAstatusBM4_St_enum "Firmware update status of BM4 received from TEL for the recently-deployed firmware package.";
+CM_ SG_ 1136 CNS_TEL_FOTAstatusBM5_St_enum "Firmware update status of BM5 received from TEL for the recently-deployed firmware package.";
+CM_ SG_ 1136 CNS_TEL_FOTAstatusBM6_St_enum "Firmware update status of BM6 received from TEL for the recently-deployed firmware package.";
+CM_ SG_ 1136 CNS_TEL_FOTAstatusTEL_St_enum "Firmware update status of TEL received from TEL for the recently-deployed firmware package.";
+CM_ SG_ 1136 CNS_TEL_FOTAstatusVCU_St_enum "Firmware update status of VCU received from TEL for the recently-deployed firmware package.";
+CM_ SG_ 1136 CNS_TEL_FOTAstatusMCU_St_enum "Firmware update status of MCU received from TEL for the recently-deployed firmware package.";
+CM_ SG_ 1136 CNS_TEL_FOTAstatusCHG_St_enum "Firmware update status of CHG received from TEL for the recently-deployed firmware package.";
+CM_ SG_ 1136 CNS_TEL_FOTAstatusICL_St_enum "Firmware update status of ICL received from TEL for the recently-deployed firmware package.";
+CM_ SG_ 1136 CNS_TEL_FOTAstatusRsv_St_enum "Reserved";
+CM_ SG_ 1136 APP_Rqst_Update "Status of App request from BALNostix app.";
+CM_ SG_ 1136 TEL_Reserved1 "Reserved";
+CM_ SG_ 36 ETS_VCU_ODO_Ref_m "Reference value of ODO from VCU to account for ICL replacement.";
+CM_ SG_ 36 ETS_VCU_FOTApermission_Ack_B "Precondition fulfilment status for FOTA based on request received from TEL";
+CM_ SG_ 1418 ETS_VCU_FETfailCnt_Act_count "Number of FET operation fail counts";
+CM_ SG_ 1418 ETS_VCU_L2InterruptCnt_Act_count "Number of monitoring software interrupts";
+CM_ SG_ 1418 ETS_VCU_CANwakeupCnt_Act_count "Number of CAN wakeups in the current drive cycle";
+CM_ SG_ 1418 ETS_VCU_NeutralInitTime_Act_sec "Time to initialise to Neutral from off condition";
+CM_ SG_ 1418 ETS_VCU_bridged_vLoad_Act_V "Pack voltage after FETs";
+CM_ SG_ 794 ETS_VCU_AvgMotTrqPos_Est_Nm "Average motor positive torque in current drive cycle";
+CM_ SG_ 794 ETS_VCU_AvgMotTrqNeg_Est_Nm "Average motor negative torque in current drive cycle";
+CM_ SG_ 794 ETS_VCU_AuxLoadCons_Act_A "Auxilliary load consumption";
+CM_ SG_ 794 ETS_VCU_LoadIndex_Est_count "Index which represents the vehicle load condition";
+CM_ SG_ 794 ETS_VCU_RegenEnergy_Act_Wh "Total battery throughput in the current drive cycle in negative direction";
+CM_ SG_ 794 ETS_VCU_DriveEnergy_Act_Wh "Total battery throughput in the current drive cycle in positive direction";
+CM_ SG_ 794 ETS_VCU_ChargeInterrupt_St_B "Flag indicating charging has been interrupted - inadvertently or intentionally.";
+CM_ SG_ 795 ETS_VCU_DriveEff_Est_Whpkm "Driving efficiency";
+CM_ SG_ 795 ETS_VCU_AvgDCresistance_Act_ohm "Avg DC resistance of battery cable";
+CM_ SG_ 795 ETS_VCU_MaxCurrChg_Max_A "Maximum of total charge current over a definite time duration.";
+CM_ SG_ 795 ETS_VCU_AvgCurrChg_Act_A "Running average of total charge current over a definite time duration.";
+CM_ SG_ 795 ETS_VCU_MaxCurrDchg_Max_A "Maximum total discharge current over a defined time duration.";
+CM_ SG_ 795 ETS_VCU_AvgCurrDchg_Act_A "Running average of total discharge current over a definite time duration.";
+CM_ SG_ 796 ETS_VCU_AvgAccPedal_Act_perc "Average accelerator pedal position in the current drive cycle";
+CM_ SG_ 796 ETS_VCU_BrakeOverAccIntg_Act_sec "Time Integration When Brake Over Acceleration is active";
+CM_ SG_ 796 ETS_VCU_BrakeInteg_Act_sec "Time Integration When Foundation Brake is active";
+CM_ SG_ 796 ETS_VCU_MaxSpeed_Max_kmph "Maximum value of vehicle speed over a definite time duration.";
+CM_ SG_ 796 ETS_VCU_AvgSpeed_Act_kmph "Running average of vehicle speed over a definite time duration.";
+CM_ SG_ 796 ETS_VCU_LongAccel_Max_mpss "Maximum longitudinal acceleration dv/dt over a definite time duration.";
+CM_ SG_ 796 ETS_VCU_LongAccel_Min_mpss "Minimum longitudinal acceleration dv/dt over a definite time duration.";
+CM_ BO_ 1651 "This signal from the VCU indicates which of the BMx will be the master among battery modules for communication with the VCU in that session.";
+CM_ SG_ 1651 ETS_VCU_trigger_nodeTransition "NODE ID of Battery module who is required to be master in diagnostic mode";
+CM_ SG_ 886 CNS_TEL_BTwriteNVMfail_St_B "Indicates failure to write to the non-volatile memory on the BLE controller.";
+CM_ SG_ 886 CNS_TEL_BTreadNVMfail_St_B "Indicates failures in reading non-volatile memory in the BLE controller.";
+CM_ SG_ 886 CNS_TEL_BTmia_St_B "Indicates failure to receive data from the BLE controller.";
+CM_ SG_ 886 CNS_TEL_BTgetAdNameFail_St_B "Indicates failure to get advertising name for a defined time duration.";
+CM_ SG_ 886 CNS_TEL_GSMresponseFault_St_B "GSM fault - No GSM response";
+CM_ SG_ 886 CNS_TEL_GSMnetRegFail_St_B "GSM fault - Network registration failure";
+CM_ SG_ 886 CNS_TEL_GSMsimPinFault_St_B "GSM fault - SIM pin error";
+CM_ SG_ 886 CNS_TEL_GNSScrcFault_St_B "GNSS fault - CRC error";
+CM_ SG_ 886 CNS_TEL_NoSupplyTooLong_St_B "Device has been operating on backup battery for too long.";
+CM_ SG_ 886 CNS_TEL_UndervoltFault_St_B "Undervoltage fault.";
+CM_ SG_ 886 CNS_TEL_OvervoltFault_St_B "Overvoltage fault.";
+CM_ SG_ 886 CNS_TEL_GSMactivGPRSfail_St_B "GSM fault - GPRS activation error";
+CM_ SG_ 886 CNS_TEL_GNSSresponseFault_St_B "GNSS fault - No GNSS response";
+CM_ SG_ 886 CNS_TEL_STGfault_St_B "Fault raised on detection of short circuit to ground of the music switch input pin.";
+CM_ SG_ 886 CNS_TEL_STBfault_St_B "Fault raised on detection of short circuit with supply of the music switch input pin.";
+CM_ SG_ 886 CNS_TEL_OpenFault_St_B "Fault raised on detection of open circuit on the music switch input pin.";
+CM_ SG_ 886 CNS_TEL_BackupBatteryVolt_Act_V "TEL backup battery voltage.";
+CM_ SG_ 886 CNS_TEL_BackupBatteryMode_St_B "Whether or not TEL is operating off its backup battery.";
+CM_ SG_ 1135 CNS_TEL_GPSlongitude_Est_count "Present longitude based on GPS data";
+CM_ SG_ 1135 CNS_TEL_GPSlongitudeDirn_Est_B "Sign of longitude";
+CM_ SG_ 1135 CNS_TEL_GPSlatitudeDirn_Est_B "Sign of latitude";
+CM_ SG_ 1135 CNS_TEL_GPSlatitude_Est_count "Present latitude based on GPS data";
+CM_ SG_ 789 ETS_VCU_BeeperRPSL_Cmd_St_enum "This indicate command by VCU to Activate beeper based on distance between obstacle and right side vehicle sensor";
+CM_ SG_ 789 ETS_VCU_BeeperRPSR_Cmd_St_en "This indicate command by VCU to Activate beeper based on distance between obstacle and left side vehicle sensor";
+CM_ SG_ 789 Reserved_156_59 "Reserved";
+CM_ SG_ 789 ETS_VCU_LowBattVoltage_Cmd_enum "This controls LV battery voltage low tell tale of ICL";
+CM_ SG_ 789 ETS_VCU_DisplayScreen_Cmd_enum "This indicates the command by VCU to dictate ICL basic display screen.";
+CM_ SG_ 789 ETS_VCU_Buzzer_Cmd_B "This indicates the command by VCU to dictate ICL basic display screen.";
+CM_ SG_ 789 ETS_VCU_RemoteImmoDisp_St_B "To ICL to display status of remote immobilization.";
+CM_ SG_ 789 ETS_VCU_RemainingMileage_Est_m "Range of vehicle based on current state of battery pack";
+CM_ SG_ 789 ETS_VCU_GenAlarmInd_St_enum "Generic alarm control by VCU";
+CM_ SG_ 789 ETS_VCU_LimitedPerformInd_St_B "Indication for reduced power/limited performance.";
+CM_ SG_ 789 ETS_VCU_DriverScore_Act_count "Driver Score Parameter.";
+CM_ SG_ 789 ETS_VCU_ThermalRunawayInd_St_B "To ICL to display status of Thermal runaway.";
+CM_ SG_ 789 ETS_VCU_Seek_ASW_FOTA_Approval "VCU seeks approval for FOTA from application software.";
+CM_ SG_ 781 ETS_VCU_ChargerCtrlMode_St_enum "Charger mode command by VCU";
+CM_ SG_ 781 ETS_VCU_ChargerCommCtrl_St_enum "Command to charger to disable or enable CAN communication";
+CM_ SG_ 781 ETS_VCU_ChargerOpReq_Cmd_enum "VCU request to initiate charge or stop";
+CM_ SG_ 781 ETS_VCU_ChargerCurrSetpt_Ref_A "Charger o/p current limit requested  by Vehicle";
+CM_ SG_ 781 ETS_VCU_ChargerVoltSetpt_Ref_V "Charger o/p voltage requested  by Vehicle";
+CM_ SG_ 156 ETS_VCU_MotDemandTrq_Cmd_Nm "Throttle-based torque demand from VCU";
+CM_ SG_ 156 ETS_VCU_MCUenableStatus_St_enum "Status of MCUenable
+Error indicates lack of acknowledgment of status or Error reported from MCU.";
+CM_ SG_ 156 ETS_VCU_MCU_veh_mode_req_enum "MCU Control mode request from VCU";
+CM_ SG_ 156 ETS_VCU_CommandSpeed_Cmd_rpm "Command RPM for gear shifting";
+CM_ SG_ 156 ETS_VCU_MCU_Veh_Model_Sel "VCU provides vehicle model info to MCU";
+CM_ SG_ 156 ETS_VCU_Shift_ASD_St_Enum "ASD request from VCU";
+CM_ SG_ 158 ETS_VCU_EstimatedGrade_Est_Deg "Grade estimated by VCU";
+CM_ SG_ 158 ETS_VCU_GearEngaged_Act_enum "indicates which gear the vehicle is in currently (if applicable)";
+CM_ SG_ 158 ETS_VCU_HillHoldEnable_St_B "Hill hold functionality enable status";
+CM_ SG_ 158 ETS_VCU_ActiveShrtCkt_Cmd_B "Command to enable active short circuiting";
+CM_ SG_ 158 ETS_VCU_DchgCurrLimit_Ref_A "Maximum current that can be drawn from the battery by the MCU";
+CM_ SG_ 158 ETS_VCU_ChgCurrLimit_Ref_A "Maximum current that can be regen to the battery by the MCU";
+CM_ SG_ 782 ETS_VCU_TEL2Cloud_DataOff_St_B "VCU flag indicating data push to cloud from TEL to be enabled or disabled.";
+CM_ SG_ 782 Reserved_782_25 "Reserved";
+CM_ SG_ 782 Reserved_782_31 "Reserved";
+CM_ SG_ 782 ETS_VCU_BrakePressStatus_St_enum "Whether brake is pressed (either front or rear)";
+CM_ SG_ 782 ETS_VCU_TELCANTxEnable_Req_enum "CAN communication enable / disable command from VCU to TEL";
+CM_ SG_ 782 ETS_VCU_MPRDRelayStatus_St_enum "Status of MPRD relay";
+CM_ SG_ 782 ETS_VCU_DrivetrainStatus_St_enum "Off: Default state before startup sequence starts
+Initialize: During startup sequence
+Ready: First-time progression into Neutral. No fault in VCU.
+Drive: Any driving mode. Even Neutral, without turning off the vehicle.
+Charge: Charging state.
+Shutdown: When VCU is awake and KeyONStatus is 0; VCU about to go to sleep
+Error: An error not allowing drive in Drive state, or charging in Charge state.
+Standby: Clarify
+AuxBattCharge: ";
+CM_ SG_ 782 ETS_VCU_MCUCANTxEnable_Req_enum "CAN communication enable / disable command from VCU to MCU";
+CM_ SG_ 782 ETS_VCU_DrvMode_St_enum "Driving mode";
+CM_ SG_ 782 ETS_VCU_AmbientTemp_Act_degC "Ambient temperature (at location)";
+CM_ SG_ 782 ETS_VCU_KeyONstatus_St_B "Considers both start/stop switch press as well as Fob status.";
+CM_ SG_ 782 ETS_VCU_ShiftMOTDriveDir_St_enum "Intended drive direction of the shifter motor.";
+CM_ SG_ 782 ETS_VCU_MotorRPM_Act_rpm "Motor shaft speed in RPM (+ve for forward, -ve reverse) forwarded by the VCU";
+CM_ SG_ 782 ETS_VCU_Display_Inputs_2 "Display enumaration for ICL";
+CM_ SG_ 782 Reserved_782_37 "Reserved";
+CM_ SG_ 782 ETS_VCU_AutoHazard_St_B "Auto hazard status";
+CM_ SG_ 782 ETS_VCU_LoadRelayStatus_St_B "Load relay status";
+CM_ SG_ 782 ETS_VCU_FOTA_Approval_St_enum "It describes stages of FOTA permission process.";
+CM_ SG_ 783 VCU_ahr_final_val "Resultant ahr calucated for DTE";
+CM_ SG_ 783 ETS_VCU_CHG_Stat_InfoMsg_St_Enum "Status of CHG_Stat_InfoMsg";
+CM_ SG_ 783 ETS_VCU_Creep_St_B "Status of Creep";
+CM_ SG_ 783 ETS_VCU_FaultStatus_St_enum "No fault - all variable states as in normal, ideal operation
+No drive - any fault due to which vehicle is not permitted to drive
+Limp - only those faults due to which vehicle goes into derated limp mode
+Warning - any faults that still permit vehicle driving without derating";
+CM_ SG_ 783 ETS_VCU_VehSpeed_Act_kmph "Actual speed of vehicle";
+CM_ SG_ 783 ETS_VCU_ChargingStatus_St_enum "Charging state";
+CM_ SG_ 783 ETS_VCU_ChrgPlug_St_enum "Charging plug status (proximity switch only)";
+CM_ SG_ 783 ETS_VCU_RegenBraking_St_B "This indicates the regenerative charging status.";
+CM_ SG_ 783 ETS_VCU_HighBatteryTemp_St_B "This indicates the high battery temperature error status.";
+CM_ SG_ 783 ETS_VCU_SOCbatt_Est_perc "State of charge of pack to be sent to cluster for user display";
+CM_ SG_ 783 ETS_VCU_VoltAuxBatt_Act_V "Voltage of auxilliary battery before load relay";
+CM_ SG_ 783 ETS_VCU_TimeToChargeBatt_Est_min "Time remaining to fully charge battery pack";
+CM_ SG_ 783 ETS_VCU_ParkBrake_St_enum "Handbrake status";
+CM_ SG_ 783 ETS_VCU_MOTFanRelay_St_enum "Motor fan supply relay status";
+CM_ SG_ 784 ETS_VCU_Chg_CommErr_Flag_St_B "Status Charger CAN Communicaiton";
+CM_ SG_ 784 ETS_VCU_AuxBattChgTime_Est_min "Time remaining to fully charge auxiliary battery pack";
+CM_ SG_ 784 ETS_VCU_BrakeLampStatus_St_enum "Status of brake lamp
+Dummy Signal";
+CM_ SG_ 784 ETS_VCU_LimpModeReason_St_enum "Reason for limp mode derating";
+CM_ SG_ 784 ETS_VCU_DrvDisableReason_St_enum "Reason to disable drive";
+CM_ SG_ 784 ETS_VCU_MotorFANduty_Act_perc "Operating duty cycle of fan";
+CM_ SG_ 784 ETS_VCU_RollSenseStatus_St_enum "Detection status of rollover";
+CM_ SG_ 784 ETS_VCU_ChargerEnrgyCons_Act_kW "Charger energy consumption in a charge cycle";
+CM_ SG_ 784 ETS_VCU_VCUlimpMode_St_enum "Whether or not the vehicle is in limp (derated) mode";
+CM_ SG_ 784 ETS_VCU_AccelPedal_Act_perc "Throttle position";
+CM_ SG_ 784 ETS_VCU_BrakePedal_Act_perc "Brake position";
+CM_ SG_ 784 ETS_VCU_FOTA_APP_OR_TEL_St_Enum "It indicates whether flashing is done over FOTA or BALnostix App.";
+CM_ SG_ 791 Reserved_791_16 "Reserved";
+CM_ SG_ 791 Reserved_791_20 "Reserved";
+CM_ SG_ 791 VCU_ahr_per_km_long_val "Long ahr calucated for DTE";
+CM_ SG_ 791 VCU_ahr_per_km_inst_val "Short ahr calucated for DTE";
+CM_ SG_ 791 ETS_VCU_AuxChrgingStatus_St_enum "Status of auxiliary battery charging";
+CM_ SG_ 791 ETS_VCU_DCDCStatus_St_enum "Status of DCDCenable
+Error indicates PowerGoodSt active low from DCDC if DCDCenable was Enabled.";
+CM_ SG_ 791 ETS_VCU_RevLampRelay_St_enum "Reverse lamp relay status";
+CM_ SG_ 791 ETS_VCU_KillSwitch_St_enum "Kill switch status";
+CM_ SG_ 791 ETS_VCU_KillTimerRelay_St_enum "Kill timer relay status";
+CM_ SG_ 791 VCU_cnt_num_of_aux_chg_wkups "Number of Cyclic wakeups";
+CM_ SG_ 791 ETS_VCU_vBrickUnder_St_B "To TEL to trigger Under Voltage fault on cloud.";
+CM_ SG_ 791 ETS_VCU_vBrickUnder_Act_count "To TEL to monitor undervoltage fault occurance counter";
+CM_ SG_ 791 ETS_VCU_cnt_inst_plaus_count "Instantaneous Wheel Speed Plausibility Count";
+CM_ SG_ 791 ETS_VCU_inst_whlSpeed_Flt_B "Instantaneous Wheel Speed Plausibility Fault";
+CM_ SG_ 791 ETS_VCU_trueWheel_Speed_kph "True Wheel Speed";
+CM_ SG_ 173 ETS_MCU_DCCurrent_Act_A "DC current flowing into(+ve)/ out(-ve) of the MCU";
+CM_ SG_ 173 ETS_MCU_DCVoltage_Act_V "Voltage across the DC link capacitor";
+CM_ SG_ 173 ETS_MCU_RequestedTorque_Act_Nm "Torque requested by the VCU";
+CM_ SG_ 173 ETS_MOT_ShaftTorque_Est_Nm "Estimated Torque at Motor shaft  after all limitations are applied ";
+CM_ SG_ 173 MCU_SW_PhShort_St_B "Triggers if Phase short is detected by MCU";
+CM_ SG_ 174 ETS_MOT_MotorRPM_Act_rpm "Motor shaft speed in RPM (+ve for forward, -ve reverese)";
+CM_ SG_ 174 ETS_MOT_Acceleration_Act_rpss "Angular Acceleration of the machine";
+CM_ SG_ 174 ETS_MOT_Angle_Act_Deg "Present position of the machine";
+CM_ SG_ 174 ETS_MCU_RPSInput_St_B "MCU is considering Encoder input or estimated (sensorless) input of Rotor position";
+CM_ SG_ 174 ETS_MCU_ReqOpenMainSwi_Req_enum "Request from MCU to VCU to open battery main contactor";
+CM_ SG_ 174 ETS_MCU_MotorMaxTrqLimit_Ref_Nm "Maximum torque the motor can generate in +ve direction";
+CM_ SG_ 174 ETS_MCU_MotorMinTrqLimit_Ref_Nm " Maximum torque the motor can generate in -ve direction";
+CM_ SG_ 797 ETS_MCU_MotorControlMode_St_enum "MCU opeartion Mode";
+CM_ SG_ 797 ETS_MCU_HillAssist_St_B "Status of Hill Assist";
+CM_ SG_ 797 ETS_MCU_ChgInhibit_St_B "MCU uses this bit to inform VCU to stop battery charging, only when HV-related faults occur. This is to enable VCU to decide whether or not battery charging shall be continued.";
+CM_ SG_ 797 ETS_MCU_OffsetCAL_St_enum "Motor offset Calibration status";
+CM_ SG_ 797 ETS_MCU_ASCcmdAck_St_B "To acknowledge VCU's ASC request.";
+CM_ SG_ 797 ETS_MCU_OffsetCalComplete_St_B "To acknowledge encoder offset calibration completion.";
+CM_ SG_ 797 ETS_MCU_hwASCactive_St_B "To acknowledge status of HW ASC when vehicle is turned ON.";
+CM_ SG_ 797 ETS_MCU_StatusBits_St_enum "MCU Status bits
+Off - MCU is powered off
+Initialize - MCU is powered ON and it is in initialisation state of Ios
+Ready - MCU has initialised all Inputs and outputs and ready to process all commands
+Fault: Fault is MCU or Motor due to which MCU can not allow to drive motor
+Active Shortcircuiting: Active shortcircuiting activated by MCU
+Derated Performance: MCU not able working in derated mode due to warning or error";
+CM_ SG_ 797 ETS_MCU_MotDrvRdyStatus_St_enum " Drive readiness status of MCU.
+MCU Ready means there is no fault related to MCU or Motor, MCU enable is not activated by VCU and it can follow the VCU commands to drive motor.
+MCU Not Ready means either there is fault related to MCU or Motor or MCU enable is not activated by VCU and MCU can not allow to drive motor
+";
+CM_ SG_ 797 ETS_MCU_ActShrtCktStatus_St_enum "Status of Active short circuiting ";
+CM_ SG_ 797 ETS_MCU_EnableStatus_St_enum "MCU enable status
+Not Enabled: MCU has not enabled power stage
+Enabled: MCU has enabled power stage after receiving MCU enable command from VCU";
+CM_ SG_ 797 ETS_MCU_Sleep_Ack_enum "Acknowledgement to VCU sleep request";
+CM_ SG_ 797 ETS_MCU_ASDStatus_St_enum "ASD activation status";
+CM_ SG_ 797 ETS_MCU_MCUTemp_Act_degC "MCU sensed temperature ";
+CM_ SG_ 797 ETS_MOT_StatorTemp_Act_degC "actual stator temperature";
+CM_ SG_ 797 ETS_MOT_MagnetPredTemp_Est_degC "estimated motor magnet temperature";
+CM_ SG_ 797 ETS_MCU_SupplyRelayStatus_St_B "MCU 12V supply relay status";
+CM_ SG_ 797 ETS_MCU_FinalTorque_Act_Nm "Final torque going to Id-iq map after all deration.";
+CM_ SG_ 798 ETS_MCU_CRCMismatchFault_St_B "Fault raised by MCU when CRC mismatch fault detected by MCU";
+CM_ SG_ 798 ETS_MCU_SnsrSplyFault_St_B "Fault raised by MCU when MCU Sensor Supply Enable XDRP fault detected by MCU";
+CM_ SG_ 798 ETS_MOT_PhPhShrtCktFault_St_B "Fault raised by MCU when Motor phase to phase short circuit fault is detected";
+CM_ SG_ 798 ETS_MOT_OpenPhaseFault_St_B "Fault raised by MCU when Motor open phase fault is detected";
+CM_ SG_ 798 ETS_MOT_PhGndShrtCktFault_St_B "Fault raised by MCU when Motor phase to ground short circuit fault is detected";
+CM_ SG_ 798 ETS_MCU_OverCurrentFault_St_B "Fault raised by MCU when DC current is greater than the threshold limits";
+CM_ SG_ 798 ETS_MOT_SpeedFault_St_enum "Fault raised by MCU when Motor speed is greater than the threshold limits";
+CM_ SG_ 798 ETS_MCU_UndervoltFault_St_enum "Fault raised by MCU when MCU DC terminal voltage is lesser than the threshold limits";
+CM_ SG_ 798 ETS_MOT_MotorTempFault_St_enum "Fault raised by MCU when Motor temperature is out of  threshold limits";
+CM_ SG_ 798 ETS_MCU_MCUtempFault_St_enum "Fault raised by MCU when MCU temperature is out of  threshold limits";
+CM_ SG_ 798 ETS_MCU_VCUCANTimeoutFault_St_B "Fault raised by MCU when  CAN signals are not received from VCU";
+CM_ SG_ 798 ETS_MCU_DeratingReason_St_enum "Reason for derated performance of MCU";
+CM_ SG_ 798 ETS_MOT_FaultStatus_St_B "Fault status of Motor";
+CM_ SG_ 798 ETS_MCU_FaultStatus_St_B "Fault status of MCU";
+CM_ SG_ 798 ETS_MCU_OvervoltFault_St_enum "Fault raised by MCU when MCU DC terminal voltage is greater than the threshold limits";
+CM_ SG_ 798 ETS_MOT_TempSensorFault_St_enum "Fault raised by MCU when motor temp sensor fault (open, STB, STG) is detected";
+CM_ SG_ 798 ETS_MCU_TempSensorFault_St_enum "Fault raised by MCU when MCU temp sensor fault (open, STB, STG) is detected";
+CM_ SG_ 798 ETS_MOT_EncoderFault_St_enum "Fault raised by MCU when encoder fault  is detected";
+CM_ SG_ 798 ETS_MCU_DCvoltSensorFault_St_B "Fault raised by MCU when DC voltage sensor fault is detected";
+CM_ SG_ 798 ETS_MCU_DCcurrSensorFault_St_B "Fault raised by MCU when DC current sensor fault is detected";
+CM_ SG_ 798 ETS_MCU_UPhVoltSensorFault_St_B "Fault raised by MCU when U phase voltage sensor fault is detected";
+CM_ SG_ 798 ETS_MCU_VPhVoltSensorFault_St_B "Fault raised by MCU when V phase voltage sensor fault is detected";
+CM_ SG_ 798 ETS_MCU_WPhVoltSensorFault_St_B "Fault raised by MCU when W phase voltage sensor fault is detected";
+CM_ SG_ 798 ETS_MCU_UVWPh_IsnsrFault_St_enum "Fault raised by MCU when U or V or W phase current sensor fault is detected";
+CM_ SG_ 798 ETS_MOT_DemagFault_St_B "Fault raised by MCU when Motor Demagnetization is detected";
+CM_ SG_ 798 ETS_MCU_MotorOffsetMismatch_St_B "Fault raised by MCU when Motor offset values calibrated in MCU are wrong";
+CM_ SG_ 798 ETS_MCU_InternalHWfault_St_enum "Fault raised by MCU when any hardware internal fault is detected";
+CM_ SG_ 798 ETS_MOT_StallProtect_St_B "Fault raised by MCU when Motor stall is detected";
+CM_ SG_ 798 ETS_MCU_HW_PhShortFault_St_B "Fault raised by MCU when phase short is detected";
+CM_ SG_ 798 ETS_MCU_MOSFETFault_St_B "Fault raised by MCU when fault in MOSFETs are detected";
+CM_ SG_ 798 ETS_MCU_FastVdcdropFault_St_B "If sudden VDC drop is measured by MCU (-10V in 1 sample), this fault will be triggered high";
+CM_ SG_ 798 ETS_MCU_DCDCConverterFault_St_B "Fault raised by MCU when fault in internal DC DC converter is detected";
+CM_ SG_ 798 ETS_MCU_DrvTrqCommViolation_St_B "When VCU_Requested_Torque > Motor_Max_Trq_Limit";
+CM_ SG_ 798 ETS_MCU_RgnTrqCommViolation_St_B "When VCU_Requested_Torque <Motor_Min_Trq_Limit ";
+CM_ SG_ 798 ETS_MCU_FocFault_St_enum "FOC fault";
+CM_ SG_ 175 ETS_MCU_DbgInfoMultiplx_Act_ID "Multiplexor byte in debug message";
+CM_ SG_ 175 ETS_MCU_IdRef_Ref_A "Ref Id Component flowing into/ out of the MCU";
+CM_ SG_ 175 ETS_MCU_IqRef_Ref_A "Ref Iq Component flowing into/ out of the MCU";
+CM_ SG_ 175 ETS_MCU_IdAct_Act_A "Actual Id Component flowing into/ out of the MCU";
+CM_ SG_ 175 ETS_MCU_IqAct_Act_A "Actual Iq Component flowing into/ out of the MCU";
+CM_ SG_ 175 ETS_MCU_InstIa_Act_A "Inst. Motor A phase current";
+CM_ SG_ 175 ETS_MCU_InstIb_Act_A "Inst. Motor B phase current";
+CM_ SG_ 175 ETS_MCU_InstIc_Act_A "Inst. Motor C phase current";
+CM_ SG_ 175 DemagControlerTrq_Act_Nm "Max Torque Limit for IdMax Ref.";
+CM_ SG_ 175 Reserved_MCU_Debug_2 "Reserved";
+CM_ SG_ 175 ETS_MCU_Vq_Act_V "Actual Vq Component of voltage applied at motor terminals";
+CM_ SG_ 175 ETS_MCU_Vd_Act_V "Actual Vd Component of voltage applied at motor terminals";
+CM_ SG_ 175 ETS_MCU_HillholdTrq_Ref_Nm "Ref torque of Hill Hold controller";
+CM_ SG_ 175 Reserved_MCU_Debug_3 "Reserved";
+CM_ SG_ 175 ETS_MCU_EncoderAngOffset_Act_Val "Encoder offset Count";
+CM_ SG_ 175 ETS_MCU_MotDerateMaxTrq_Act_Nm "Torque Limit due to Motor temperature";
+CM_ SG_ 175 ETS_MCU_MCUDerateMaxTrq_Act_Nm "Torque Limit due to MCU temperature";
+CM_ SG_ 175 ETS_MCU_MotDerateTrqLimit_Ref_Nm "Torque Limit for IdcMax Controller";
+CM_ SG_ 175 ETS_MCU_MCUDerateTrqLimit_Ref_Nm "Max Torque Limit";
+CM_ SG_ 175 SpeedControlerTrq_Act_Nm "Ref torque of speed controller";
+CM_ SG_ 175 Reserved_MCU_Debug_4 "Reserved";
+CM_ SG_ 175 ETS_MCU_EncoderSinMin_Act_Val "ADC Count of Encoder Sin(-) Signal";
+CM_ SG_ 175 ETS_MCU_EncoderSinMax_Act_Val "ADC Count of Encoder Sin(+) Signal";
+CM_ SG_ 175 ETS_MCU_EncoderCosMin_Act_Val "ADC Count of Encoder Cos(-) Signal";
+CM_ SG_ 175 ETS_MCU_EncoderCosMax_Act_Val "ADC Count of Encoder Cos(+) Signal";
+CM_ SG_ 175 ETS_MCU_EncoderOffsetCal_St_enum "Motor offset Calibration completion flag";
+CM_ SG_ 175 Reserved_MCU_Debug_5 "Reserved";
+CM_ SG_ 175 ETS_MCU_RMSVoltagePhaseU_Act_V "Applied rms phase voltage of U phase";
+CM_ SG_ 175 ETS_MCU_RMSVoltagePhaseV_Act_V "Applied rms phase voltage of V phase";
+CM_ SG_ 175 ETS_MCU_RMSVoltagePhaseW_Act_V "Applied rms phase voltage of W phase";
+CM_ SG_ 175 ETS_MCU_RMSCurrentPhaseW_Act_A "Applied rms phase current of W phase";
+CM_ SG_ 175 ETS_MCU_RMSCurrentPhaseV_Act_A "Applied rms phase current of V phase";
+CM_ SG_ 175 ETS_MCU_RMSCurrentPhaseU_Act_A "Applied rms phase current of U phase";
+CM_ SG_ 175 ETS_MCU_HillHoldSelect_St_B "Status of Hill Assist";
+CM_ SG_ 175 Reserved_MCU_Debug_6 "Reserved";
+CM_ SG_ 848 EVC_CHG_Status_St_enum "Charger Status";
+CM_ SG_ 848 EVC_CHG_CycleStatus_St_enum "Charge Cycle Status";
+CM_ SG_ 848 EVC_CHG_OperatingMode_St_enum "Charger operating mode status";
+CM_ SG_ 848 EVC_CHG_ACInputSupplyStatus_St_B "AC connection status";
+CM_ SG_ 848 EVC_CHG_CktTemp_Act_degC "PCB Temperature inside charger";
+CM_ SG_ 848 EVC_CHG_HousingTemp_Act_degC "Housing temperature inside charger";
+CM_ SG_ 848 EVC_CHG_ACRMSVoltage_Act_V "Input RMS voltage of charger";
+CM_ SG_ 848 EVC_CHG_Fan1DutyCycle_Act_perc "Duty cycle of Charger cooling fan 1";
+CM_ SG_ 848 EVC_CHG_Fan2DutyCycle_Act_perc "Duty cycle of Charger cooling fan 2";
+CM_ SG_ 848 EVC_CHG_ACRMScurrent_Act_A "Input RMS current of charger";
+CM_ SG_ 851 EVC_CHG_PSFBXmer_Act_degC "PSFB X'mer Temperature";
+CM_ SG_ 851 EVC_CHG_PSFBFets_Act_degC "PSFB Fets Temperature";
+CM_ SG_ 851 EVC_CHG_OutputDiodes_Act_degC "O/P Diodes Temperature";
+CM_ SG_ 851 EVC_CHG_PFCFets_Act_degC "PFC Fets Temperature";
+CM_ SG_ 849 Reserved_849_39 "Reserved";
+CM_ SG_ 849 EVC_CHG_FaultStatus_St_B "Fault Status of Charger";
+CM_ SG_ 849 EVC_CHG_DeratingStatus_St_enum "Reason for Charger derating";
+CM_ SG_ 849 EVC_CHG_TempSensorFault_St_B "Temperature sensor fault of charger";
+CM_ SG_ 849 EVC_CHG_DCvoltSensorFault_St_B "DC voltage sensor fault of charger";
+CM_ SG_ 849 EVC_CHG_DCcurrSensorFault_St_B "DC current sensor fault of charger";
+CM_ SG_ 849 EVC_CHG_ACvoltSensorFault_St_B "AC voltage sensor fault of charger";
+CM_ SG_ 849 EVC_CHG_InternalFuseFault_St_B "Charger Internal fuse blown";
+CM_ SG_ 849 EVC_CHG_ACVoltageFault_St_enum "Charger raises fault when AC voltage is out of threshold limits";
+CM_ SG_ 849 EVC_CHG_DCVoltageFault_St_enum "Charger raises fault when DC voltage is out of threshold limits";
+CM_ SG_ 849 EVC_CHG_ACCurrentFault_St_enum "Charger raises fault when AC current is out of threshold limits";
+CM_ SG_ 849 EVC_CHG_DCCurrentFault_St_enum "Charger raises fault when DC voltage is out of threshold limits";
+CM_ SG_ 849 EVC_CHG_ChargerCRCViolation_St_B "Charger CRC violation fault";
+CM_ SG_ 849 EVC_CHG_OutRevPolarityFault_St_B "Charger raises fault when it detects charger DC terminals are connected in reverse polarity";
+CM_ SG_ 849 EVC_CHG_VCUCANcommTimeout_St_B "VCU CAN communication fault";
+CM_ SG_ 849 EVC_CHG_SetPointViolation_St_B "Charger raises fault when it is not able to deliver Current/voltage as per command received from VCU";
+CM_ SG_ 849 EVC_CHG_TempFault_St_B "Charger over / under temperature warning/error";
+CM_ SG_ 849 EVC_CHG_Fan1Fault_St_B "Charger cooling fan 1 fault";
+CM_ SG_ 849 EVC_CHG_Fan2Fault_St_B "Charger cooling fan 2 fault";
+CM_ SG_ 849 EVC_CHG_MOVFault_St_B "Charger MOV Fault";
+CM_ SG_ 849 EVC_CHG_ACcurrSensorFault_St_B "AC current sensor fault";
+CM_ SG_ 849 EVC_CHG_ChecksumError_St_B "To check the checksum error from EM and to detect EM=0";
+CM_ SG_ 849 EVC_CHG_EEPROMError_St_B "To check the EEPROM error and to detect EM=0";
+CM_ SG_ 849 EVC_CHG_PFC_Fault_St_B "To check the PFC error in the charger";
+CM_ SG_ 850 EVC_CHG_InputEnergyCount_Act_kWh "Input energy of charger during current charge cycle";
+CM_ SG_ 850 EVC_CHG_MaxAvailablePower_Act_W "Max available power for charging";
+CM_ SG_ 850 EVC_CHG_DCCurrent_Act_A "DC output current";
+CM_ SG_ 850 EVC_CHG_DCVoltage_Act_V "DC output voltage";
+CM_ SG_ 865 Reserved_865_12 "Reserved";
+CM_ SG_ 865 Reserved_865_5 "Reserved";
+CM_ SG_ 865 HMI_ICL_BrakeFluid_error_B "Brake fluid level low";
+CM_ SG_ 865 HMI_ICL_Fault1_St_B "This indicates the status of Fault.";
+CM_ SG_ 865 HMI_ICL_ModeButtonStatus_St_B "Mode button status from ICL";
+CM_ SG_ 865 HMI_ICL_ODO_Act_m "Odometer reading of vehicle";
+CM_ SG_ 1130 CNS_TEL_FOTAstatus_St_enum "Status of firmware installation on vehicle.";
+CM_ SG_ 1130 CNS_TEL_VehStateLivelog_St_enum "Abstracted vehicle state used for the purpose of selecting livelog configuration.";
+CM_ SG_ 1130 CNS_TEL_IntBattLowV_St_B "Low voltage indication for TEL internal cell. This serves as a request for the rest of the vehicle to start charging the TEL internal cell.";
+CM_ SG_ 1130 CNS_TEL_UsrDfMaxVehSpd_Ref_kmph "Maximum vehicle speed setpoint set by user; each enumeration value is a speed.";
+CM_ SG_ 1130 CNS_TEL_FaultType_St_enum "Fault provision. Modify size accordingly.";
+CM_ SG_ 1130 CNS_TEL_OperationMode_St_enum "Operational mode of device. Modify size accordingly.";
+CM_ SG_ 1130 CNS_TEL_UsrDfMaxChrgSOC_Ref_enum "Maximum charging setpoint set by user; each enumeration value is an SOC.
+- Full performance: 100
+- Improved battery life: 90
+- Enhanced battery life: 75
+- Long-term storage: 50
+";
+CM_ SG_ 1130 CNS_TEL_RemoteImmoSVBenable_St_B "Status of remote immobilization setting on the server (enable/disable)";
+CM_ SG_ 1130 CNS_TEL_GeofncSVBenable_St_B "Status of geofencing setting on the server (enable/disable)";
+CM_ SG_ 1130 CNS_TEL_GeofncSVBstatus_St_enum "Status of geofencing on the server";
+CM_ SG_ 1130 CNS_TEL_TheftSVBstatus_St_enum "Status of unauthorized movement of the vehicle on the server";
+CM_ SG_ 1131 CNS_TEL_GPSaltitude_Est_m "Present altitude based on GPS data";
+CM_ SG_ 1131 CNS_TEL_GPShdop_Act_count "Horizontal dilution of precision.";
+CM_ SG_ 1131 CNS_TEL_GPSpdop_Act_count "Position dilution of precision.";
+CM_ SG_ 1131 CNS_TEL_Nsatellites_Act_count "Number of satellites used to judge position";
+CM_ SG_ 1131 CNS_TEL_GPSfix_Act_enum "Nature of triangulation achieved to determine position";
+CM_ SG_ 1131 CNS_TEL_GPSyear_Act_count "Present year based on GPS data";
+CM_ SG_ 1131 CNS_TEL_GPSmonth_Act_count "Present month based on GPS data";
+CM_ SG_ 1131 CNS_TEL_GPSdate_Act_count "Present date (of the month) based on GPS data";
+CM_ SG_ 1131 CNS_TEL_GPShour_Act_hr "Present hour based on GPS data";
+CM_ SG_ 1131 CNS_TEL_GPSminute_Act_min "Present minute based on GPS data";
+CM_ SG_ 1131 CNS_TEL_GPSsecond_Act_sec "Present second based on GPS data";
+CM_ SG_ 1132 CNS_TEL_GSMsigType_St_enum "Denotes the nature of GSM connectivity.";
+CM_ SG_ 1132 CNS_TEL_GSMfault_St_enum "GSM module fault bit; provisioned signal size for types of faults";
+CM_ SG_ 1132 CNS_TEL_GPRSfault_St_enum "GPRS module fault bit; provisioned signal size for types of faults";
+CM_ SG_ 1132 CNS_TEL_ModemReady_St_B "Readiness status of modem";
+CM_ SG_ 1132 CNS_TEL_GSMnwRegnStatus_St_B "Registration status on GSM network";
+CM_ SG_ 1132 CNS_TEL_GSMsigStrength_Act_count "Representative value of signal strength of GSM connection";
+CM_ SG_ 1132 CNS_TEL_PDNactivationStatus_St_B "PDN activation status";
+CM_ SG_ 1132 CNS_TEL_ServerConnectStatus_St_B "Connectivity status of OEM server (to which data is being streamed)";
+CM_ SG_ 1132 CNS_TEL_FlushPayload_Act_kB "Published data - cumulative - in current drive cycle";
+CM_ SG_ 1132 CNS_TEL_GSM_rcv_qual_St_enum "GSM receive quality";
+CM_ SG_ 2163146497 ESS_BMS_Claimed_BIN_UDW "Upper 32 bit BIN Number as encrypted by BMS";
+CM_ SG_ 2163146497 ESS_BMS_Claimed_BIN_LDW "Lower 32 bit BIN Number as encrypted by BMS";
+CM_ SG_ 787 ETS_VCU_UsrDfMaxChrgSOC_Ref_enum "Maximum charging setpoint set by user; each enumeration value is an SOC
+- Full performance: 100
+- Improved battery life: 90
+- Enhanced battery life: 75
+- Long-term storage: 50";
+CM_ SG_ 787 ETS_VCU_BMStimeoutCAN_St_B "VCU does not receive a message from any BMx for a defined maximum duration (when it is expecting one)";
+CM_ SG_ 787 ETS_VCU_BMSsoftMismatch_St_B "Software incompatibility between VCU and any BMS. Module switches shall not be permitted to close.";
+CM_ SG_ 787 ETS_VCU_BMSauthError_St_B "(Any) BMS authentication failure. Module switches shall not be permitted to close.";
+CM_ SG_ 787 CKSUM1_787 "CRC with polynomial 0x1D";
+CM_ SG_ 787 CTROLL_787 "Rolling counter";
+CM_ SG_ 787 ETS_VCU_VCUBMSReqMode_Req_enum "Requested BMS Operating Mode. Power Up state shall be the initial command to BMS, upon BMS confirmation of Idle state it shall further initiated Chg/dchg or power down state";
+CM_ SG_ 787 ETS_VCU_VCUDchgPwrExp_Act_W "Max expected power from the VCU";
+CM_ SG_ 787 ETS_VCU_VCULoadCurrent_Act_A "Measured load current from the VCU, could be sum of all connected loads";
+CM_ SG_ 787 ETS_VCU_VCUChargerPwrLimit_Act_A "Max power capabilities of connected charger";
+CM_ SG_ 787 ETS_VCU_VCUErrEmerOff_Req_enum "Emergency off request from VCU in case of critical fault, BMS shall immediately open FETs upon Shutdown and Fault condition";
+CM_ SG_ 787 ETS_VCU_BMSCommCtrl_St_enum "Disable: STOP CAN TX, Remain in STANDBY, Stdby Shutdwn Timeout 20min Enable: Enable CAN TX, start from STANBY State, no re-authentication required";
+CM_ SG_ 787 ETS_VCU_BMSSendBattBIN_St_B "(Any) BMS authentication failure. Module switches shall not be permitted to close.";
+CM_ SG_ 1708 ETS_VCU_SwPartVersion_Revision "VCU Software part number revision";
+CM_ SG_ 1708 ETS_VCU_ApplVersion_Major "VCU Software version number: Major version";
+CM_ SG_ 1708 ETS_VCU_ApplVersion_Minor "VCU Software version number: Minor version";
+CM_ SG_ 1708 ETS_VCU_ApplVersion_Revision "VCU Software version number: Revision";
+CM_ SG_ 1708 ETS_VCU_CalVersion_Major "VCU Calibration version number: Major version";
+CM_ SG_ 1708 ETS_VCU_CalVersion_Minor "VCU Calibration version number: Minor version";
+CM_ SG_ 1708 ETS_VCU_CalVersion_Revision "VCU Calibration version number: Revision";
+CM_ SG_ 1708 ETS_VCU_ConfigVersion_Revision "VCU Configuration version number: Revision";
+CM_ SG_ 1544 ESS_BMS_TempDchgUnderWar_St_B "Discharge - Under Temp Warning Limit error";
+CM_ SG_ 1544 ESS_BMS_TempDchgUnderSev_St_B "Discharge - Under Temp Severe Limit error";
+CM_ SG_ 1544 ESS_BMS_TempDchgUnderMod_St_B "Discharge - Under Temp Moderate Limit error";
+CM_ SG_ 1544 ESS_BMS_TempDchgOverWar_St_B "Discharge - Over Temp Warning Limit error";
+CM_ SG_ 1544 ESS_BMS_TempDchgOverSev_St_B "Discharge - Over Temp Severe Limit error";
+CM_ SG_ 1544 ESS_BMS_TempDchgOverMod_St_B "Discharge - Over Temp Moderate Limit Error";
+CM_ SG_ 1544 ESS_BMS_PrechgLoadShort_St_B "Precharge Load Short condition detection.";
+CM_ SG_ 1544 ESS_BMS_BrickTempShort_St_B "Temperature sense error - short";
+CM_ SG_ 1544 ESS_BMS_BrickTempOpen_St_B "Temperature sense error - open";
+CM_ SG_ 1544 ESS_BMS_FETopenReqVCU_St_B "Flag set when Emer FET open request is received from VCU";
+CM_ SG_ 1544 ESS_BMS_DchFETshorted_St_B "Main FETs shorted";
+CM_ SG_ 1544 ESS_BMS_DchFETfailClose_St_B "Failed to close main FET";
+CM_ SG_ 1544 ESS_BMS_PrechgTimeout_St_B "Precharge timed out";
+CM_ SG_ 1544 ESS_BMS_PrechgFETFailClose_St_B "Failed to close Precharge FET";
+CM_ SG_ 1544 ESS_BMS_extFuseBlown_St_B "Thermal Fuse Blown (external to BMS)";
+CM_ SG_ 1544 ESS_BMS_CapPackLow_St_B "Low pack capacity warning";
+CM_ SG_ 1544 ESS_BMS_BrickOverdischarge_St_B "Brick Overdischarged";
+CM_ SG_ 1544 ESS_BMS_BrickOvercharge_St_B "Brick Overcharged ";
+CM_ SG_ 1544 ESS_BMS_AFEcommError_St_B "AFE error";
+CM_ SG_ 1544 ESS_BMS_FEToverheat_St_B "FET current above limit";
+CM_ SG_ 1544 ESS_BMS_iOverdischarge_St_B "Module overcurrent error during discharge";
+CM_ SG_ 1544 ESS_BMS_iOvercharge_St_B "Module overcurrent error during charge";
+CM_ SG_ 1544 ESS_BMS_iUndercharge_St_B "Charger current under limit error - discharging while it is supposed to charge";
+CM_ SG_ 1544 ESS_BMS_VCUCmdMsgTimeout_St_B "Timed out on VCU command CAN Message";
+CM_ SG_ 1544 ESS_BMS_AFEfault_St_B "AFE Fault";
+CM_ SG_ 1544 ESS_BMS_ChgFETshorted_St_B "Main FET Stuck Open";
+CM_ SG_ 1544 ESS_BMS_PowerpackInsuffErr_St_B "Pack Power Insufficient Error";
+CM_ SG_ 1544 ESS_BMS_SensePackVoltError_St_B "Sense Brick Voltage error";
+CM_ SG_ 1544 ESS_BMS_iOverRegen_St_B "Module overcurrent during regen";
+CM_ SG_ 1544 ESS_BMS_iOverHardware_St_B "Overcurrent Hardware";
+CM_ SG_ 1544 ESS_BMS_SenseBrickVoltError_St_B "Sense Brick Voltage error";
+CM_ SG_ 1544 ESS_BMS_SenseLoadVoltError_St_B "Sense Load Voltage Error";
+CM_ SG_ 1544 ESS_BMS_SenseCurrentError_St_B "Current Sense Error";
+CM_ SG_ 1544 ESS_BMS_TempChgUnderSev_St_B "Charge - Under Temp Severe Limit error";
+CM_ SG_ 1544 ESS_BMS_TempChgUnderMod_St_B "Charge - Under Temp Moderate Limit error";
+CM_ SG_ 1544 ESS_BMS_TempChgOverWar_St_B "Charge - Over Temp Warning Limit error";
+CM_ SG_ 1544 ESS_BMS_TempChgOverSev_St_B "Charge - Over Temp Severe Limit error";
+CM_ SG_ 1544 ESS_BMS_TempChgOverMod_St_B "Charge - Over Temp Moderate Limit Error";
+CM_ SG_ 1544 ESS_BMS_TempBrickImbalance_St_B "Temp Imbalance between bricks or cells";
+CM_ SG_ 1544 ESS_BMS_ChgFETfailClose_St_B "Failed to close main FET";
+CM_ SG_ 1544 ESS_BMS_vBrickOverWar_St_B "Cell Voltage Brick over warning limit error";
+CM_ SG_ 1544 ESS_BMS_vBrickOverSev_St_B "Cell Voltage Brick over moderate limit error";
+CM_ SG_ 1544 ESS_BMS_vBrickOverMod_St_B "Cell Voltage Brick over severe limit error";
+CM_ SG_ 1544 ESS_BMS_vBrickImbalance_St_B "Cell Voltage brick imbalance error";
+CM_ SG_ 1544 ESS_BMS_TempChgUnderWar_St_B "Charge - Under Temp Warning Limit error";
+CM_ SG_ 1544 ESS_BMS_vBrickUnderWar_St_B "Cell Voltage Brick under warning limit error";
+CM_ SG_ 1544 ESS_BMS_vBrickUnderSev_St_B "Cell Voltage Brick under severe limit error";
+CM_ SG_ 1544 ESS_BMS_vBrickUnderMod_St_B "Cell Voltage Brick under moderate limit error";
+CM_ SG_ 1543 ESS_BMS_AccChgEnergy_Est_kWh "Accumulated Charge Energy";
+CM_ SG_ 1543 ESS_BMS_AccDchgEnergy_Est_kWh "Accumulated Discharge Energy";
+CM_ SG_ 1536 ESS_BMS_vBrickOverMod_St_B "Cell Voltage Brick over moderate limit error";
+CM_ SG_ 1536 ESS_BMS_vBrickOverSev_St_B "Cell Voltage Brick over severe limit error";
+CM_ SG_ 1536 ESS_BMS_vBrickOverWar_St_B "Cell Voltage Brick over warning limit error";
+CM_ SG_ 1536 ESS_BMS_vBrickUnderMod_St_B "Cell Voltage Brick under moderate limit error";
+CM_ SG_ 1536 ESS_BMS_vBrickUnderSev_St_B "Cell Voltage Brick under severe limit error";
+CM_ SG_ 1536 ESS_BMS_vBrickUnderWar_St_B "Cell Voltage Brick under warning limit error";
+CM_ SG_ 1536 CKSUM1_1536 "Dummy placeholder Byte";
+CM_ SG_ 1536 CTROLL_1536 "Rolling counter";
+CM_ SG_ 1536 ESS_BMS_State_St_enum "Fault mode is classified as Fault and Critical
+Fault; VCU derates
+Critical Fault - VCU to halt the vehicle
+STANDBY - BMS ready to accept the connect command
+VCU shall transit state from STANDBY to CHARGE / DRIVE upon BMS feedback of STANDBY state";
+CM_ SG_ 1536 ESS_BMS_MainFETState_St_B "Status of Main MOSFET ";
+CM_ SG_ 1536 ESS_BMS_PreChgFETState_St_B "Status of FET from All BMS, if any one reports closed this shall also report Closed";
+CM_ SG_ 1536 ESS_BMS_Voltage_Act_V "Battery Voltage, this is mean of all modules' voltages from all packs connected in parallel (Signal Voltage in module overview)";
+CM_ SG_ 1536 ESS_BMS_iPack_Act_A "Measure current from the pack, ";
+CM_ SG_ 1536 ESS_BMS_Temperature_Act_degC "Pack temperature, this will be the max of temperatures corresponding to the Overview message across all modules.";
+CM_ SG_ 1537 ESS_BMS_ChgLimitPeak_Max_A "Max pulse current limit during charge, lowest of Current limits sent by all Cells. Shall represent Regen current limits during discharge";
+CM_ SG_ 1537 ESS_BMS_ChgLimit_Max_V "Max charge voltage limit to be charged upto, also depends on the signal from VCU_Command message";
+CM_ SG_ 1537 ESS_BMS_ChgLimitCont_Max_A "Max Continuous current limit during charge, lowest of Current limits sent by all Cells. Shall represent Regen current during discharge";
+CM_ SG_ 1537 ESS_BMS_ChgMode_St_enum "Charging / Regen / Balancing state";
+CM_ SG_ 1537 ESS_BMS_ChgEnable_St_B "Enable/disable flag for charger, this shall be set once any BMS enables charging";
+CM_ SG_ 1537 ESS_BMS_ChgRemainingTime_Est_min "Remaining charge time, shall represent time at pack level";
+CM_ SG_ 1537 ESS_BMS_ChgDerateReason_St_enum "Reason for derating";
+CM_ SG_ 1538 ESS_BMS_DchgLimit_Max_kW "Maximum discharge power for the pack.";
+CM_ SG_ 1538 ESS_BMS_DchgDerateReason_St_enum "Reason for derating";
+CM_ SG_ 1538 ESS_BMS_DchgLimit_Min_V "Minimum discharge voltage limit the battery can be discharge upto";
+CM_ SG_ 1538 ESS_BMS_DchgLimitCont_Max_A "Max Continuous current limit during Discharge. Lowest of Current limits set by all Cells. ";
+CM_ SG_ 1538 ESS_BMS_DchgLimitPeak_Max_A "Max Pulse current limit during Discharge. Lowest of Current limits set by all Cells. ";
+CM_ SG_ 1539 ESS_BMS_MinDchgSOC_Act_perc "Min Allowed Discharge SOC at any given state of Battery pack, w.r.t. Temperature voltage etc";
+CM_ SG_ 1539 ESS_BMS_BalErr_Act_perc "Balance error in terms of percentage at pack level, between min cell and max cell at Pack Level";
+CM_ SG_ 1539 ESS_BMS_Soc_Est_perc "State of Charge In percentage, this shall be the trimmed or display SoC as per mentioned min / max voltage in calibration";
+CM_ SG_ 1539 ESS_BMS_Sohc_Est_perc "Capacity loss in terms of percentage, this shall represent the lowest of all connected cells
+";
+CM_ SG_ 1539 ESS_BMS_Sohr_Est_perc "Rise in impedance in terms of percentage, this shall represent the highest of all connected cells";
+CM_ SG_ 1539 ESS_BMS_Soe_Est_perc "State of Energy, percentage of available energy, ";
+CM_ SG_ 1540 ESS_BMS_WakeUpReason_St_enum "This is feedback of digital signal from Microcontroller for Wake Up";
+CM_ SG_ 1540 ESS_BMS_ExtWakeUp_Act_V "This is measured value of 12V input on BMS side for Wake Up";
+CM_ SG_ 1540 ESS_BMS_CapAvailable_Est_Ah "Available capacity, [sum(battery Cap * FET closed status)]";
+CM_ SG_ 1540 ESS_BMS_EnergyAvailable_Est_kWh "Maximum Available Energy";
+CM_ SG_ 1540 ESS_BMS_roctPerMin_Act_degC "Rate of change of temperature / min in degC, shall be max of all Temperature sensors";
+CM_ SG_ 1540 ESS_BMS_vLoad_Act_V "Pack voltage after FETs";
+CM_ SG_ 1540 ESS_BMS_ThermRunaway_St_B "This flag indicates if any battery module in the system is approaching critical thermal runaway.";
+CM_ SG_ 1542 ESS_BMS_nBal_Act_count "Number of Cells balancing";
+CM_ SG_ 1542 ESS_BMS_MinCell_Act_V "Min cell voltage at pack level";
+CM_ SG_ 1542 ESS_BMS_MaxCell_Act_V "Max cell voltage at pack level";
+CM_ SG_ 1542 ESS_BMS_MinVCell_Act_ID "Cell number of min cell voltage";
+CM_ SG_ 1542 ESS_BMS_MaxVCell_Act_ID "Cell number of max cell voltage";
+CM_ SG_ 1542 ESS_BMS_TempMin_Act_degC "Min cell temperature at pack level";
+CM_ SG_ 1542 ESS_BMS_TempMax_Act_degC "Max cell temperature at pack level";
+CM_ SG_ 1542 ESS_BMS_MinTempCell_Act_ID "Cell number of min cell temperature";
+CM_ SG_ 1542 ESS_BMS_MaxTempCell_Act_ID "Cell number of max cell temperature";
+CM_ SG_ 1541 ESS_BMS_PcbTemp_Act_degC "Ambient temperature, sensor on PCB, ";
+CM_ SG_ 1541 ESS_BMS_CapFulCharge_Est_Ah "Capacity at full charge (this will drop with age)";
+CM_ SG_ 1541 ESS_BMS_InitImpedance_Act_mohm "Initial maximum impedance among all bricks across all modules in the pack";
+CM_ SG_ 1541 ESS_BMS_CurrImpedance_Act_mohm "Current (real-time) maximum impedance among all bricks across all modules in the pack";
+CM_ SG_ 1541 ESS_BMS_ShortCircuit_Act_count "Maximum number of short circuits across all modules";
+CM_ SG_ 1541 ESS_BMS_ChgCycle_Act_count "Maximum of charge cycles";
+CM_ SG_ 1541 ESS_BMS_EnergyFulCharge_Est_kWh "Full charge energy (this will drop with age)";
+CM_ SG_ 1514 CNS_TEL_epochSVByear_Act_count "Present year based on cloud timestamp data";
+CM_ SG_ 1514 CNS_TEL_epochSVBmonth_Act_count "Present month based on cloud timestamp data";
+CM_ SG_ 1514 CNS_TEL_epochSVBdate_Act_count "Present date (of the month) based on cloud timestamp data";
+CM_ SG_ 1514 CNS_TEL_epochSVBhour_Act_hr "Present hour based on cloud timestamp data";
+CM_ SG_ 1514 CNS_TEL_epochSVBminute_Act_min "Present minute based on cloud timestamp data";
+CM_ SG_ 1514 CNS_TEL_epochSVBsecond_Act_sec "Present second based on cloud timestamp data";
+CM_ SG_ 1514 CNS_TEL_MQTTprovision_St_enum "MQTT provisioning status";
+CM_ SG_ 1514 CNS_TEL_UptaneProvision_St_enum "Uptane provisioning status";
+CM_ SG_ 1514 CNS_TEL_DeepUpdaterState_St_enum "Uptane provisioning status";
+CM_ SG_ 1514 CNS_TEL_DeepLoggerState_St_enum "Uptane provisioning status";
+CM_ SG_ 1514 CNS_TEL_ProvErrorState_St_enum "Device provisioning error state";
+CM_ SG_ 1514 CNS_TEL_ProvState_St_enum "State of device provisioning module";
+CM_ SG_ 1514 CNS_TEL_PreconState_St_enum "State of device preconditioning state machine";
+CM_ SG_ 1515 CNS_TEL_uptimeHi_Act_ms "Relative time counter after TEL power cycle (higher DWORD)";
+CM_ SG_ 1515 CNS_TEL_uptimeLo_Act_ms "Relative time counter after TEL power cycle (lower DWORD)";
+CM_ SG_ 1516 CNS_TEL_epochTripStart_Act_sec "Start time of trip - logged as soon as CNS_TEL_VehStateLivelog_St_enum transitions to Drive.";
+CM_ SG_ 1516 CNS_TEL_epochTripEnd_Act_sec "End time of trip - zero for the duration of the trip; logged as soon as CNS_TEL_VehStateLivelog_St_enum transitions to a value other than Drive.";
+CM_ SG_ 1517 CNS_TEL_ExtFlashWrPt_Act_count "The block in external flash where the next data will be written to (each block implies a step of 10k).";
+CM_ SG_ 1517 CNS_TEL_ExtFlashRdPt_Act_count "The block in external flash where the next data will be read from (each block implies a step of 10k).";
+CM_ SG_ 1517 CNS_TEL_RAMbufferOccDL_Act_kB "Indicates how much of RAM buffer is actually occupied with DeepLogger packet data.";
+CM_ SG_ 1517 CNS_TEL_FlashbufferOccDL_Act_kB "Indicates how much of flash buffer is actually occupied with DeepLogger packet data (this is less than or equal to write pointer x 10k).";
+CM_ SG_ 1517 CNS_TEL_ViaRAMpubThrDL_Act_kB "Indicates how much of packet data from DeepLogger is pushed to cloud through RAM; either from protobuf, or from external flash.";
+CM_ SG_ 1517 CNS_TEL_ViaPrtbfPubThrDL_Act_kB "Indicates how much packet data bypasses the RAM - flushed directly through protobuf queue.";
+CM_ SG_ 1518 CNS_TEL_epochRTC_Act_sec "Epoch time in sec - either from GPS or cellular network (when GPS fix is not available)";
+CM_ SG_ 1518 CNS_TEL_MccMnc_Act_ID "Mobile country code and Mobile Network code to identify the network operator currently in use.";
+CM_ SG_ 1518 CNS_TEL_FlushFrequency_Act_sec "Flush-to-cloud interval configured in firmware";
+CM_ SG_ 1518 CNS_TEL_LivePubStat_St_enum "Indicates an attempt to publish and status. Persists with previous value until a new state is reached. For live packets directly from the protobuf queue.";
+CM_ SG_ 1518 CNS_TEL_HistPubStat_St_enum "Indicates an attempt to publish and status. Persists with previous value until a new state is reached. For buffered packets from RAM or external flash.";
+CM_ SG_ 1519 CNS_TEL_ExtFlashRdStat_St_enum "Indicates an attempt to read from external flash and status. Persists with previous value until a new state is reached.";
+CM_ SG_ 1519 CNS_TEL_ExtFlashWrStat_St_enum "Indicates an attempt to write to external flash and status. Persists with previous value until a new state is reached.";
+CM_ SG_ 1519 CNS_TEL_IGNdetect_Act_B "Feedback of IGN detection";
+CM_ SG_ 1519 CNS_TEL_ModemReset_Cmd_B "Captures reset triggers on the modem.";
+CM_ SG_ 1519 CNS_TEL_SubStatDL_St_B "Status of subscription to DeepLogger MQTT topics.";
+CM_ SG_ 1519 CNS_TEL_LogCfgEnableStat_St_B "Enable status for selective log configurations - DeepLogger.";
+CM_ SG_ 1519 CNS_TEL_LogCfgHashValidity_St_B "Validity of hash of selective log configuration.";
+CM_ SG_ 1519 CNS_TEL_LogCfgSize_Act_kB "Size of downloaded selective log configuration.";
+CM_ SG_ 1519 CNS_TEL_BufferIndication_St_enum "Indicates WHERE data is being buffered. Resets to None after confirmation of buffering operation";
+CM_ SG_ 1519 CNS_TEL_AllECUPollDone_St_B "All ECUs polling status for manifest preparation";
+CM_ SG_ 1519 CNS_TEL_SCUPoll_St_B "Polling status for SCU manifest";
+CM_ SG_ 1519 CNS_TEL_VCUPoll_St_B "Polling status for VCU manifest";
+CM_ SG_ 1519 CNS_TEL_MCUPoll_St_B "Polling status for MCU manifest";
+CM_ SG_ 1519 CNS_TEL_CCUPoll_St_B "Polling status for CCU manifest";
+CM_ SG_ 1519 CNS_TEL_TELPoll_St_B "Polling status for TEL manifest";
+CM_ SG_ 1519 CNS_TEL_ICLPoll_St_B "Polling status for ICL manifest";
+CM_ SG_ 1519 CNS_TEL_BM1Poll_St_B "Polling status for BM1 manifest";
+CM_ SG_ 1568 DIA_TST_Pattern1 "This will have pattern in first 4 byte";
+CM_ SG_ 159 ETS_VCU_RPSLEFTFREQ_ACT_HZ "Rev Park left Sensor frequency";
+CM_ SG_ 159 ETS_VCU_GearPosSenseVolt_Act_V "Value of gear position sensor voltage.";
+CM_ SG_ 159 ETS_VCU_RPSRIGHTTFREQ_ACT_HZ "Rev Park Right Sensor Frequency";
+CM_ SG_ 159 ETS_VCU_XDRP2_Act_V "XDRP2 analog voltage";
+CM_ SG_ 159 ETS_VCU_BrkPedal2SenseVolt_Act_V "Value of brake sensor 2 voltage.";
+CM_ SG_ 159 ETS_VCU_BrkPedal1SenseVolt_Act_V "Value of brake sensor 1 voltage.";
+CM_ SG_ 159 ETS_VCU_ChgTimerCapVolt_Act_V "Value of the auxiliary battery charging timer circuit's capacitor voltage.";
+CM_ SG_ 155 ETS_VCU_AccelerationAvg "Acceleration of vehicle in m/s^2";
+CM_ SG_ 155 ETS_VCU_Rev_Pressed_St_B "Valid Reverse switch press detected.";
+CM_ SG_ 155 ETS_VCU_Neut_Pressed_St_B "Valid Neutral switch press detected.";
+CM_ SG_ 155 ETS_VCU_Drv_Pressed_St_B "Valid Drive switch press detected.";
+CM_ SG_ 155 ETS_VCU_GearPos_LrnCmplt_St_enum "Internal state of Gear Position Learning";
+CM_ SG_ 155 ETS_VCU_TSC_Upshift_St_enum "Internal states for Gear Upshifting";
+CM_ SG_ 155 ETS_VCU_TSC_Downshift_St_enum "Internal State of Gear Downshifting";
+CM_ SG_ 155 ETS_VCU_ShifterMOTCurr_Act_A "Current drawn by shifter motor; positive current implies anticlockwise rotation; negative current implies clockwise rotation.";
+CM_ SG_ 155 ETS_VCU_ShifterMOTpwm_Act_perc "Shifter motor pwm duty cycle";
+CM_ SG_ 155 ETS_VCU_GearPos_UpperLearnVolt_V "Upper Side Learnt Voltage Value";
+CM_ SG_ 155 ETS_VCU_Gear_Pos_ProcdPrev_St_B "Procceed with previous GPS Learnt Value";
+CM_ SG_ 155 ETS_VCU_GearPos_LowerLearnVolt_V "Long ahr calucated for DTE";
+CM_ SG_ 155 ETS_VCU_Gear_Pos_Learn_St_enum "Lower Side Learnt Voltage Value";
+CM_ SG_ 155 ETS_VCU_DCM_Shft_complt_St_B "Gear Shifting Complete Status";
+CM_ SG_ 155 ETS_VCU_FOTA_State_enum "It indicates FOTA states.";
+CM_ SG_ 155 ETS_VCU_BMS_low_cell_volt_St_B "It indicates low voltage of the battery";
+CM_ SG_ 1545 ESS_BMS_HardwareVersion_Act_ID "Hardware version for BMS";
+CM_ SG_ 1545 ESS_BMS_CalRevision_Act_ID "Revision app version for BMS";
+CM_ SG_ 1545 ESS_BMS_CalMinor_Act_ID "Minor app version for BMS";
+CM_ SG_ 1545 ESS_BMS_CalMajor_Act_ID "Major app version for BMS";
+CM_ SG_ 1545 ESS_BMS_AppRevision_Act_ID "Revision app version for BMS";
+CM_ SG_ 1545 ESS_BMS_AppMinor_Act_ID "Minor app version for BMS";
+CM_ SG_ 1545 ESS_BMS_AppMajor_Act_ID "Major app version for BMS";
+CM_ BO_ 2550136848 "Cell Temperatures from 1 - 3";
+CM_ SG_ 2550136848 BATT_tModule4 "Battery module temperature as measured by thermistor 4";
+CM_ SG_ 2550136848 BATT_tModule3 "Battery module temperature as measured by thermistor 3";
+CM_ SG_ 2550136848 BATT_tModule2 "Battery module temperature as measured by thermistor 2";
+CM_ SG_ 2550136848 BATT_tModule1 "Battery module temperature as measured by thermistor 1";
+CM_ BO_ 2553282576 "ADC 1 message for  testing";
+CM_ SG_ 2553282576 BATT_boardADC_PACK_PF "Battery Voltage measured after the fuse";
+CM_ SG_ 2553282576 BATT_boardADC_LOAD "Battery Voltage measured after the FETs and Fuse; 
+this is raw vLoad measurement";
+CM_ SG_ 2553282576 BATT_boardADC_COMMON_DRAIN "Battery Voltage measured between Charge and Discharge FETs";
+CM_ SG_ 2553282576 BATT_boardADC_PACK "Battery Voltage measured by AFE";
+CM_ BO_ 2536505360 "Balancing status";
+CM_ SG_ 2536505360 BATT_balStatusBrick16 "Balancing Status of Cell 16";
+CM_ SG_ 2536505360 BATT_balStatusBrick15 "Balancing Status of Cell 15";
+CM_ SG_ 2536505360 BATT_balStatusBrick14 "Balancing Status of Cell 14";
+CM_ SG_ 2536505360 BATT_balStatusBrick13 "Balancing Status of Cell 13";
+CM_ SG_ 2536505360 BATT_balStatusBrick12 "Balancing Status of Cell 12";
+CM_ SG_ 2536505360 BATT_balStatusBrick11 "Balancing Status of Cell 11";
+CM_ SG_ 2536505360 BATT_balStatusBrick10 "Balancing Status of Cell 10";
+CM_ SG_ 2536505360 BATT_balStatusBrick09 "Balancing Status of Cell 9";
+CM_ SG_ 2536505360 BATT_balStatusBrick08 "Balancing Status of Cell 8";
+CM_ SG_ 2536505360 BATT_balStatusBrick07 "Balancing Status of Cell 7";
+CM_ SG_ 2536505360 BATT_balStatusBrick06 "Balancing Status of Cell 6";
+CM_ SG_ 2536505360 BATT_balStatusBrick05 "Balancing Status of Cell 5";
+CM_ SG_ 2536505360 BATT_balStatusBrick04 "Balancing Status of Cell 4";
+CM_ SG_ 2536505360 BATT_balStatusBrick03 "Balancing Status of Cell 3";
+CM_ SG_ 2536505360 BATT_balStatusBrick02 "Balancing Status of Cell 2";
+CM_ SG_ 2536505360 BATT_balStatusBrick01 "Balancing Status of Cell 1";
+CM_ BO_ 1547 "Battery Manufacturing Date in YYMMDD format";
+CM_ SG_ 1547 ESS_BMS_BattManuYear_Act_yy "Battery Manufacturing Year";
+CM_ SG_ 1547 ESS_BMS_BattManuMonth_Act_mm "Battery Manufacturing Month";
+CM_ SG_ 1547 ESS_BMS_BattManuDay_Act_dd "Battery Manufacturing Day";
+CM_ BO_ 1546 "Battery Identification Number, 8 byte format, can mix upto 16 characters from 0 to F. 
+To be transmitted only when ETS_VCU_BMSSendBattBIN_St_B bit in VCU_Command_BMS is enabled";
+CM_ SG_ 1546 ESS_BMS_BINudw_Act_ID "Upper 4 bytes of BIN Number";
+CM_ SG_ 1546 ESS_BMS_BINldw_Act_ID "Lower 4 bytes of BIN Number";
+CM_ SG_ 1520 CNS_TEL_epochChgEnd_Act_sec "End time of charging - zero for the duration of the charging; logged as soon as CNS_TEL_VehStateLivelog_St_enum transitions to a value other than Charging.";
+CM_ SG_ 1520 CNS_TEL_epochChgStart_Act_sec "Start time of Charging - logged as soon as CNS_TEL_VehStateLivelog_St_enum transitions to Charging.";
+CM_ SG_ 2037 BM1_UDS_res_sig "BMS response to UDS request";
+CM_ BO_ 2534408208 "Total Ah charged and discharged counters";
+CM_ SG_ 2534408208 BATT_ahDchTotal "Total Ah discharged";
+CM_ SG_ 2534408208 BATT_ahChgTotal "Total Ah charged";
+CM_ SG_ 346 ETS_VCU_High_Shift_Curr_St_B "Shifter Motor Timeout due to high current flow";
+CM_ SG_ 346 ETS_VCU_WheelSpdPlausErr_St_enum "Mismatch in Wheel Speed Sensor Calculated Speed and Motor Calculated speed";
+CM_ SG_ 346 ETS_VCU_nrmlShftrCurrCut_St_B "Shifter Motor Timeout due to continuous loger duration shifter motor use";
+CM_ SG_ 346 ETS_VCU_DwnUpClsPWM_Cut_St_B "Clash relieve upshift/downshift shifter motor actuate status";
+CM_ SG_ 346 ETS_VCU_DwnUpClsEntr_St_B "Entry status of Clash relieve";
+CM_ SG_ 346 ETS_VCU_cnt_NeuGearCls_St_enum "Neutral to gear clash relieve internal states";
+CM_ SG_ 346 ETS_VCU_clsh_detect_st_B "Clash detection status";
+CM_ SG_ 346 ETS_VCU_Clash_State_St_enum "Clash detection internal states";
+CM_ SG_ 346 ETS_VCU_Drift_trgt_gear_mm "Target position for Drift Control";
+CM_ SG_ 346 ETS_VCU_drft_ShftrCurrCut_St_B "Shifter motor timeout due to drift actuation status";
+CM_ SG_ 346 ETS_VCU_Clash_position_mm "Position of clash";
+CM_ SG_ 346 ETS_VCU_trq_bfr_curr_cntrl "Interim torque value";
+CM_ SG_ 346 ETS_VCU_drift_cntrl_flg_st "Drift Correction status";
+CM_ SG_ 346 ETS_VCU_Gear_Ideal_St_enum "Ideal Gear Count";
+CM_ SG_ 346 ETS_VCU_Ideal_Gear_Pos_mm "Ideal gear Position";
+CM_ SG_ 346 ETS_VCU_Neutral_Lrnt_flg_st "Neutral Learning status";
+CM_ SG_ 346 ETS_VCU_Neutral_Lrnt_Pos_mm "Neutral Learnt value";
+CM_ SG_ 346 ETS_VCU_FrstGearClashPosition_mm "Clash Position Learnt towards 1st Gear";
+CM_ SG_ 346 ETS_VCU_Boost_Mode_Enbl_st_B "Status of Boost Mode Activation";
+CM_ SG_ 346 ETS_VCU_MCU_temp_PHShrt_st_B "Torque cut due to phase to phase short";
+CM_ SG_ 347 ETS_VCU_FirstGr_ClashCount "Number of clash towards first gear";
+CM_ SG_ 347 ETS_VCU_SecndGr_ClashCount "Number of clash towards second gear";
+CM_ SG_ 347 ETS_VCU_GearShift_Count "Total number of gear shifts";
+CM_ SG_ 347 ETS_VCU_FirstGR_MaxClshTime_Sec "Maximum time of clash relieve towards first gear";
+CM_ SG_ 347 ETS_VCU_SecndGR_MaxClshTime_Sec "Maximum time of clash relieve towards second gear";
+CM_ SG_ 347 ETS_VCU_1stGR_Clsh_AvgGearPos_mm "Average Clash position in mm towards first gear";
+CM_ SG_ 347 ETS_VCU_2ndGR_Clsh_AvgGearPos_mm "Average Clash position in mm towards second gear";
+CM_ SG_ 347 ETS_VCU_GearDriftFlg_Count "Total number of drift corrections";
+CM_ SG_ 347 ETS_VCUBoost_modeTimeInteg_sec "Time Integration in sec for Boost Mode";
+CM_ SG_ 790 MCU_Torque_Sum_Nm "Output of Torque sum block";
+CM_ SG_ 790 MCU_ASD_Torque_Nm "ASD Torque";
+CM_ SG_ 790 MCU_ASD_Peak_Nm "Peak of ASD Torque";
+CM_ SG_ 790 MCU_Regen_Torque_Comp_Nm "Torque compensated by MCU to avoid excessive current drawn from the battery";
+CM_ SG_ 790 MCU_EnableDown_St_B "Triggers if MCU Enbale is down. Reset after 0.1 sec";
+CM_ SG_ 790 MCU_Vdc_drop_detected_St_B "Triggers if heavy Vdc drop is detected by MCU";
+CM_ SG_ 790 MCU_Speed_Dir_St_B "Speed direction identification";
+CM_ SG_ 790 MCU_PhShrt_Cnt "Phase short counter";
+CM_ SG_ 790 MCU_StateMachine_St_enum "MCU State machine enum";
+CM_ SG_ 790 MCU_ASD_Torque_Comp_Nm "ASD torque compensation added to Torque sum";
+CM_ SG_ 1901 BMS_BALNET_req_sig "BALNET req to be sent by TEL";
+CM_ SG_ 1902 BMS_BALNET_res_sig "BALNET response to be sent by BMS";
+CM_ SG_ 912 VCU_CompressorSpeed_rpm "Speed of compressor measured in rpm";
+CM_ SG_ 912 VCU_MaxCompressorPower_kW "Maximum compressor power from VCU to compressor.";
+CM_ SG_ 912 VCU_CompressorEnable_enum "Compressor enable status";
+CM_ SG_ 912 CHV_HeaterRelayEnable1_St_B "Status of Heater relay 1";
+CM_ SG_ 912 CHV_HeaterRelayEnable2_St_B "Status of Heater relay 2";
+CM_ SG_ 912 CHV_HeaterRelayEnable3_St_B "Status of Heater relay 3";
+CM_ SG_ 913 CMP_CompressorSpeed_rpm "Speed of compressor in rpm.";
+CM_ SG_ 913 CMP_CompressorRunCurrent_A "Current drawn by compressor in A";
+CM_ SG_ 913 CMP_DCInputVoltage_V "Input DC voltage of compressor";
+CM_ SG_ 913 CMP_CurrentStatus_enum "Compressor error status";
+CM_ SG_ 913 CMP_OvercurrentFault_St_B "Over current fault";
+CM_ SG_ 913 CMP_OvervoltageFault_St_B "Operating over voltage fault";
+CM_ SG_ 913 CMP_UndervoltageFault_St_B "Operating under voltage fault";
+CM_ SG_ 913 CMP_StndbyOvervoltageFault_St_B "Compressor turned off because of over voltage";
+CM_ SG_ 913 CMP_StndbyUndervoltageFault_St_B "Compressor turned off because of under voltage";
+CM_ SG_ 913 CMP_CommunicationError_St_B "When no message received for 7 seconds";
+CM_ SG_ 913 CMP_OvrCurrFreqDrop_St_B "Due to excess load, speed of compressor drops";
+CM_ SG_ 913 CMP_OvrPwrFreqDrop_St_B "Excess power, when this fault is triggered compressor should be turned off.";
+CM_ SG_ 914 CHV_SwitchStatus_St_B "AC switch status";
+CM_ SG_ 914 CHV_PressureSensorFault_St_B "Pressure sensor fault status";
+CM_ SG_ 914 CHV_EvaporatorTemp_Act_degC "Temprature of Evapourator in Deg C";
+CM_ SG_ 914 CHV_EvaporatorTempSenVolt_Act_V "Voltage at evaporator temperature sensor input pin on VCU.";
+CM_ SG_ 914 CHV_CondensorRelayStatus_St_B "Status of Condensor fan relay";
+CM_ SG_ 914 CHV_CompressorRelayStatus_St_B "Status of Compressor relay";
+CM_ SG_ 914 CHV_OperatingModeState_St_enum "Status of Air conditioner operating mode";
+CM_ SG_ 914 CHV_HotColdKnobVoltage_Act_V "Voltage at knob used at HMI to set Hot or Cold condition intensity.";
+CM_ SG_ 914 CHV_FaultStatus_St_B "Air coditioning system overall fault.";
+BA_DEF_ BU_  "OBDResponseID" HEX 0 2047;
+BA_DEF_ BU_  "OBDRequestID" HEX 0 2047;
+BA_DEF_ BU_  "OBDEnabled" STRING ;
+BA_DEF_ BU_  "UDSResponseID" HEX 0 2047;
+BA_DEF_ BU_  "UDSRequestID" HEX 0 2047;
+BA_DEF_ BU_  "UDSEnabled" STRING ;
+BA_DEF_ BU_  "BalnetEnabled" STRING ;
+BA_DEF_ BU_  "BalnetBaseID" HEX 0 127;
+BA_DEF_ BU_  "CCPEnabled" STRING ;
+BA_DEF_ BU_  "CCPRequestID" HEX 0 2047;
+BA_DEF_ BU_  "CCPResponseID" HEX 0 2047;
+BA_DEF_ BU_  "CCPFastID" HEX 0 2047;
+BA_DEF_ BU_  "CCPMidID" HEX 0 2047;
+BA_DEF_ BU_  "CCPSlowID" HEX 0 2047;
+BA_DEF_ BU_  "NmStationAddress" HEX 0 4294967295;
+BA_DEF_  "BusType" STRING ;
+BA_DEF_ BO_  "GenMsgCycleTime" INT 0 1000;
+BA_DEF_  "Baudrate_CAN1" INT 0 1000;
+BA_DEF_  "Baudrate_CAN2" INT 0 1000;
+BA_DEF_ BO_  "GenMsgSendType" ENUM  "Fixed Periodic","Event Periodic","Enabled Periodic","Event","BALNET","Custom Event";
+BA_DEF_ BO_  "CANChannel" ENUM  "CAN1","CAN2";
+BA_DEF_ BU_  "Comment" STRING ;
+BA_DEF_  "CANBus1" STRING ;
+BA_DEF_  "CANBus2" STRING ;
+BA_DEF_DEF_  "OBDResponseID" 0;
+BA_DEF_DEF_  "OBDRequestID" 0;
+BA_DEF_DEF_  "OBDEnabled" "NO";
+BA_DEF_DEF_  "UDSResponseID" 0;
+BA_DEF_DEF_  "UDSRequestID" 0;
+BA_DEF_DEF_  "UDSEnabled" "NO";
+BA_DEF_DEF_  "BalnetEnabled" "NO";
+BA_DEF_DEF_  "BalnetBaseID" 0;
+BA_DEF_DEF_  "CCPEnabled" "NO";
+BA_DEF_DEF_  "CCPRequestID" 0;
+BA_DEF_DEF_  "CCPResponseID" 0;
+BA_DEF_DEF_  "CCPFastID" 0;
+BA_DEF_DEF_  "CCPMidID" 0;
+BA_DEF_DEF_  "CCPSlowID" 0;
+BA_DEF_DEF_  "NmStationAddress" 0;
+BA_DEF_DEF_  "BusType" "";
+BA_DEF_DEF_  "GenMsgCycleTime" 1000;
+BA_DEF_DEF_  "Baudrate_CAN1" 500;
+BA_DEF_DEF_  "Baudrate_CAN2" 500;
+BA_DEF_DEF_  "GenMsgSendType" "Fixed Periodic";
+BA_DEF_DEF_  "CANChannel" "CAN1";
+BA_DEF_DEF_  "Comment" "-";
+BA_DEF_DEF_  "CANBus1" "NO";
+BA_DEF_DEF_  "CANBus2" "NO";
+BA_ "BusType" "CAN";
+BA_ "CANBus1" "YES";
+BA_ "OBDResponseID" BU_ VCU 0;
+BA_ "OBDRequestID" BU_ VCU 0;
+BA_ "OBDEnabled" BU_ VCU "NO";
+BA_ "UDSResponseID" BU_ VCU 2003;
+BA_ "UDSRequestID" BU_ VCU 2002;
+BA_ "UDSEnabled" BU_ VCU "YES";
+BA_ "BalnetEnabled" BU_ VCU "YES";
+BA_ "BalnetBaseID" BU_ VCU 123;
+BA_ "CCPEnabled" BU_ VCU "YES";
+BA_ "CCPRequestID" BU_ VCU 1789;
+BA_ "CCPResponseID" BU_ VCU 1788;
+BA_ "CCPFastID" BU_ VCU 1791;
+BA_ "CCPMidID" BU_ VCU 1790;
+BA_ "CCPSlowID" BU_ VCU 1787;
+BA_ "OBDResponseID" BU_ MCU 0;
+BA_ "OBDRequestID" BU_ MCU 0;
+BA_ "OBDEnabled" BU_ MCU "NO";
+BA_ "UDSResponseID" BU_ MCU 0;
+BA_ "UDSRequestID" BU_ MCU 0;
+BA_ "UDSEnabled" BU_ MCU "NO";
+BA_ "BalnetEnabled" BU_ MCU "YES";
+BA_ "BalnetBaseID" BU_ MCU 124;
+BA_ "CCPEnabled" BU_ MCU "NO";
+BA_ "CCPRequestID" BU_ MCU 0;
+BA_ "CCPResponseID" BU_ MCU 0;
+BA_ "CCPFastID" BU_ MCU 0;
+BA_ "CCPMidID" BU_ MCU 0;
+BA_ "CCPSlowID" BU_ MCU 0;
+BA_ "OBDResponseID" BU_ CHG 0;
+BA_ "OBDRequestID" BU_ CHG 0;
+BA_ "OBDEnabled" BU_ CHG "NO";
+BA_ "UDSResponseID" BU_ CHG 2035;
+BA_ "UDSRequestID" BU_ CHG 2034;
+BA_ "UDSEnabled" BU_ CHG "YES";
+BA_ "BalnetEnabled" BU_ CHG "NO";
+BA_ "BalnetBaseID" BU_ CHG 0;
+BA_ "CCPEnabled" BU_ CHG "NO";
+BA_ "CCPRequestID" BU_ CHG 0;
+BA_ "CCPResponseID" BU_ CHG 0;
+BA_ "CCPFastID" BU_ CHG 0;
+BA_ "CCPMidID" BU_ CHG 0;
+BA_ "CCPSlowID" BU_ CHG 0;
+BA_ "OBDResponseID" BU_ ICL 0;
+BA_ "OBDRequestID" BU_ ICL 0;
+BA_ "OBDEnabled" BU_ ICL "NO";
+BA_ "UDSResponseID" BU_ ICL 1921;
+BA_ "UDSRequestID" BU_ ICL 1920;
+BA_ "UDSEnabled" BU_ ICL "YES";
+BA_ "BalnetEnabled" BU_ ICL "NO";
+BA_ "BalnetBaseID" BU_ ICL 0;
+BA_ "CCPEnabled" BU_ ICL "NO";
+BA_ "CCPRequestID" BU_ ICL 0;
+BA_ "CCPResponseID" BU_ ICL 0;
+BA_ "CCPFastID" BU_ ICL 0;
+BA_ "CCPMidID" BU_ ICL 0;
+BA_ "CCPSlowID" BU_ ICL 0;
+BA_ "OBDResponseID" BU_ TEL 0;
+BA_ "OBDRequestID" BU_ TEL 0;
+BA_ "OBDEnabled" BU_ TEL "NO";
+BA_ "UDSResponseID" BU_ TEL 2025;
+BA_ "UDSRequestID" BU_ TEL 2017;
+BA_ "UDSEnabled" BU_ TEL "YES";
+BA_ "BalnetEnabled" BU_ TEL "NO";
+BA_ "BalnetBaseID" BU_ TEL 0;
+BA_ "CCPEnabled" BU_ TEL "NO";
+BA_ "CCPRequestID" BU_ TEL 0;
+BA_ "CCPResponseID" BU_ TEL 0;
+BA_ "CCPFastID" BU_ TEL 0;
+BA_ "CCPMidID" BU_ TEL 0;
+BA_ "CCPSlowID" BU_ TEL 0;
+BA_ "OBDResponseID" BU_ BMS 0;
+BA_ "OBDRequestID" BU_ BMS 0;
+BA_ "OBDEnabled" BU_ BMS "NO";
+BA_ "UDSResponseID" BU_ BMS 0;
+BA_ "UDSRequestID" BU_ BMS 0;
+BA_ "UDSEnabled" BU_ BMS "NO";
+BA_ "BalnetEnabled" BU_ BMS "YES";
+BA_ "BalnetBaseID" BU_ BMS 118;
+BA_ "CCPEnabled" BU_ BMS "NO";
+BA_ "CCPRequestID" BU_ BMS 0;
+BA_ "CCPResponseID" BU_ BMS 0;
+BA_ "CCPFastID" BU_ BMS 0;
+BA_ "CCPMidID" BU_ BMS 0;
+BA_ "CCPSlowID" BU_ BMS 0;
+BA_ "OBDResponseID" BU_ BMG 0;
+BA_ "OBDRequestID" BU_ BMG 0;
+BA_ "OBDEnabled" BU_ BMG "NO";
+BA_ "UDSResponseID" BU_ BMG 1649;
+BA_ "UDSRequestID" BU_ BMG 1648;
+BA_ "UDSEnabled" BU_ BMG "YES";
+BA_ "BalnetEnabled" BU_ BMG "NO";
+BA_ "BalnetBaseID" BU_ BMG 0;
+BA_ "CCPEnabled" BU_ BMG "NO";
+BA_ "CCPRequestID" BU_ BMG 0;
+BA_ "CCPResponseID" BU_ BMG 0;
+BA_ "CCPFastID" BU_ BMG 0;
+BA_ "CCPMidID" BU_ BMG 0;
+BA_ "CCPSlowID" BU_ BMG 0;
+BA_ "GenMsgCycleTime" BO_ 153 10;
+BA_ "GenMsgSendType" BO_ 154 2;
+BA_ "GenMsgCycleTime" BO_ 154 10;
+BA_ "GenMsgCycleTime" BO_ 881 100;
+BA_ "GenMsgSendType" BO_ 1984 5;
+BA_ "GenMsgSendType" BO_ 1996 3;
+BA_ "GenMsgSendType" BO_ 1985 5;
+BA_ "GenMsgSendType" BO_ 1991 3;
+BA_ "GenMsgCycleTime" BO_ 1136 200;
+BA_ "GenMsgSendType" BO_ 36 3;
+BA_ "GenMsgSendType" BO_ 135 3;
+BA_ "GenMsgSendType" BO_ 134 3;
+BA_ "GenMsgSendType" BO_ 33 5;
+BA_ "GenMsgSendType" BO_ 34 5;
+BA_ "GenMsgCycleTime" BO_ 794 100;
+BA_ "GenMsgCycleTime" BO_ 796 100;
+BA_ "GenMsgSendType" BO_ 32 5;
+BA_ "GenMsgSendType" BO_ 1651 5;
+BA_ "GenMsgCycleTime" BO_ 886 100;
+BA_ "GenMsgCycleTime" BO_ 157 10;
+BA_ "GenMsgCycleTime" BO_ 800 10;
+BA_ "GenMsgCycleTime" BO_ 801 10;
+BA_ "GenMsgCycleTime" BO_ 802 10;
+BA_ "GenMsgCycleTime" BO_ 803 10;
+BA_ "GenMsgCycleTime" BO_ 804 10;
+BA_ "GenMsgCycleTime" BO_ 805 10;
+BA_ "GenMsgCycleTime" BO_ 806 10;
+BA_ "GenMsgCycleTime" BO_ 807 10;
+BA_ "GenMsgCycleTime" BO_ 213 10;
+BA_ "GenMsgCycleTime" BO_ 214 1000;
+BA_ "GenMsgCycleTime" BO_ 1135 200;
+BA_ "GenMsgCycleTime" BO_ 789 100;
+BA_ "GenMsgCycleTime" BO_ 781 100;
+BA_ "GenMsgCycleTime" BO_ 912 100;
+BA_ "GenMsgCycleTime" BO_ 156 10;
+BA_ "GenMsgCycleTime" BO_ 158 10;
+BA_ "GenMsgCycleTime" BO_ 782 100;
+BA_ "GenMsgCycleTime" BO_ 783 100;
+BA_ "GenMsgCycleTime" BO_ 784 100;
+BA_ "GenMsgCycleTime" BO_ 791 100;
+BA_ "GenMsgCycleTime" BO_ 173 10;
+BA_ "GenMsgCycleTime" BO_ 174 10;
+BA_ "GenMsgCycleTime" BO_ 797 100;
+BA_ "GenMsgCycleTime" BO_ 798 100;
+BA_ "GenMsgCycleTime" BO_ 175 10;
+BA_ "GenMsgCycleTime" BO_ 848 100;
+BA_ "GenMsgCycleTime" BO_ 849 100;
+BA_ "GenMsgCycleTime" BO_ 850 100;
+BA_ "GenMsgCycleTime" BO_ 865 100;
+BA_ "GenMsgCycleTime" BO_ 1130 200;
+BA_ "GenMsgCycleTime" BO_ 1131 200;
+BA_ "GenMsgCycleTime" BO_ 1132 200;
+BA_ "GenMsgCycleTime" BO_ 162 10;
+BA_ "GenMsgCycleTime" BO_ 161 10;
+BA_ "GenMsgCycleTime" BO_ 160 10;
+BA_ "GenMsgCycleTime" BO_ 384 10;
+BA_ "GenMsgCycleTime" BO_ 385 10;
+BA_ "GenMsgCycleTime" BO_ 386 10;
+BA_ "GenMsgSendType" BO_ 1650 3;
+BA_ "GenMsgSendType" BO_ 2163146497 3;
+BA_ "GenMsgCycleTime" BO_ 787 100;
+BA_ "GenMsgCycleTime" BO_ 1544 10;
+BA_ "GenMsgCycleTime" BO_ 1543 1000;
+BA_ "GenMsgCycleTime" BO_ 1536 10;
+BA_ "GenMsgCycleTime" BO_ 1537 100;
+BA_ "GenMsgCycleTime" BO_ 1538 100;
+BA_ "GenMsgCycleTime" BO_ 1539 1000;
+BA_ "GenMsgCycleTime" BO_ 1540 100;
+BA_ "GenMsgCycleTime" BO_ 1542 1000;
+BA_ "GenMsgCycleTime" BO_ 1541 1000;
+BA_ "GenMsgCycleTime" BO_ 1514 1000;
+BA_ "GenMsgCycleTime" BO_ 1515 1000;
+BA_ "GenMsgCycleTime" BO_ 1516 1000;
+BA_ "GenMsgCycleTime" BO_ 1517 1000;
+BA_ "GenMsgCycleTime" BO_ 1518 1000;
+BA_ "GenMsgCycleTime" BO_ 1519 1000;
+BA_ "GenMsgSendType" BO_ 1568 3;
+BA_ "GenMsgCycleTime" BO_ 159 10;
+BA_ "GenMsgCycleTime" BO_ 155 10;
+BA_ "GenMsgSendType" BO_ 1546 2;
+BA_ "GenMsgCycleTime" BO_ 1546 100;
+BA_ "GenMsgCycleTime" BO_ 1520 1000;
+BA_ "GenMsgSendType" BO_ 2037 3;
+BA_ "GenMsgSendType" BO_ 1921 3;
+BA_ "GenMsgSendType" BO_ 2035 3;
+BA_ "GenMsgSendType" BO_ 1998 3;
+BA_ "GenMsgSendType" BO_ 1982 3;
+BA_ "GenMsgSendType" BO_ 2003 3;
+BA_ "GenMsgSendType" BO_ 2036 3;
+BA_ "GenMsgSendType" BO_ 1920 3;
+BA_ "GenMsgSendType" BO_ 2034 3;
+BA_ "GenMsgSendType" BO_ 1997 3;
+BA_ "GenMsgSendType" BO_ 16 3;
+BA_ "GenMsgSendType" BO_ 1981 3;
+BA_ "GenMsgSendType" BO_ 2002 3;
+BA_ "GenMsgCycleTime" BO_ 1042 100;
+BA_ "GenMsgCycleTime" BO_ 346 10;
+BA_ "GenMsgCycleTime" BO_ 347 1000;
+BA_ "GenMsgCycleTime" BO_ 790 10;
+BA_ "GenMsgSendType" BO_ 1901 3;
+BA_ "GenMsgSendType" BO_ 1902 3;
+VAL_ 154 ETS_VCU_HVBatFETOpnReq_St_B 0 "FET open not requested" 1 "FET open Requested" ;
+VAL_ 154 ETS_VCU_ProhibitTrqMode_St_B 0 "Torque Allowed" 1 "Torque Prohibitated" ;
+VAL_ 154 ETS_VCU_ActivateLimpMode_St_B 0 "Limp home Inactive" 1 "Limp Home Active" ;
+VAL_ 154 ETS_VCU_RegenInhibitFlag_St_B 0 "Regeneration Allowed" 1 "Regeneration not Allowed" ;
+VAL_ 154 ETS_VCU_ChgInhibitFlag_St_B 0 "Charging Allowed" 1 "Charging not Allowed" ;
+VAL_ 154 ETS_VCU_IntrnlChgState_St_enum 1 "Init" 2 "Charging" 3 "Charging stop due to High temperature" 4 "Charging Exit" 5 "Retry for Charging" ;
+VAL_ 154 ETS_VCU_ChgExitReason_St_enum 0 "No Reason, chg happening" 1 "BMS critical fault, but not due to over temp" 2 "Side Stand & Main Stand Both up for more than 30 sec" 3 "Charger Fuse Blown" 4 "Charger did not detect AC ip plug for more than 5 sec" 5 "Reserved" ;
+VAL_ 154 ETS_VCU_AppShutdownRqst_Req_B 0 "No VCU Shutdown Request from Application to OS" 1 "VCU Shutdown request from Application to OS" ;
+VAL_ 154 ETS_VCU_VehStateMachineID_Act_ID 0 "Shutdown" 1 "WakeUp or Transition to Shutdown" 2 "MPRD Switch ON" 3 "Wakeup_Battery" 4 "SwitchOnDcDcConverter" 5 "WakeUpMotor" 6 "WakeUpGsMotor" 7 "InitCheckFinished" 8 "Neutral" 9 "Drive_ECO" 10 "Drive_Sport" 11 "Reverse" 20 "Drive_Disabled_Error" 12 "Charging" 13 "Aux_Chg_Wait" 14 "Aux_Chg_BMS_WakeRequest" 15 "Aux_Batt_Charging" 16 "Switch_Off_DCDC_In_Aux_Chg" 17 "Exit_Aux_Batt_Chg" 25 "Charging to sleep Transitions" 26 "FOTA requested" 27 "FOTA finished" 41 "Sleep_Transition" 42 "MotCommOff" 43 "BattOff" 44 "BMS Deep Discharge Protection" 51 "Neutral Learning" 99 "Transition_To_Shutdown" ;
+VAL_ 154 ETS_VCU_VeritableCANwkup_St_B 0 "CAN wake is not due to Veritable message" 1 "CAN wake is due to Veritable message" ;
+VAL_ 154 ETS_VCU_WakeupReason_St_enum 0 "Unknown Wake up reason" 1 "CAN wake up" 2 "Ignition Key wake up" 3 "Cyclic Wake up" ;
+VAL_ 154 ETS_VCU_Gear_Engaged_St_enum 0 "Neutral" 1 "First Gear" 2 "Second Gear" ;
+VAL_ 154 ETS_VCU_Ignition_Status_St_B 0 "Ignition OFF" 1 "Ignition ON" ;
+VAL_ 154 ETS_VCU_MCUenable_FBPin_St_B 0 "Low" 1 "High" ;
+VAL_ 154 ETS_VCU_BMS_Ver_Identifier_St_B 0 "version v1.5" 1 "version v1.6" ;
+VAL_ 154 ETS_VCU_FOTA_Source_St_enum 0 "Neither FOTA nor Balnostix+ App" 1 "Flashing is done through TEL FOTA" 2 "Flashing is done through BALNostix+ App" ;
+VAL_ 154 ETS_VCU_OS_FOTA_Complete_flag 0 "Not complete" 1 "Complete" ;
+VAL_ 154 ETS_VCU_OS_raised_FOTA_flag 0 "Approved for FOTA" 1 "Not Approved for FOTA" ;
+VAL_ 1136 CNS_TEL_FOTAstatusBM1_St_enum 0 "Init" 1 "Idle" 2 "Generating version manifest" 3 "Verifying metadata" 4 "Downloading firmware" 5 "Update NA" 6 "Ready to install" 7 "Request install" 8 "Installing" 9 "Update success" 10 "Update fail" 15 "ECU NA" ;
+VAL_ 1136 CNS_TEL_FOTAstatusBM2_St_enum 0 "Init" 1 "Idle" 2 "Generating version manifest" 3 "Verifying metadata" 4 "Downloading firmware" 5 "Update NA" 6 "Ready to install" 7 "Request install" 8 "Installing" 9 "Update success" 10 "Update fail" 15 "ECU NA" ;
+VAL_ 1136 CNS_TEL_FOTAstatusBM3_St_enum 0 "Init" 1 "Idle" 2 "Generating version manifest" 3 "Verifying metadata" 4 "Downloading firmware" 5 "Update NA" 6 "Ready to install" 7 "Request install" 8 "Installing" 9 "Update success" 10 "Update fail" 15 "ECU NA" ;
+VAL_ 1136 CNS_TEL_FOTAstatusBM4_St_enum 0 "Init" 1 "Idle" 2 "Generating version manifest" 3 "Verifying metadata" 4 "Downloading firmware" 5 "Update NA" 6 "Ready to install" 7 "Request install" 8 "Installing" 9 "Update success" 10 "Update fail" 15 "ECU NA" ;
+VAL_ 1136 CNS_TEL_FOTAstatusBM5_St_enum 0 "Init" 1 "Idle" 2 "Generating version manifest" 3 "Verifying metadata" 4 "Downloading firmware" 5 "Update NA" 6 "Ready to install" 7 "Request install" 8 "Installing" 9 "Update success" 10 "Update fail" 15 "ECU NA" ;
+VAL_ 1136 CNS_TEL_FOTAstatusBM6_St_enum 0 "Init" 1 "Idle" 2 "Generating version manifest" 3 "Verifying metadata" 4 "Downloading firmware" 5 "Update NA" 6 "Ready to install" 7 "Request install" 8 "Installing" 9 "Update success" 10 "Update fail" 15 "ECU NA" ;
+VAL_ 1136 CNS_TEL_FOTAstatusTEL_St_enum 0 "Init" 1 "Idle" 2 "Generating version manifest" 3 "Verifying metadata" 4 "Downloading firmware" 5 "Update NA" 6 "Ready to install" 7 "Request install" 8 "Installing" 9 "Update success" 10 "Update fail" 15 "ECU NA" ;
+VAL_ 1136 CNS_TEL_FOTAstatusVCU_St_enum 0 "Init" 1 "Idle" 2 "Generating version manifest" 3 "Verifying metadata" 4 "Downloading firmware" 5 "Update NA" 6 "Ready to install" 7 "Request install" 8 "Installing" 9 "Update success" 10 "Update fail" 15 "ECU NA" ;
+VAL_ 1136 CNS_TEL_FOTAstatusMCU_St_enum 0 "Init" 1 "Idle" 2 "Generating version manifest" 3 "Verifying metadata" 4 "Downloading firmware" 5 "Update NA" 6 "Ready to install" 7 "Request install" 8 "Installing" 9 "Update success" 10 "Update fail" 15 "ECU NA" ;
+VAL_ 1136 CNS_TEL_FOTAstatusCHG_St_enum 0 "Init" 1 "Idle" 2 "Generating version manifest" 3 "Verifying metadata" 4 "Downloading firmware" 5 "Update NA" 6 "Ready to install" 7 "Request install" 8 "Installing" 9 "Update success" 10 "Update fail" 15 "ECU NA" ;
+VAL_ 1136 CNS_TEL_FOTAstatusICL_St_enum 0 "Init" 1 "Idle" 2 "Generating version manifest" 3 "Verifying metadata" 4 "Downloading firmware" 5 "Update NA" 6 "Ready to install" 7 "Request install" 8 "Installing" 9 "Update success" 10 "Update fail" 15 "ECU NA" ;
+VAL_ 1136 CNS_TEL_FOTAstatusRsv_St_enum 0 "Init" 1 "Idle" 2 "Generating version manifest" 3 "Verifying metadata" 4 "Downloading firmware" 5 "Update NA" 6 "Ready to install" 7 "Request install" 8 "Installing" 9 "Update success" 10 "Update fail" 15 "ECU NA" ;
+VAL_ 1136 APP_Rqst_Update 0 "No app request" 1 "Start flashing request from App" 2 "Flashing complete from App" 3 "Flashing failed from App" ;
+VAL_ 36 ETS_VCU_FOTApermission_Ack_B 0 "Disallowed" 1 "Allowed" ;
+VAL_ 794 ETS_VCU_ChargeInterrupt_St_B 0 "Okay" 1 "Interrupt" ;
+VAL_ 1651 ETS_VCU_AuthSts_St_enum 0 "Authorization_Failed" 1 "Authorization_4_SelectModules" 2 "Authorization_4_AllModules" ;
+VAL_ 886 CNS_TEL_BTwriteNVMfail_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_BTreadNVMfail_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_BTmia_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_BTgetAdNameFail_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_GSMresponseFault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_GSMnetRegFail_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_GSMsimPinFault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_GNSScrcFault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_NoSupplyTooLong_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_UndervoltFault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_OvervoltFault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_GSMactivGPRSfail_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_GNSSresponseFault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_STGfault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_STBfault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_OpenFault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 886 CNS_TEL_BackupBatteryMode_St_B 0 "Not on backup" 1 "On backup" ;
+VAL_ 1135 CNS_TEL_GPSlongitudeDirn_Est_B 0 "East" 1 "West" ;
+VAL_ 1135 CNS_TEL_GPSlatitudeDirn_Est_B 0 "North" 1 "South" ;
+VAL_ 789 ETS_VCU_BeeperRPSL_Cmd_St_enum 0 "Inactive" 1 "Active1" 2 "Active2" 3 "Active3" 4 "Active4" 5 "Active5" 6 "Active6" 7 "Active7" 8 "Reserved" 9 "Reserved" 10 "Reserved" 11 "Reserved" 12 "Reserved" 13 "Reserved" 14 "Reserved" 15 "Reserved" ;
+VAL_ 789 ETS_VCU_BeeperRPSR_Cmd_St_en 0 "Inactive" 1 "Active1" 2 "Active2" 3 "Active3" 4 "Active4" 5 "Active5" 6 "Active6" 7 "Active7" 8 "Reserved" 9 "Reserved" 10 "Reserved" 11 "Reserved" 12 "Reserved" 13 "Reserved" 14 "Reserved" 15 "Reserved" ;
+VAL_ 789 ETS_VCU_LowBattVoltage_Cmd_enum 0 "Off" 1 "Blink" 2 "ON" 3 "Reserved" ;
+VAL_ 789 ETS_VCU_DisplayScreen_Cmd_enum 0 "Off" 1 "Init/Power On cycle Mode" 2 "Drive Screen Mode" 3 "Charging Mode" 4 "Firmware update Mode" 5 "Reserved" 6 "Reserved" 7 "Reserved" ;
+VAL_ 789 ETS_VCU_Buzzer_Cmd_B 0 "Inactive" 1 "Active 1" 2 "Active 2" 3 "Active 3" 4 "Active 4" 5 "Active 5" 6 "Reserved" 7 "Reserved" ;
+VAL_ 789 ETS_VCU_RemoteImmoDisp_St_B 0 "Disabled" 1 "Enabled" ;
+VAL_ 789 ETS_VCU_GenAlarmInd_St_enum 0 "Off" 1 "Blink1" 2 "Blink2" 3 "ON" ;
+VAL_ 789 ETS_VCU_LimitedPerformInd_St_B 0 "Off" 1 "ON" ;
+VAL_ 789 ETS_VCU_ThermalRunawayInd_St_B 0 "Disabled" 1 "Enabled" ;
+VAL_ 789 ETS_VCU_Seek_ASW_FOTA_Approval 0 "NIL_FOTA" 1 "VCU_FOTA" 2 "MCU_FOTA" 3 "TEL_FOTA" 4 "BM1_FOTA" 5 "BM2_FOTA" 6 "BM3_FOTA" 7 "BM4_FOTA" 8 "BM5_FOTA" 9 "BM6_FOTA" 10 "CHG_FOTA" 11 "ICL_FOTA" 255 "BAD_FOTA" ;
+VAL_ 781 ETS_VCU_ChargerCtrlMode_St_enum 0 "Init" 1 "CC Mode" 2 "CV Mode" 3 "Charge Complete" ;
+VAL_ 781 ETS_VCU_ChargerCommCtrl_St_enum 0 "Init" 1 "Enable Transmit CAN" 2 "Disable Transmit CAN" 3 "Reserved" ;
+VAL_ 781 ETS_VCU_ChargerOpReq_Cmd_enum 0 "Init" 1 "Enable" 2 "Disable" 3 "Shutdown" ;
+VAL_ 781 ETS_VCU_ChargerCurrSetpt_Ref_A 65535 "Reserved" 65534 "Reserved" 65533 "Reserved" 65532 "Reserved" 65531 "Reserved" 65530 "Reserved" 65529 "Reserved" 65528 "Reserved" 65527 "Reserved" 65526 "Reserved" ;
+VAL_ 781 ETS_VCU_ChargerVoltSetpt_Ref_V 65535 "Reserved" 65534 "Reserved" 65533 "Reserved" 65532 "Reserved" 65531 "Reserved" 65530 "Reserved" 65529 "Reserved" 65528 "Reserved" 65527 "Reserved" 65526 "Reserved" ;
+VAL_ 156 ETS_VCU_MCUenableStatus_St_enum 0 "Disable" 1 "Enable" 2 "Error" 3 "Invalid" ;
+VAL_ 156 ETS_VCU_MCU_veh_mode_req_enum 0 "No Torque" 1 "Torque Control" 2 "RPM Control" ;
+VAL_ 156 ETS_VCU_MCU_Veh_Model_Sel 0 "Default" 1 "R116B (In-house Multipack Battery)" 2 "R116C_Compact EV_Domestic " 3 "R116C_Compact EV_ Export" 4 "R127A_11.8 kWh_Cargo_Domestic" 5 "R127A_11.8 kWh_Cargo_Export" 6 "R127A_8.9 kWh_Cargo_Domestic" 7 "R127A_8.9 kWh_Cargo_Export" 8 "R128A_EVLite Turbo_Domestic" 9 "R128A_EVLite Turbo_Export" 10 "R126A_Maxima Xwide_Domestic" 11 "R126A_Maxima Xwide_Export" 12 "R125A_Maxima Z_Domestic" 13 "R125A_Maxima Z_Export" 14 "R130A_EVLite Cargo_Domestic" 15 "R130A_EVLite Cargo_Export" 16 "R116F_Compact_EV_Swappable_Domestic" 17 "R116F_Compact_EV_Swappable_Export" 18 "R127C_Cargo_EV_Swappable_Domestic" 19 "R127C_Cargo_EV_Swappable_Export" 20 "R126C_Maxima Xwide_EV_Swappable_Domestic" 21 "R126C_Maxima Xwide_Swappable_Export" 22 "R125C_Maxima_EV_Swappable_ Z_Domestic" 23 "R125C_Maxima_EV_Swappable_ Z_Export" 24 "R116G_11.8kWh_Compact EV_Domestic" 25 "R116G_11.8kWh_Compact EV_Export" 26 "R125D_11.8kWh_Maxima Z EV_Domestic" 27 "R125D_11.8kWh_Maxima Z EV_Export " 28 "R119B_ERick" 29 "R119C_ECart" 30 "R140A_Qute EV Base" 31 "R140B_Qute EV Premium" ;
+VAL_ 156 ETS_VCU_Shift_ASD_St_Enum 0 "ASD not disabled" 1 "ASD disabled by VCU" 2 "Reserved" 3 "Reserved" 4 "Reserved" 5 "Reserved" 6 "Reserved" 7 "Reserved" ;
+VAL_ 158 ETS_VCU_GearEngaged_Act_enum 0 "Neutral" 1 "First Gear" 2 "Second Gear" ;
+VAL_ 158 ETS_VCU_HillHoldEnable_St_B 0 "Disabled" 1 "Enabled" ;
+VAL_ 158 ETS_VCU_ActiveShrtCkt_Cmd_B 0 "Disable" 1 "Enable" ;
+VAL_ 782 ETS_VCU_TEL2Cloud_DataOff_St_B 0 "Enabled" 1 "Disabled" ;
+VAL_ 782 ETS_VCU_BrakePressStatus_St_enum 0 "Not Pressed" 1 "Pressed" 2 "Faulty" 3 "Reserved" ;
+VAL_ 782 ETS_VCU_TELCANTxEnable_Req_enum 0 "Normal operation" 1 "Sleep Request" 2 "Reserved" 3 "Reserved" ;
+VAL_ 782 ETS_VCU_MPRDRelayStatus_St_enum 0 "Open" 1 "Closed" 2 "Fault" 3 "Reserved" ;
+VAL_ 782 ETS_VCU_DrivetrainStatus_St_enum 0 "Off" 1 "Initialize" 2 "Ready" 3 "Drive" 4 "Charge" 5 "Shutdown" 6 "Error" 7 "AuxBattCharge" 8 "ASC Activated in Veh off" 9 "Reserved" 10 "Reserved1" 11 "Reserved2" 12 "Reserved3" 13 "Reserved4" 14 "Reserved5" 15 "Reserved6" ;
+VAL_ 782 ETS_VCU_MCUCANTxEnable_Req_enum 0 "Enable Transmit" 1 "Disable Transmit" 2 "Reserved" 3 "Reserved" ;
+VAL_ 782 ETS_VCU_DrvMode_St_enum 0 "Not ready" 1 "Neutral" 2 "ECO/Drive" 3 "SPORT - User Selected / Drive Amber" 4 "Reverse" 5 "Drive Disable" 6 "Reserved" 7 "Reserved" ;
+VAL_ 782 ETS_VCU_KeyONstatus_St_B 0 "Off" 1 "On" ;
+VAL_ 782 ETS_VCU_ShiftMOTDriveDir_St_enum 0 "None" 1 "Clockwise" 2 "Anitclockwise" 3 "Reserved" ;
+VAL_ 782 ETS_VCU_MotorRPM_Act_rpm 32767 "Error" ;
+VAL_ 782 ETS_VCU_Display_Inputs_2 0 "TELL-TALE OFF" 1 "Neutral (N)" 2 "ECO/Drive (D: Green)" 3 "Power (D: Amber)" 4 "Reverse (R)" 5 "Reserved" 6 "Poor Economy Zone (D: Amber blink – 0.5 Hz, 50%)" 7 "D: Green blink (1 Hz, 50%)" 8 "Brake pressed while driving (D: Amber blink – 1 Hz, 50%)" 9 "Trying to switch to Neutral state (N Blink – 1 Hz, 50%)" 10 "Park Assist in D Mode" 11 "Park Assist in R Mode" 12 "Climb mode" 13 "Reserved" 14 "Reserved" 15 "Reserved" ;
+VAL_ 782 ETS_VCU_AutoHazard_St_B 0 "Disabled" 1 "Enabled" ;
+VAL_ 782 ETS_VCU_LoadRelayStatus_St_B 0 "Open" 1 "Closed" ;
+VAL_ 782 ETS_VCU_FOTA_Approval_St_enum 85 "FOTA request approved" 170 "FOTA request rejected" ;
+VAL_ 783 ETS_VCU_Mcu_CanB_Enabled_St_B 0 "DISABLE" 1 "ENABLE" ;
+VAL_ 783 ETS_VCU_CHG_Stat_InfoMsg_St_Enum 0 "CHG_Stat_InfoMsg message is Unavailable" 1 "CHG_Stat_InfoMsg message Data is Good" 2 "CHG_Stat_InfoMsg message Data is not good" 3 "CHG_Stat_InfoMsg message Data is not good" 4 "CHG_Stat_InfoMsg message Data is not good" 5 "CHG_Stat_InfoMsg message Data is not good" 6 "CHG_Stat_InfoMsg message Data is not good" 7 "CHG_Stat_InfoMsg message Data is not good" ;
+VAL_ 783 ETS_VCU_Creep_St_B 0 "Not Acticated" 1 "Activated" ;
+VAL_ 783 ETS_VCU_FaultStatus_St_enum 0 "No Fault" 1 "No drive" 2 "Limp" 3 "Warning" ;
+VAL_ 783 ETS_VCU_ChargingStatus_St_enum 0 "Not charging" 1 "Charging" 2 "Feature Unavailable" 3 "Complete" 4 "BAT Cooling but no BAT Charge" 5 "Reserved" 6 "Reserved" 7 "Reserved" ;
+VAL_ 783 ETS_VCU_ChrgPlug_St_enum 0 "Not Connected" 1 "Connected" 2 "Fault" 3 "Reserved" ;
+VAL_ 783 ETS_VCU_RegenBraking_St_B 0 "Inactive" 1 "Active" ;
+VAL_ 783 ETS_VCU_HighBatteryTemp_St_B 0 "Inactive" 1 "Active" ;
+VAL_ 783 ETS_VCU_ParkBrake_St_enum 0 "Disengaged" 1 "Engaged" 2 "Error" 3 "Reserved" ;
+VAL_ 783 ETS_VCU_MOTFanRelay_St_enum 0 "Off" 1 "ON" 2 "Error" 3 "Not applicable" ;
+VAL_ 784 ETS_VCU_Chg_CommErr_Flag_St_B 0 "No Charger Communication Error" 1 "Charger Communication Error" ;
+VAL_ 784 ETS_VCU_BrakeLampStatus_St_enum 0 "Not Active" 1 "Active" ;
+VAL_ 784 ETS_VCU_LimpModeReason_St_enum 0 "Battery Fault" 1 "Motor Fault" 2 "Aux Batt Fault" 3 "Reserved" ;
+VAL_ 784 ETS_VCU_DrvDisableReason_St_enum 0 "Battery Fault" 1 "Motor Fault" 2 "Aux Batt Fault" 3 "Not My Fault" ;
+VAL_ 784 ETS_VCU_RollSenseStatus_St_enum 0 "Safe" 1 "Rollover" ;
+VAL_ 784 ETS_VCU_VCUlimpMode_St_enum 0 "Disabled" 1 "Enabled" ;
+VAL_ 784 ETS_VCU_FOTA_APP_OR_TEL_St_Enum 45 "FOTA_FROM_TEL" 54 "UPDATE_FROM_APP" ;
+VAL_ 791 ETS_VCU_AuxChrgingStatus_St_enum 0 "Not Required" 1 "Initiated" 2 "Stopped" 3 "Error" ;
+VAL_ 791 ETS_VCU_DCDCStatus_St_enum 0 "Disable" 1 "Enable" 2 "Error" 3 "Invalid" ;
+VAL_ 791 ETS_VCU_RevLampRelay_St_enum 0 "Open" 1 "Closed" 2 "Fault" 3 "Reserved" ;
+VAL_ 791 ETS_VCU_KillSwitch_St_enum 0 "Open" 1 "Closed" ;
+VAL_ 791 ETS_VCU_KillTimerRelay_St_enum 0 "Open" 1 "Closed" ;
+VAL_ 791 ETS_VCU_vBrickUnder_St_B 0 "OK" 1 "FAULT" ;
+VAL_ 791 ETS_VCU_inst_whlSpeed_Flt_B 0 "No Fault" 1 "Fault" ;
+VAL_ 174 ETS_MCU_RPSInput_St_B 0 "Encoder Input" 1 "Estimated RPS input" ;
+VAL_ 174 ETS_MCU_ReqOpenMainSwi_Req_enum 0 "No fault" 1 "Open Battery Main contactor" 2 "Reserved" 3 "Reserved" ;
+VAL_ 797 ETS_MCU_MotorControlMode_St_enum 7 "reserved" 6 "reserved" 5 "reserved" 4 "error" 3 "standby mode" 2 "Torque mode" 1 "Speed mode" 0 "Init mode" ;
+VAL_ 797 ETS_MCU_HillAssist_St_B 0 "Not Acticated" 1 "Activated" ;
+VAL_ 797 ETS_MCU_ChgInhibit_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 797 ETS_MCU_OffsetCAL_St_enum 0 "No offset calibration triggered" 1 "Offset calibration triggered" 2 "Offset calibration is completed" 3 "Offset calibration failed" 4 "Reserved" ;
+VAL_ 797 ETS_MCU_ASCcmdAck_St_B 0 "No ack" 1 "Ack" ;
+VAL_ 797 ETS_MCU_OffsetCalComplete_St_B 0 "Incomplete" 1 "Complete" ;
+VAL_ 797 ETS_MCU_hwASCactive_St_B 0 "Inactive" 1 "Active" ;
+VAL_ 797 ETS_MCU_StatusBits_St_enum 0 "Off" 1 "Initialize" 2 "Ready" 3 "Shutdown" 4 "Fault" 5 "Standby" 6 "Derated Performance" 7 "Active Shortcircuiting" ;
+VAL_ 797 ETS_MCU_MotDrvRdyStatus_St_enum 0 "MCU Not Ready" 1 "MCU Ready" 2 "Reserved" 3 "Reserved" ;
+VAL_ 797 ETS_MCU_ActShrtCktStatus_St_enum 0 "Not Activated" 1 "Activated" 2 "Reserved" 3 "Reserved" ;
+VAL_ 797 ETS_MCU_EnableStatus_St_enum 0 "Not Enabled" 1 "Enabled" 2 "Fault" 3 "Reserved" ;
+VAL_ 797 ETS_MCU_Sleep_Ack_enum 0 "No Sleep command" 1 "Going to sleep mode" 2 "Reserved" 3 "Reserved" ;
+VAL_ 797 ETS_MCU_ASDStatus_St_enum 0 "ASD not activated" 1 "ASD activated" 2 "Reserved" 3 "Reserved" ;
+VAL_ 797 ETS_MCU_SupplyRelayStatus_St_B 0 "Off" 1 "ON" 2 "Fault" 3 "Reserved" ;
+VAL_ 798 ETS_MCU_CRCMismatchFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_SnsrSplyFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MOT_PhPhShrtCktFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MOT_OpenPhaseFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MOT_PhGndShrtCktFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_OverCurrentFault_St_B 0 "No Fault" 1 "Idc Fault" 2 "Iu Fault" 3 "Iv Fault" 4 " Iw Fault" 5 "Iuvw Imbalance fault" 6 "Iuvw Imbalance negative fault" ;
+VAL_ 798 ETS_MOT_SpeedFault_St_enum 0 "No fault" 1 "Overspeed Warning" 2 "Overspeed Error" 3 "Reserved" ;
+VAL_ 798 ETS_MCU_UndervoltFault_St_enum 0 "No Error" 1 "Warning" 2 "Error" 3 "Reserved" ;
+VAL_ 798 ETS_MOT_MotorTempFault_St_enum 0 "No Error" 1 "Over Temperature Warning" 2 "Over Temperature Error" 3 "Reserved" ;
+VAL_ 798 ETS_MCU_MCUtempFault_St_enum 0 "No Error" 1 "Under temperature warning" 2 "Under Temperature Error" 3 "Over Temperature Warning" 4 "Over Temperature Error" 5 "Reserved" 6 "Reserved" 7 "Reserved" ;
+VAL_ 798 ETS_MCU_VCUCANTimeoutFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_DeratingReason_St_enum 0 "No Derating" 1 "DC Overvoltage" 2 "DC Undervoltage" 3 "Motor Overtemperature" 4 "MCU OverTemperature" 5 "MCU UnderTemperature" 6 "Encoder Fault" 7 "derate_idmax" ;
+VAL_ 798 ETS_MOT_FaultStatus_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_FaultStatus_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_OvervoltFault_St_enum 0 "No Error" 1 "Warning" 2 "Error" 3 "Fault" ;
+VAL_ 798 ETS_MOT_TempSensorFault_St_enum 0 "No Fault" 1 "Fault STB" 2 "Fault STG" 3 "Fault Open" ;
+VAL_ 798 ETS_MCU_TempSensorFault_St_enum 0 "No Fault" 1 "Fault STB" 2 "Fault STG" 3 "Fault Open" ;
+VAL_ 798 ETS_MOT_EncoderFault_St_enum 0 "No Fault" 1 "ENC_sinp_Sensor_STB_Fault" 2 "ENC_sinp_Sensor_STG_Fault" 3 "ENC_sinn_Sensor_STB_Fault" 4 "ENC_sinn_Sensor_STG_Fault" 5 "ENC_cosp_Sensor_STB_Fault" 6 "ENC_cosp_Sensor_STG_Fault" 7 "ENC_cosn_Sensor_STB_Fault" 8 "ENC_cosn_Sensor_STG_Fault" 9 "ENC_Orthogonality_Fault" ;
+VAL_ 798 ETS_MCU_DCvoltSensorFault_St_B 0 "No Fault" 1 "STB" 2 "STG" 3 "Open" ;
+VAL_ 798 ETS_MCU_DCcurrSensorFault_St_B 0 "No Fault" 1 "STB" 2 "STG" 3 "Open" 4 "Offset" ;
+VAL_ 798 ETS_MCU_UPhVoltSensorFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_VPhVoltSensorFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_WPhVoltSensorFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_UVWPh_IsnsrFault_St_enum 0 "No Fault" 1 "UPH_Curr_Sensor_STB_Fault" 2 "UPH_Curr _Sensor_STG_Fault" 3 "UPH_Curr _Sensor_Offset_Fault" 4 "VPH_Curr _Sensor_STB_Fault" 5 "VPH_Curr _Sensor_STG_Fault" 6 "VPH_Curr _Sensor_Offset_Fault" 7 "WPH_Curr _Sensor_STB_Fault" 8 "WPH_Curr _Sensor_STG_Fault" 9 "WPH_Curr _Sensor_Offset_Fault" ;
+VAL_ 798 ETS_MOT_DemagFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_MotorOffsetMismatch_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_InternalHWfault_St_enum 0 "No Fault" 1 "MCU Enable Latch" 2 "ASC Asked by VCU" 3 " Encdr Offset Calc Latch" 4 " Mains FET Open in DriveTrain State other than Charge" 5 "Reserved" 6 "Reserved" 7 "Reserved" ;
+VAL_ 798 ETS_MOT_StallProtect_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_HW_PhShortFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_MOSFETFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_FastVdcdropFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_DCDCConverterFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_DrvTrqCommViolation_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_RgnTrqCommViolation_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 798 ETS_MCU_FocFault_St_enum 0 "No Fault" 1 "fault_foc_id" 2 "fault_foc_iq" 3 "fault_foc_ipeak" ;
+VAL_ 175 ETS_MCU_EncoderOffsetCal_St_enum 0 "Not in process" 1 "Pre offset calculation " 2 "motor-run" 3 "final offset calculation" 4 "offset update successfully" 5 "Process failed" ;
+VAL_ 175 ETS_MCU_HillHoldSelect_St_B 0 "Not selected" 1 "Selected" ;
+VAL_ 848 EVC_CHG_Status_St_enum 0 "Initializing" 1 "Ready Fresh CHG cycle " 2 "Error" 3 "Ready Resumed CHG cycle" ;
+VAL_ 848 EVC_CHG_CycleStatus_St_enum 0 "No active cycle" 1 "Charging" 2 "Charge Complete" 3 "Reserved" ;
+VAL_ 848 EVC_CHG_OperatingMode_St_enum 0 "Init" 1 "CC Mode" 2 "CV Mode" 3 "Standby" ;
+VAL_ 848 EVC_CHG_ACInputSupplyStatus_St_B 0 "No AC detected" 1 "AC Detected" ;
+VAL_ 848 EVC_CHG_CktTemp_Act_degC 255 "Reserved" 254 "Reserved" 253 "Reserved" 252 "Reserved" 251 "Reserved" 250 "Reserved" 249 "Reserved" 248 "Reserved" 247 "Reserved" 246 "Reserved" ;
+VAL_ 848 EVC_CHG_HousingTemp_Act_degC 255 "Reserved" 254 "Reserved" 253 "Reserved" 252 "Reserved" 251 "Reserved" 250 "Reserved" 249 "Reserved" 248 "Reserved" 247 "Reserved" 246 "Reserved" ;
+VAL_ 848 EVC_CHG_ACRMSVoltage_Act_V 511 "Reserved" 510 "Reserved" 509 "Reserved" 508 "Reserved" 507 "Reserved" ;
+VAL_ 849 EVC_CHG_FaultStatus_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_DeratingStatus_St_enum 0 "No derating" 1 "Over temperature" 2 "Under Temperature" 3 "Over AC Voltage" 4 "Under AC voltage" 5 "Fan Fault" 6 "Sensor Fault" 7 "Reserved" 8 "Reserved" 9 "Reserved" 10 "Reserved" 11 "Reserved" 12 "Reserved" 13 "Reserved" 14 "Reserved" 15 "Reserved" ;
+VAL_ 849 EVC_CHG_TempSensorFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_DCvoltSensorFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_DCcurrSensorFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_ACvoltSensorFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_InternalFuseFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_ACVoltageFault_St_enum 0 "No fault" 1 "Over Voltage Warning" 2 "Over Voltage Error" 3 "Over Voltage Fault" 4 "Under Voltage Warning" 5 "Under Voltage Error" 6 "Under Voltage Fault" 7 "Reserved" ;
+VAL_ 849 EVC_CHG_DCVoltageFault_St_enum 0 "No fault" 1 "Over Voltage Warning" 2 "Over Voltage Error" 3 "Over Voltage Fault" 4 "Under Voltage Warning" 5 "Under Voltage Error" 6 "Under Voltage Fault" 7 "Reserved" ;
+VAL_ 849 EVC_CHG_ACCurrentFault_St_enum 0 "No Fault" 1 "Over Current Warning" 2 "Over Current Error" 3 "Over Current Fault" ;
+VAL_ 849 EVC_CHG_DCCurrentFault_St_enum 0 "No Fault" 1 "Over Current Warning" 2 "Over Current Error" 3 "Over Current Fault" 4 "Under Current Fault" ;
+VAL_ 849 EVC_CHG_ChargerCRCViolation_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_OutRevPolarityFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_VCUCANcommTimeout_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_SetPointViolation_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_TempFault_St_B 0 "No Fault" 1 "Over temp warining" 2 "Over temp error" 3 "Under temp warining" 4 "Under temp error" ;
+VAL_ 849 EVC_CHG_Fan1Fault_St_B 0 "No Fault" 1 "Not applicable" 2 "Fault" 3 "Reserved" ;
+VAL_ 849 EVC_CHG_Fan2Fault_St_B 0 "No Fault" 1 "Not applicable" 2 "Fault" 3 "Reserved" ;
+VAL_ 849 EVC_CHG_MOVFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_ACcurrSensorFault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_ChecksumError_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_EEPROMError_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 849 EVC_CHG_PFC_Fault_St_B 0 "No Fault" 1 "Fault" ;
+VAL_ 850 EVC_CHG_InputEnergyCount_Act_kWh 1023 "Reserved" 1022 "Reserved" 1021 "Reserved" 1020 "Reserved" 1019 "Reserved" 1018 "Reserved" 1017 "Reserved" 1016 "Reserved" 1015 "Reserved" 1014 "Reserved" ;
+VAL_ 850 EVC_CHG_MaxAvailablePower_Act_W 4095 "Reserved" 4094 "Reserved" 4093 "Reserved" 4092 "Reserved" 4091 "Reserved" 4090 "Reserved" 4089 "Reserved" 4088 "Reserved" 4087 "Reserved" 4086 "Reserved" ;
+VAL_ 850 EVC_CHG_DCCurrent_Act_A 65535 "Reserved" 65534 "Reserved" 65533 "Reserved" 65532 "Reserved" 65531 "Reserved" 65530 "Reserved" 65529 "Reserved" 65528 "Reserved" 65527 "Reserved" 65526 "Reserved" ;
+VAL_ 850 EVC_CHG_DCVoltage_Act_V 65535 "Reserved" 65534 "Reserved" 65533 "Reserved" 65532 "Reserved" 65531 "Reserved" 65530 "Reserved" 65529 "Reserved" 65528 "Reserved" 65527 "Reserved" 65526 "Reserved" ;
+VAL_ 865 HMI_ICL_BrakeFluid_error_B 0 "Inactive" 1 "Active" 2 "Blink 1" 3 "Blink 2" ;
+VAL_ 865 HMI_ICL_Fault1_St_B 0 "Inactive" 1 "Active" ;
+VAL_ 865 HMI_ICL_ModeButtonStatus_St_B 0 "Unpressed" 1 "Pressed" 2 "Reserved" 3 "Reserved" ;
+VAL_ 1130 CNS_TEL_FOTAstatus_St_enum 0 "Init" 1 "Idle" 2 "Generating version manifest" 3 "Verifying metadata" 4 "Downloading firmware" 5 "Update NA" 6 "Ready to install" 7 "Request install" 8 "Installing" 9 "Update success" 10 "Update fail" 15 "ECU NA" ;
+VAL_ 1130 CNS_TEL_VehStateLivelog_St_enum 0 "Off" 1 "Drive" 2 "Charge" 3 "Standby" ;
+VAL_ 1130 CNS_TEL_IntBattLowV_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 1130 CNS_TEL_FaultType_St_enum 0 "No fault" 1 "Fault" 2 "Reserved" 3 "Reserved" ;
+VAL_ 1130 CNS_TEL_OperationMode_St_enum 0 "Off" 1 "Bootup" 2 "Active" 3 "Diagnostic" 4 "PeriodicWake" 5 "Reserved1" 6 "Reserved2" 7 "Reserved3" ;
+VAL_ 1130 CNS_TEL_UsrDfMaxChrgSOC_Ref_enum 0 "100 Default" 1 "90" 2 "75" 3 "50" 4 "Reserved" 5 "Reserved" 6 "Reserved" 7 "Reserved" ;
+VAL_ 1130 CNS_TEL_RemoteImmoSVBenable_St_B 0 "Disabled" 1 "Enabled" ;
+VAL_ 1130 CNS_TEL_GeofncSVBenable_St_B 0 "Disabled" 1 "Enabled" ;
+VAL_ 1130 CNS_TEL_GeofncSVBstatus_St_enum 0 "Safe" 1 "Warning" 2 "Violation" 3 "Invalid" ;
+VAL_ 1130 CNS_TEL_TheftSVBstatus_St_enum 0 "Safe" 1 "Warning" 2 "Violation" 3 "Invalid" ;
+VAL_ 1131 CNS_TEL_GPSfix_Act_enum 0 "None" 1 "2D" 2 "3D" 3 "Reserved" ;
+VAL_ 1132 CNS_TEL_GSMsigType_St_enum 0 "None" 1 "2G" 2 "3G" 3 "4G" ;
+VAL_ 1132 CNS_TEL_GSMfault_St_enum 0 "No fault" 1 "Fault" 2 "Reserved" 3 "Reserved" ;
+VAL_ 1132 CNS_TEL_GPRSfault_St_enum 0 "No fault" 1 "Fault" 2 "Reserved" 3 "Reserved" ;
+VAL_ 1132 CNS_TEL_ModemReady_St_B 0 "Not ready" 1 "Ready" ;
+VAL_ 1132 CNS_TEL_GSMnwRegnStatus_St_B 0 "Not connected" 1 "Connected" ;
+VAL_ 1132 CNS_TEL_PDNactivationStatus_St_B 0 "Not activated" 1 "Activated" ;
+VAL_ 1132 CNS_TEL_ServerConnectStatus_St_B 0 "Not connected" 1 "Connected" ;
+VAL_ 1132 CNS_TEL_GSM_rcv_qual_St_enum 0 "Very good reception" 1 "Very good reception" 2 "Good  reception" 3 "Good  reception" 4 "Average  reception" 5 "Average reception" 6 "Below average reception" 7 "Below average reception" 99 "Bad reception" ;
+VAL_ 787 ETS_VCU_UsrDfMaxChrgSOC_Ref_enum 0 "100 Default" 1 "90" 2 "75" 3 "50" 4 "Reserved" 5 "Reserved" 6 "Reserved" 7 "Reserved" ;
+VAL_ 787 ETS_VCU_BMStimeoutCAN_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 787 ETS_VCU_BMSsoftMismatch_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 787 ETS_VCU_BMSauthError_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 787 ETS_VCU_VCUBMSReqMode_Req_enum 0 "STANDBY" 1 "CHARGE EN" 2 "DISCHARGE EN" 3 "POWER DOWN" ;
+VAL_ 787 ETS_VCU_VCUErrEmerOff_Req_enum 0 "INIT" 1 "NORMAL" 2 "ENABLE" 3 "FAULT" ;
+VAL_ 787 ETS_VCU_BMSCommCtrl_St_enum 0 "ENABLE TX" 1 "DISABLE TX" ;
+VAL_ 787 ETS_VCU_BMSSendBattBIN_St_B 1 "ENABLE" 0 "DISABLE" ;
+VAL_ 1544 ESS_BMS_TempDchgUnderWar_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_TempDchgUnderSev_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_TempDchgUnderMod_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_TempDchgOverWar_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_TempDchgOverSev_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_TempDchgOverMod_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_PrechgLoadShort_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_BrickTempShort_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_BrickTempOpen_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_FETopenReqVCU_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_DchFETshorted_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_DchFETfailClose_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_PrechgTimeout_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_PrechgFETFailClose_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_extFuseBlown_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_CapPackLow_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_BrickOverdischarge_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_BrickOvercharge_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_AFEcommError_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_FEToverheat_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_iOverdischarge_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_iOvercharge_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_iUndercharge_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_VCUCmdMsgTimeout_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_AFEfault_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_ChgFETshorted_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_PowerpackInsuffErr_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_SensePackVoltError_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_iOverRegen_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_iOverHardware_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_SenseBrickVoltError_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_SenseLoadVoltError_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_SenseCurrentError_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_TempChgUnderSev_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_TempChgUnderMod_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_TempChgOverWar_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_TempChgOverSev_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_TempChgOverMod_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_TempBrickImbalance_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_ChgFETfailClose_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_vBrickOverWar_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_vBrickOverSev_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_vBrickOverMod_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_vBrickImbalance_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_TempChgUnderWar_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_vBrickUnderWar_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_vBrickUnderSev_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1544 ESS_BMS_vBrickUnderMod_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1536 ESS_BMS_vBrickOverMod_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1536 ESS_BMS_vBrickOverSev_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1536 ESS_BMS_vBrickOverWar_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1536 ESS_BMS_vBrickUnderMod_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1536 ESS_BMS_vBrickUnderSev_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1536 ESS_BMS_vBrickUnderWar_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1536 ESS_BMS_State_St_enum 0 "STANDBY" 1 "POWER_DOWN" 2 "PRECHARGING" 3 "OPENING FETS" 4 "CHARGE" 5 "DRIVE" 6 "FAULT" 7 "FAULT CRITICAL" ;
+VAL_ 1536 ESS_BMS_MainFETState_St_B 0 "OPEN" 1 "CLOSE" ;
+VAL_ 1536 ESS_BMS_PreChgFETState_St_B 0 "OPEN" 1 "CLOSE" ;
+VAL_ 1537 ESS_BMS_ChgMode_St_enum 0 "NOT_IN_CHARGE" 1 "CC" 2 "CV" 3 "CHARGE_COMPLETE" 4 "TIMED_OUT" 5 "ERROR" 6 "RESERVED1" 7 "RESERVED2" ;
+VAL_ 1537 ESS_BMS_ChgEnable_St_B 0 "DISABLE" 1 "ENABLE" ;
+VAL_ 1537 ESS_BMS_ChgDerateReason_St_enum 0 "NONE" 1 "OVERVOLTAGE" 2 "UNDERVOLTAGE" 3 "OVERCURRENT" 4 "OVERTEMP" 5 "UNDERTEMP" 6 "RESERVED" 7 "RESERVED1" ;
+VAL_ 1538 ESS_BMS_DchgDerateReason_St_enum 0 "NONE" 1 "OVERVOLTAGE" 2 "UNDERVOLTAGE" 3 "OVERCURRENT" 4 "OVERTEMP" 5 "UNDERTEMP" 6 "RESERVED" 7 "RESERVED1" ;
+VAL_ 1540 ESS_BMS_WakeUpReason_St_enum 3 "FAULT" 2 "OFF" 1 "ON" 0 "INIT" ;
+VAL_ 1540 ESS_BMS_ThermRunaway_St_B 1 "FAULT" 0 "OK" ;
+VAL_ 1514 CNS_TEL_MQTTprovision_St_enum 6 "Count" 5 "Connected" 4 "Subscribe in progress" 3 "Attempting to connect" 2 "Subscribe backoff" 1 "Connect Backoff" 0 "Invalid" ;
+VAL_ 1514 CNS_TEL_UptaneProvision_St_enum 4 "Not Started" 3 "Failed" 2 "Success" 1 "Provision in progress" 0 "Invalid" ;
+VAL_ 1514 CNS_TEL_DeepUpdaterState_St_enum 18 "Count" 17 "Manual update" 16 "Reset update manager" 15 "Deployment abborted" 14 "Deployment failed" 13 "Deployment succedded" 12 "Upload uptane provisioning info" 11 "Update" 10 "Wait for preconditions" 9 "Image download" 8 "Metadata Verification" 7 "Poll vehicle version counter" 6 "Vehicle version manifest upload" 5 "Get latest secure time" 4 "Version polling complete" 3 "Polling for version" 2 "Idle" 1 "Startup" 0 "Invalid" ;
+VAL_ 1514 CNS_TEL_DeepLoggerState_St_enum 8 "Partial Config accepted" 7 "Outgoing data serialization fail" 6 "Send Data to cloud failed" 5 "CAN_output queue full" 4 "Internal time not initialized" 3 "Module not initialized" 2 "Invalid arguments" 1 "No Error" 0 "Invalid" ;
+VAL_ 1514 CNS_TEL_ProvErrorState_St_enum 23 "Count" 22 "Fail-Company ID required" 21 "Fail-Company ID mismatch" 20 "Fail-Dev Sr Num Mismatch" 19 "Fail to load Cert post Prov" 18 "Fail to update metadata" 17 "Fail to store dev ID" 16 "Cert Reg fail to parse rep" 15 "Cert Reg rejected" 14 "Cert Reg timeout" 13 "Fail publish reg cert" 12 "Fail to store cert private key" 11 "Fail to store cert" 10 "Cert creait fail to parse resp" 9 "Cert create rejected" 8 "Cert create timeout" 7 "Fail-publish create certificate" 6 "Fail-Subscribe MQTT topics" 5 "Fail- Load Prov Cert failed" 4 "Fail-Dev sr Num Required" 3 "Fail-Preprov store items failed" 2 "Fail-Preprov reqiured" 1 "OK " 0 "Invalid" ;
+VAL_ 1514 CNS_TEL_ProvState_St_enum 6 "Error" 5 "Provisioned" 4 "Provisioning" 3 "Preprovisioning" 2 "Check Preconditions" 1 "Initial1" 0 "Invalid" ;
+VAL_ 1514 CNS_TEL_PreconState_St_enum 5 "Error" 4 "Provisioned" 3 "Provision Required" 2 "Preprovision Required" 1 "Initial" 0 "Invalid" ;
+VAL_ 1518 CNS_TEL_LivePubStat_St_enum 0 "None" 1 "Attempt" 2 "Success" 3 "Fail" ;
+VAL_ 1518 CNS_TEL_HistPubStat_St_enum 0 "None" 1 "Attempt" 2 "Success" 3 "Fail" ;
+VAL_ 1519 CNS_TEL_ExtFlashRdStat_St_enum 0 "None" 1 "Attempt" 2 "Success" 3 "Fail" ;
+VAL_ 1519 CNS_TEL_ExtFlashWrStat_St_enum 0 "None" 1 "Attempt" 2 "Success" 3 "Fail" ;
+VAL_ 1519 CNS_TEL_IGNdetect_Act_B 0 "Not detected" 1 "Detected" ;
+VAL_ 1519 CNS_TEL_ModemReset_Cmd_B 0 "Operation" 1 "Reset" ;
+VAL_ 1519 CNS_TEL_SubStatDL_St_B 0 "Success" 1 "Fail" ;
+VAL_ 1519 CNS_TEL_LogCfgEnableStat_St_B 0 "Enabled" 1 "Disabled" ;
+VAL_ 1519 CNS_TEL_LogCfgHashValidity_St_B 0 "Valid" 1 "Invalid" ;
+VAL_ 1519 CNS_TEL_BufferIndication_St_enum 0 "None" 1 "RAM" 2 "Flash" 3 "Reserved" ;
+VAL_ 1519 CNS_TEL_AllECUPollDone_St_B 0 "Polling" 1 "Complete" ;
+VAL_ 1519 CNS_TEL_SCUPoll_St_B 0 "Polling" 1 "Complete" ;
+VAL_ 1519 CNS_TEL_VCUPoll_St_B 0 "Polling" 1 "Complete" ;
+VAL_ 1519 CNS_TEL_MCUPoll_St_B 0 "Polling" 1 "Complete" ;
+VAL_ 1519 CNS_TEL_CCUPoll_St_B 0 "Polling" 1 "Complete" ;
+VAL_ 1519 CNS_TEL_TELPoll_St_B 0 "Polling" 1 "Complete" ;
+VAL_ 1519 CNS_TEL_ICLPoll_St_B 0 "Polling" 1 "Complete" ;
+VAL_ 1519 CNS_TEL_BM1Poll_St_B 0 "Polling" 1 "Complete" ;
+VAL_ 155 ETS_VCU_Rev_Pressed_St_B 0 "Reverse Switch Not pressed" 1 "Reverse Switch Pressed" ;
+VAL_ 155 ETS_VCU_Neut_Pressed_St_B 0 "Neutral Switch Not pressed" 1 "Neutral Switch Pressed" ;
+VAL_ 155 ETS_VCU_Drv_Pressed_St_B 0 "Drive Switch Not pressed" 1 "Drive Switch Pressed" ;
+VAL_ 155 ETS_VCU_GearPos_LrnCmplt_St_enum 0 "Gear Position Learninng not Complete" 1 "Gear Position Learninng Complete" ;
+VAL_ 155 ETS_VCU_TSC_Upshift_St_enum 0 "Not in Upshift State" 1 "Upshift Internal State1" 2 "Upshift Internal State2" 3 "Upshift Internal State3" 4 "Upshift Internal State4" ;
+VAL_ 155 ETS_VCU_TSC_Downshift_St_enum 0 "Not in Downshift State" 1 "Upshift Downshift State1" 2 "Upshift Downshift State2" 3 "Upshift Downshift State3" 4 "Upshift Downshift State4" ;
+VAL_ 155 ETS_VCU_Gear_Pos_ProcdPrev_St_B 0 "Gear Position Learning is not from Previous Learn Cycle" 1 "Gear Position Learning is from Previous Learn Cycle" ;
+VAL_ 155 ETS_VCU_Gear_Pos_Learn_St_enum 1 "Learning Init" 2 "Upper Side Learning" 3 "Lower Side Learning" 4 "Learning Complete with previous Cycle Learnt Value" 5 "Learning Complete" ;
+VAL_ 155 ETS_VCU_DCM_Shft_complt_St_B 0 "Gear shift not initiated or During Gear Shift" 1 "Gear Shift Complete" ;
+VAL_ 155 ETS_VCU_FOTA_State_enum 0 "NO_RQST_4_FOTA (TEL has not issued request for any FOTA or request is denied or completed)" 1 "WAIT 4 FOTA AUTH (Basic FOTA request vetted and waiting for authorization based on vehicle state)" 2 "WAIT_4_BATT_IDLE (wait state for max 800 ms for battery to go to idle state)" 3 "FOTA_AUTHORIZED (FOTA request accepted and authorized based on vehicle state)" 4 "WAIT_4_CAN_SILENCE (Wait for CAN silence before FOTA can proceed)" 5 "FOTA_IN_PROGRESS (TEL is talking to CU in question for programming)" ;
+VAL_ 155 ETS_VCU_BMS_low_cell_volt_St_B 0 "Battery voltage is healthy" 1 "Low battery voltage" ;
+VAL_ 2536505360 BATT_balStatusBrick16 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick15 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick14 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick13 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick12 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick11 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick10 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick09 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick08 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick07 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick06 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick05 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick04 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick03 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick02 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 2536505360 BATT_balStatusBrick01 0 "DISABLED" 1 "ENABLED" ;
+VAL_ 1554 HW_UV 1 "UV_NOT_DETECT" 0 "UV_DETECT" ;
+VAL_ 864 DacErrCode 4 "Unsupported" 3 "Timeout" 2 "Busy" 1 "Error" 0 "Success" ;
+VAL_ 346 ETS_VCU_High_Shift_Curr_St_B 0 "Disabled" 1 "Enabled" ;
+VAL_ 346 ETS_VCU_WheelSpdPlausErr_St_enum 0 "No Error" 1 "Error" ;
+VAL_ 346 ETS_VCU_nrmlShftrCurrCut_St_B 0 "Disabled" 1 "Enabled" ;
+VAL_ 346 ETS_VCU_DwnUpClsPWM_Cut_St_B 0 "Disabled" 1 "Enabled" ;
+VAL_ 346 ETS_VCU_DwnUpClsEntr_St_B 0 "Disabled" 1 "Enabled" ;
+VAL_ 346 ETS_VCU_cnt_NeuGearCls_St_enum 0 "Init" 1 "Back to N" 2 "RPM Control" 3 "Relax Mode" 4 "Try again" 5 "Reserved" 6 "Reserved" 7 "Reserved" ;
+VAL_ 346 ETS_VCU_clsh_detect_st_B 0 "Disabled" 1 "Enabled" ;
+VAL_ 346 ETS_VCU_Clash_State_St_enum 0 "Clash Not Active" 1 "Clash Debounce" 2 "Clash Detected" 3 "Gear Shift Complete" 4 "Debounce for Heal" 5 "Reserved" 6 "Reserved" 7 "Reserved" ;
+VAL_ 346 ETS_VCU_drft_ShftrCurrCut_St_B 0 "Disabled" 1 "Enabled" ;
+VAL_ 346 ETS_VCU_drift_cntrl_flg_st 0 "Drift control is not activated" 1 "Drift Control Activated" ;
+VAL_ 346 ETS_VCU_Gear_Ideal_St_enum 0 "Neutral" 1 "1st Gear" 2 "2nd Gear" 3 "Reserved" ;
+VAL_ 346 ETS_VCU_Neutral_Lrnt_flg_st 0 "Neutral Learning is not Present" 1 "Neutral Learning is Present" ;
+VAL_ 346 ETS_VCU_Boost_Mode_Enbl_st_B 0 "Disabled" 1 "Enabled" ;
+VAL_ 346 ETS_VCU_MCU_temp_PHShrt_st_B 0 "No Ph2Ph Short" 1 "Ph2Ph Short" ;
+VAL_ 790 MCU_Speed_Dir_St_B 0 "REV" 1 "FRWD" ;
+VAL_ 912 VCU_CompressorEnable_enum 0 "Commpressor Off" 1 "Compressor On" ;
+VAL_ 912 CHV_HeaterRelayEnable1_St_B 0 "Relay disabled" 1 "Relay enabled" ;
+VAL_ 912 CHV_HeaterRelayEnable2_St_B 0 "Relay disabled" 1 "Relay enabled" ;
+VAL_ 912 CHV_HeaterRelayEnable3_St_B 0 "Relay disabled" 1 "Relay enabled" ;
+VAL_ 913 CMP_CurrentStatus_enum 0 "Off" 1 "On" 2 "Reserved" 3 "Error" ;
+VAL_ 913 CMP_OvercurrentFault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 913 CMP_OvervoltageFault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 913 CMP_UndervoltageFault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 913 CMP_StndbyOvervoltageFault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 913 CMP_StndbyUndervoltageFault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 913 CMP_CommunicationError_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 913 CMP_OvrCurrFreqDrop_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 913 CMP_OvrPwrFreqDrop_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 914 CHV_SwitchStatus_St_B 0 "AC request OFF" 1 "AC request ON" ;
+VAL_ 914 CHV_PressureSensorFault_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 914 CHV_CondensorRelayStatus_St_B 0 "Relay disabled" 1 "Relay enabled" ;
+VAL_ 914 CHV_CompressorRelayStatus_St_B 0 "Relay disabled" 1 "Relay enabled" ;
+VAL_ 914 CHV_OperatingModeState_St_enum 0 "Default" 1 "Only Blower" 2 "Cooling" 3 "Heating" 4 "Reserved" 5 "Reserved" 6 "Reserved" 7 "Reserved" ;
+VAL_ 800 FCW_Stage_St_enum 0 "Safe" 1 "Warning" 2 "Critical" ;
+VAL_ 914 CHV_FaultStatus_St_B 0 "No fault" 1 "Fault" ;
+VAL_ 801 RADAR_BSD_Left_Active_St_B 0 "Clear" 1 "Occupied" ;
+VAL_ 801 RADAR_BSD_Right_Active_St_B 0 "Clear" 1 "Occupied" ;
+VAL_ 807 ACC_ADAS_FSM_State_St_enum 0 "IDLE" 1 "FCW" 2 "ACC" 3 "AEB" ;

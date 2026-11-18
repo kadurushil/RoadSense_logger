@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import com.bajajauto.roadsense.canedge.model.CanedgeHudPhase
 import com.bajajauto.roadsense.gnss.GnssFix
 import com.bajajauto.roadsense.sync.LiveSyncTelemetry
 import com.bajajauto.roadsense.ui.LiveMetricsSnapshot
@@ -29,6 +30,10 @@ private class HudHitBounds {
     var syncRight: Float = 0f
     var syncTop: Float = 0f
     var syncBottom: Float = 0f
+    var canLeft: Float = 0f
+    var canRight: Float = 0f
+    var canTop: Float = 0f
+    var canBottom: Float = 0f
 }
 
 /**
@@ -42,12 +47,14 @@ private class HudHitBounds {
 fun LiveMetricsBar(
     viewModel: RadarViewModel,
     onSyncClick: () -> Unit = {},
+    onCanClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val snapshotState = viewModel.liveMetricsSnapshot.collectAsState()
     LiveMetricsCanvasHud(
         snapshotProvider = { snapshotState.value },
         onSyncClick = onSyncClick,
+        onCanClick = onCanClick,
         modifier = modifier
     )
 }
@@ -94,6 +101,7 @@ fun LiveMetricsBar(
 private fun LiveMetricsCanvasHud(
     snapshotProvider: () -> LiveMetricsSnapshot,
     onSyncClick: () -> Unit,
+    onCanClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
@@ -129,12 +137,16 @@ private fun LiveMetricsCanvasHud(
             .fillMaxWidth()
             .height(barHeight)
             .clearAndSetSemantics {}
-            .pointerInput(onSyncClick) {
+            .pointerInput(onSyncClick, onCanClick) {
                 detectTapGestures { offset ->
                     if (offset.x in hitBounds.syncLeft..hitBounds.syncRight &&
                         offset.y in hitBounds.syncTop..hitBounds.syncBottom
                     ) {
                         onSyncClick()
+                    } else if (offset.x in hitBounds.canLeft..hitBounds.canRight &&
+                        offset.y in hitBounds.canTop..hitBounds.canBottom
+                    ) {
+                        onCanClick()
                     }
                 }
             }
@@ -175,6 +187,18 @@ private fun LiveMetricsCanvasHud(
         } else {
             "IDLE"
         }
+
+        val canColor = when (snap.canHudPhase) {
+            CanedgeHudPhase.CONNECTED_SYNCED -> colorGreen
+            CanedgeHudPhase.SYNCING -> colorCyan
+            CanedgeHudPhase.PAUSED_RECORDING,
+            CanedgeHudPhase.WAITING_FINAL_CHUNK,
+            CanedgeHudPhase.OFFLINE_PENDING,
+            CanedgeHudPhase.SCANNING -> colorAmber
+            CanedgeHudPhase.ERROR -> colorRed
+            CanedgeHudPhase.OFFLINE -> colorMuted
+        }
+        val canText = snap.canHudLabel
 
         val svColor = if (snap.satellitesUsed >= 6) colorGreen else colorAmber
         val svText = "${snap.satellitesUsed}/${snap.satellitesInView}"
@@ -219,6 +243,13 @@ private fun LiveMetricsCanvasHud(
             hitBounds.syncRight = curX
             hitBounds.syncTop = 0f
             hitBounds.syncBottom = h
+
+            val canStartX = curX
+            curX = drawPill(curX, baseY, "CAN", canText, canColor)
+            hitBounds.canLeft = canStartX - 4f * density
+            hitBounds.canRight = curX
+            hitBounds.canTop = 0f
+            hitBounds.canBottom = h
 
             // Center-right SVs & ACC
             var midX = (w * 0.62f).coerceAtLeast(curX + pillGap)
@@ -271,6 +302,14 @@ private fun LiveMetricsCanvasHud(
             val cpuValW = valuePaint.measureText(cpuText)
             val cpuStartX = batX - pillGap - cpuLabelW - labelValGap - cpuValW
             drawPill(cpuStartX, row2Y, "CPU", cpuText, cpuColor)
+
+            val canTotalW = labelPaint.measureText("CAN") + labelValGap + valuePaint.measureText(canText)
+            val canStartX = (cpuStartX - pillGap - canTotalW).coerceAtLeast(padX)
+            val canEndX = drawPill(canStartX, row2Y, "CAN", canText, canColor)
+            hitBounds.canLeft = canStartX - 4f * density
+            hitBounds.canRight = canEndX
+            hitBounds.canTop = h * 0.50f
+            hitBounds.canBottom = h
         }
     }
 }

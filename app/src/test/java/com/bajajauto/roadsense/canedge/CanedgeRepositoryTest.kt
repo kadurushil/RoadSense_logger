@@ -51,6 +51,40 @@ class CanedgeRepositoryTest {
     }
 
     @Test
+    fun testClockSkewCompensationPreventsPrematureActiveDownload() {
+        val repo = CanedgeRepository(CanedgeHttpClient())
+        val nowMs = 1_795_000_100_000L
+        val nowSec = nowMs / 1000L
+
+        // Active chunk written 4s ago, but CANedge RTC lags by 40s (so raw file timestamp is nowSec - 44)
+        val skewedActive = CanedgeFile(
+            name = "00000005.MF4",
+            path = "/LOG/7AC5E17F/00000117/00000005.MF4",
+            isDirectory = false,
+            sizeBytes = 65536L,
+            lastWrittenEpochSec = nowSec - 44L
+        )
+
+        // First observation with +40s offset compensated must NOT treat it as finished
+        assertFalse(
+            "Skew-compensated 4s-old active chunk should not look finished on first poll",
+            repo.isFileStable(skewedActive, listOf(skewedActive), estimatedClockOffsetMs = 40_000L, nowWallMs = nowMs)
+        )
+
+        // Second observation 1s later with same size is still too short (< 3s stability window)
+        assertFalse(
+            "Same size within <3s window should not yet confirm stability",
+            repo.isFileStable(skewedActive, listOf(skewedActive), estimatedClockOffsetMs = 40_000L, nowWallMs = nowMs + 1_000L)
+        )
+
+        // Third observation 3.5s after first poll confirms unchanged size -> safe!
+        assertTrue(
+            "Same non-zero size after >=3s interval should confirm stability",
+            repo.isFileStable(skewedActive, listOf(skewedActive), estimatedClockOffsetMs = 40_000L, nowWallMs = nowMs + 3_500L)
+        )
+    }
+
+    @Test
     fun testCanedgeDeviceUrls() {
         val dev = CanedgeDevice(deviceId = "7AC5E17F", ipAddress = "192.168.43.100")
         assertEquals("http://192.168.43.100:80/", dev.baseUrl)

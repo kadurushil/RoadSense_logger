@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -680,13 +681,16 @@ private fun CanedgeControlActions(
                 Text(
                     text = if (connectionState is CanedgeConnectionState.Connected) "Disconnect" else "Discover Device",
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
             Button(
                 onClick = onSync,
-                enabled = connectionState is CanedgeConnectionState.Connected && !syncStats.isSyncing && !syncStats.isFinalizingSession,
+                enabled = connectionState is CanedgeConnectionState.Connected && !syncStats.isSyncing && !syncStats.isFinalizingSession && !syncStats.isPausedDuringRecording,
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
             ) {
@@ -701,9 +705,17 @@ private fun CanedgeControlActions(
                 }
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = if (syncStats.isSyncing) "Syncing..." else "Sync Scope",
+                    text = when {
+                        syncStats.isPausedDuringRecording -> "Paused (Rec)"
+                        syncStats.isSyncing -> "Syncing..."
+                        syncStats.isWaitingFinalChunk -> "Waiting Tail..."
+                        else -> "Sync Scope"
+                    },
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -723,7 +735,14 @@ private fun CanedgeControlActions(
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(text = "File Explorer", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "File Explorer",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
 
             OutlinedButton(
@@ -736,7 +755,14 @@ private fun CanedgeControlActions(
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(text = "Prune Pool", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = "Prune Pool",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }
@@ -779,8 +805,22 @@ private fun CanedgeDiagnosticsCard(
             DetailRow(label = "Resolved IP Address", value = device?.ipAddress ?: "Unassigned")
             DetailRow(label = "Web Server Base URL", value = device?.apiBaseUrl ?: "http://.../api/")
             DetailRow(label = "Staging Pool Directory", value = "sessions/canedge_pool/")
-            DetailRow(label = "Target Scope", value = "2 Most Recent Folders")
+            DetailRow(label = "Target Scope", value = "2 Folders (Idle) / 10 (Pending)")
             DetailRow(label = "Chunk Splitting", value = "1 Minute (60s chunks)")
+            DetailRow(
+                label = "Watchdog State",
+                value = syncStats.hudPhase.name
+            )
+            DetailRow(
+                label = "Pending Reconciliation",
+                value = if (syncStats.pendingSessionsCount > 0) "${syncStats.pendingSessionsCount} Session(s)" else "All Synced"
+            )
+            DetailRow(
+                label = "Measured RTC Offset",
+                value = syncStats.measuredClockOffsetMs?.let {
+                    String.format(Locale.US, "%+.1f s", it / 1000.0)
+                } ?: "Awaiting rollover"
+            )
             DetailRow(
                 label = "Last Sync Event",
                 value = if (syncStats.lastSyncTimeMs > 0) {
@@ -795,11 +835,25 @@ private fun CanedgeDiagnosticsCard(
 private fun DetailRow(label: String, value: String) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(text = value, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.Monospace)
+        Text(
+            text = label,
+            fontSize = 11.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = value,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 1,
+            softWrap = false
+        )
     }
 }
 

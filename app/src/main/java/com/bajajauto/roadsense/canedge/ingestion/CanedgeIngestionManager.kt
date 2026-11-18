@@ -1,11 +1,11 @@
 package com.bajajauto.roadsense.canedge.ingestion
 
-import android.os.SystemClock
 import com.bajajauto.roadsense.canedge.discovery.CanedgeDiscovery
 import com.bajajauto.roadsense.canedge.model.CanedgeConnectionState
 import com.bajajauto.roadsense.canedge.model.CanedgeDevice
 import com.bajajauto.roadsense.canedge.model.CanedgeFile
 import com.bajajauto.roadsense.canedge.model.CanedgeFileStatus
+import com.bajajauto.roadsense.canedge.model.CanedgeHudPhase
 import com.bajajauto.roadsense.canedge.model.CanedgeSyncStats
 import com.bajajauto.roadsense.canedge.model.CanedgeUnifiedFileItem
 import com.bajajauto.roadsense.canedge.network.CanedgeHttpClient
@@ -13,49 +13,101 @@ import com.bajajauto.roadsense.canedge.repository.CanedgeRepository
 import com.bajajauto.roadsense.logging.AppLogger
 import com.bajajauto.roadsense.recording.SessionInfo
 import com.bajajauto.roadsense.recording.SessionManager
+import com.bajajauto.roadsense.storage.AppPreferences
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Autonomous file sync and ingestion manager:
- * Manages the local staging pool (canedge_pool/), prioritizes Radar & Camera during recording,
- * defers file staging to drive completion, and stamps physical monotonic recording times in session_timeline.csv.
+ * Autonomous, idempotent CANedge2 ingestion engine:
+ * - Runs a 1-second background watchdog that auto-connects to known hosts (5s cadence), pulls
+ *   closed `.MF4` chunks whenever idle, pauses immediately when recording starts, and resumes
+ *   1.5s after recording stops (including waiting for the tail 60s chunk to close).
+ * - Maintains `can_sync_manifest.json` + `pool_index.json` + `Mdf4HeaderInspector` metadata so
+ *   delayed/offline sessions ("Sync Later") reconcile accurately without `File.lastModified()`.
+ * - Deduplicates downloads across BOTH `canedge_pool/` and all `sessions/<session_id>/can/` dirs.
  */
 class CanedgeIngestionManager(
     private val discovery: CanedgeDiscovery,
     private val repository: CanedgeRepository,
     private val httpClient: CanedgeHttpClient,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val appPreferences: AppPreferences? = null
 ) {
 
     companion object {
         private const val TAG = "CanedgeIngestion"
-        private const val CAN_DIR_NAME = "can"
         private const val POOL_DIR_NAME = "canedge_pool"
-        private const val LEGACY_CACHE_DIR_NAME = "canedge_cache"
-        private const val CHUNK_DURATION_MS = 60_000L // 1-minute split chunks
-        private const val SESSION_WINDOW_GRACE_MS = 65_000L // 65s grace to capture in-progress 1-min chunk
-        private const val MAX_POOL_SIZE_BYTES = 300 * 1024 * 1024L // 300 MB cap
-        private const val TOP_RECENT_FOLDERS = 2 // Scope restricted to 2 most recent session folders
+        private const val MANIFEST_FILE_NAME = "can_sync_manifest.json"
+        private const val POOL_INDEX_FILE_NAME = "pool_index.json"
+
+        private const val IDLE_FOLDER_SCOPE = 2
+        private const val PENDING_FOLDER_SCOPE = 10
+        private const val MAX_IDLE_POOL_FILES = 25
+        private const val MAX_POOL_FILES = 50
+        private const val WATCHDOG_TICK_MS = 1_000L
+        private const val OFFLINE_PROBE_INTERVAL_MS = 5_000L
+        private const val WAITING_TAIL_POLL_INTERVAL_MS = 5_000L
+        private const val PENDING_SESSION_POLL_INTERVAL_MS = 8_000L
+        private const val IDLE_POLL_INTERVAL_MS = 12_000L
+        private const val POST_STOP_SETTLE_MS = 1_500L
+        private const val CLOCK_PREF_MAX_AGE_MS = 24L * 3_600_000L
     }
 
-    private val scope = CoroutineScope(Dispatchers.IO + Job())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var syncJob: Job? = null
+    private var watchdogJob: Job? = null
+
+    private val poolDir: File = File(sessionManager.sessionsBaseDir, POOL_DIR_NAME).apply { mkdirs() }
+    private val manifestFile: File = File(sessionManager.sessionsBaseDir, MANIFEST_FILE_NAME)
+    private val poolIndexFile: File = File(poolDir, POOL_INDEX_FILE_NAME)
+
+    private val stateLock = Any()
+    private val recentSessionsByDir = ConcurrentHashMap<String, SessionInfo>()
+    private val prevRemoteFilesByPath = ConcurrentHashMap<String, CanedgeFile>()
+
+    @Volatile
+    private var prevPollWallMs: Long = 0L
+
+    @Volatile
+    private var lastRemotePollMs: Long = 0L
+
+    @Volatile
+    private var lastOfflineProbeMs: Long = 0L
+
+    @Volatile
+    private var postStopSettleUntilMs: Long = 0L
+
+    @Volatile
+    private var pendingSyncRequested: Boolean = false
+
+    @Volatile
+    private var autoReconnectEnabled: Boolean = true
+
+    @Volatile
+    private var activeSession: SessionInfo? = null
+
+    @Volatile
+    private var measuredClockOffsetMs: Long? = null
 
     private val _stats = MutableStateFlow(CanedgeSyncStats())
     val stats: StateFlow<CanedgeSyncStats> = _stats.asStateFlow()
 
-    // Reactive lists for UI drill-down & unified explorer
     private val _remoteFiles = MutableStateFlow<List<CanedgeFile>>(emptyList())
     val remoteFiles: StateFlow<List<CanedgeFile>> = _remoteFiles.asStateFlow()
 
@@ -68,679 +120,1135 @@ class CanedgeIngestionManager(
     private val _unifiedFiles = MutableStateFlow<List<CanedgeUnifiedFileItem>>(emptyList())
     val unifiedFiles: StateFlow<List<CanedgeUnifiedFileItem>> = _unifiedFiles.asStateFlow()
 
-    @Volatile
-    private var activeSession: SessionInfo? = null
-
-    @Volatile
-    private var lastCompletedSession: SessionInfo? = null
-
-    val poolDir: File
-        get() = File(sessionManager.sessionsBaseDir, POOL_DIR_NAME).apply { mkdirs() }
-
     init {
+        cleanOrphanDownloads()
+        loadInitialPersistedOffset()
+        importUnreconciledDiskSessions()
         refreshLocalFileList()
-        pruneStagingPool()
+        recomputeIdleStats()
     }
 
     /**
-     * Constructs a collision-free local filename using folder prefix (e.g. 00000045_00000001.MF4).
+     * Starts the 1-second continuous watchdog loop (safe to call repeatedly; starts only once).
      */
-    fun getLocalFileName(file: CanedgeFile): String {
-        val cleanPathParts = file.path.trim('/').split('/')
-        return if (cleanPathParts.size >= 2) {
-            "${cleanPathParts[cleanPathParts.size - 2]}_${file.name}"
-        } else {
-            file.name
+    fun startWatchdog() {
+        if (watchdogJob?.isActive == true) return
+        watchdogJob = scope.launch {
+            AppLogger.i(TAG, "Started 1s CANedge2 background sync watchdog")
+            while (isActive) {
+                try {
+                    tickWatchdog()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Watchdog tick error: ${e.message}")
+                }
+                delay(WATCHDOG_TICK_MS)
+            }
         }
     }
 
     /**
-     * Gathers all .MF4 files safely preserved across ALL recorded session directories on the device.
+     * Shuts down background coroutines when the ViewModel is cleared.
      */
-    fun getAllRecordedSessionCanFiles(): List<File> {
-        return try {
-            sessionManager.sessionsBaseDir.listFiles { f -> f.isDirectory && f.name.startsWith("session_") }
-                ?.flatMap { sDir ->
-                    val canDir = File(sDir, CAN_DIR_NAME)
-                    if (canDir.exists()) {
-                        canDir.listFiles { f -> f.isFile && f.name.endsWith(".mf4", ignoreCase = true) }?.toList() ?: emptyList()
-                    } else emptyList()
-                } ?: emptyList()
-        } catch (e: Exception) {
-            emptyList()
+    fun shutdown() {
+        watchdogJob?.cancel()
+        syncJob?.cancel()
+        scope.cancel()
+    }
+
+    fun setAutoReconnectEnabled(enabled: Boolean) {
+        autoReconnectEnabled = enabled
+    }
+
+    private suspend fun tickWatchdog() {
+        val nowMs = System.currentTimeMillis()
+        val recording = activeSession != null
+        val connState = discovery.connectionState.value
+
+        if (recording) {
+            if (syncJob?.isActive == true) {
+                AppLogger.i(TAG, "Pausing CANedge sync while drive recording is active")
+                syncJob?.cancel()
+            }
+            if (!_stats.value.isPausedDuringRecording || _stats.value.hudPhase != CanedgeHudPhase.PAUSED_RECORDING) {
+                updateStatsSnapshot(
+                    connState,
+                    overridePhase = CanedgeHudPhase.PAUSED_RECORDING,
+                    isSyncing = false,
+                    isPaused = true
+                )
+            }
+            return
+        }
+
+        when (connState) {
+            is CanedgeConnectionState.Disconnected,
+            is CanedgeConnectionState.Error -> {
+                if (autoReconnectEnabled && (nowMs - lastOfflineProbeMs) >= OFFLINE_PROBE_INTERVAL_MS) {
+                    lastOfflineProbeMs = nowMs
+                    val found = discovery.probeKnownHost()
+                    if (found) {
+                        pendingSyncRequested = true
+                        return
+                    }
+                }
+                updateStatsSnapshot(discovery.connectionState.value, isPaused = false)
+            }
+
+            is CanedgeConnectionState.Scanning -> {
+                updateStatsSnapshot(connState, isPaused = false)
+            }
+
+            is CanedgeConnectionState.Connected -> {
+                val device = connState.device
+                if (syncJob?.isActive == true) return
+                if (nowMs < postStopSettleUntilMs) {
+                    updateStatsSnapshot(connState, isPaused = false)
+                    return
+                }
+
+                val manifest = readManifestSafe()
+                val hasWaitingTail = manifest.sessions.any { it.status == CanSessionSyncStatus.WAITING_FINAL_CHUNK }
+                val hasPending = manifest.pendingCount() > 0
+                val intervalMs = when {
+                    pendingSyncRequested -> 0L
+                    hasWaitingTail -> WAITING_TAIL_POLL_INTERVAL_MS
+                    hasPending -> PENDING_SESSION_POLL_INTERVAL_MS
+                    else -> IDLE_POLL_INTERVAL_MS
+                }
+
+                if ((nowMs - lastRemotePollMs) >= intervalMs) {
+                    pendingSyncRequested = false
+                    launchSyncPass(device, isPostStopTrigger = hasWaitingTail || hasPending)
+                } else {
+                    updateStatsSnapshot(connState, isPaused = false)
+                }
+            }
         }
     }
 
     /**
-     * Refreshes the local file lists for cached pool and active session files,
-     * updating both the telemetry stats and unified explorer items.
-     * Uses a robust name-by-name lookup table against planned remote files,
-     * checking both the local staging pool and all recorded session directories.
+     * Triggered when the user starts a RoadSense drive session.
+     * Immediately pauses background CANedge transfers so Wi-Fi/CPU remain dedicated to sensors.
      */
-    fun refreshLocalFileList() {
-        val pool = poolDir
-        val legacy = File(sessionManager.sessionsBaseDir, LEGACY_CACHE_DIR_NAME)
+    fun onSessionStarted(session: SessionInfo) {
+        activeSession = session
+        recentSessionsByDir[session.sessionDir.name] = session
+        syncJob?.cancel()
+        cleanOrphanDownloads()
 
-        val poolFiles = (pool.listFiles { f -> f.isFile && f.name.endsWith(".mf4", ignoreCase = true) }?.toList() ?: emptyList()) +
-                (if (legacy.exists()) legacy.listFiles { f -> f.isFile && f.name.endsWith(".mf4", ignoreCase = true) }?.toList() ?: emptyList() else emptyList())
-
-        val distinctPoolFiles = poolFiles.distinctBy { it.name }.sortedByDescending { it.lastModified() }
-
-        val targetSession = activeSession ?: lastCompletedSession
-        val sessionCanDir = targetSession?.let { File(it.sessionDir, CAN_DIR_NAME) }
-        val sessionFiles = if (sessionCanDir != null && sessionCanDir.exists()) {
-            sessionCanDir.listFiles { f -> f.isFile && f.name.endsWith(".mf4", ignoreCase = true) }?.toList() ?: emptyList()
-        } else emptyList()
-
-        val sortedSessionFiles = sessionFiles.sortedByDescending { it.lastModified() }
-
-        _localSyncedFiles.value = distinctPoolFiles
-        _localSessionFiles.value = sortedSessionFiles
-
-        // All files safely stored across ANY session on device
-        val allSessionCanFiles = getAllRecordedSessionCanFiles()
-        val allSessionFilesByName = allSessionCanFiles.associateBy { it.name }
-        val poolFilesByName = distinctPoolFiles.associateBy { it.name }
-        val plannedFiles = _remoteFiles.value
-
-        val verifiedSyncedCount = if (plannedFiles.isNotEmpty()) {
-            plannedFiles.count { rFile ->
-                val localName = getLocalFileName(rFile)
-                val pFile = poolFilesByName[localName] ?: allSessionFilesByName[localName]
-                pFile != null && (pFile.length() == rFile.sizeBytes || rFile.sizeBytes == 0L)
-            }.coerceAtMost(plannedFiles.size)
-        } else {
-            0
+        val offsetMs = resolveEffectiveClockOffsetMs(System.currentTimeMillis())
+        synchronized(stateLock) {
+            val manifest = CanSyncManifest.load(manifestFile)
+            val updated = manifest.upsertSession(
+                CanSessionSyncRecord(
+                    sessionId = session.sessionId,
+                    sessionDirName = session.sessionDir.name,
+                    startTimeWallMs = session.startTimeWallMs,
+                    stopTimeWallMs = null,
+                    status = CanSessionSyncStatus.PENDING,
+                    clockOffsetMs = offsetMs,
+                    lastAttemptMs = System.currentTimeMillis()
+                )
+            )
+            CanSyncManifest.save(manifestFile, updated)
         }
 
-        // Update stats
-        _stats.update { current ->
-            current.copy(
-                targetScopeFiles = plannedFiles.size,
-                poolSyncedFiles = verifiedSyncedCount,
-                poolFilesCount = distinctPoolFiles.size,
-                currentSessionFiles = sortedSessionFiles.size
+        _localSessionFiles.value = emptyList()
+        AppLogger.i(TAG, "Recording started for ${session.sessionId}: background CANedge sync PAUSED")
+        updateStatsSnapshot(
+            discovery.connectionState.value,
+            overridePhase = CanedgeHudPhase.PAUSED_RECORDING,
+            isSyncing = false,
+            isPaused = true,
+            currentSessionFiles = 0,
+            sessionTargetFiles = 0
+        )
+    }
+
+    /**
+     * Triggered AFTER `sessionRecorder.stopSession()` completes so `stopTimeWallMs` is populated.
+     * Queues the session in `can_sync_manifest.json` and arms automatic resumption after 1.5s settle.
+     */
+    fun onSessionStopped(stoppedSession: SessionInfo? = null) {
+        val session = stoppedSession ?: activeSession
+        activeSession = null
+        val nowMs = System.currentTimeMillis()
+
+        if (session != null) {
+            recentSessionsByDir[session.sessionDir.name] = session
+            val stopWallMs = session.stopTimeWallMs ?: nowMs
+            val offsetMs = resolveEffectiveClockOffsetMs(nowMs)
+
+            synchronized(stateLock) {
+                val manifest = CanSyncManifest.load(manifestFile)
+                val existing = manifest.sessions.firstOrNull { it.sessionDirName == session.sessionDir.name }
+                val rec = (existing ?: CanSessionSyncRecord(
+                    sessionId = session.sessionId,
+                    sessionDirName = session.sessionDir.name,
+                    startTimeWallMs = session.startTimeWallMs
+                )).copy(
+                    stopTimeWallMs = stopWallMs,
+                    status = CanSessionSyncStatus.PENDING,
+                    clockOffsetMs = existing?.clockOffsetMs ?: offsetMs,
+                    lastAttemptMs = nowMs
+                )
+                CanSyncManifest.save(manifestFile, manifest.upsertSession(rec))
+            }
+
+            session.canSyncStatus = CanSessionSyncStatus.PENDING.name
+            session.canClockOffsetMs = offsetMs
+            sessionManager.writeMetadata(session)
+
+            rescueSessionFromPoolOffline(session.sessionDir.name)
+            AppLogger.i(
+                TAG,
+                "Session ${session.sessionId} stopped (window ${session.startTimeWallMs}..$stopWallMs). Queued CAN reconciliation."
             )
         }
 
-        rebuildUnifiedFiles(allSessionFilesByName)
+        postStopSettleUntilMs = nowMs + POST_STOP_SETTLE_MS
+        pendingSyncRequested = true
+        updateStatsSnapshot(discovery.connectionState.value, isPaused = false, isFinalizing = (session != null))
     }
 
-    private fun rebuildUnifiedFiles(allSessionFilesByName: Map<String, File> = getAllRecordedSessionCanFiles().associateBy { it.name }) {
-        val remote = _remoteFiles.value
-        val poolFilesByName = _localSyncedFiles.value.associateBy { it.name }
+    /**
+     * Manually triggers a sync pass (re-enables auto-reconnect if previously disconnected).
+     */
+    fun triggerSync() {
+        autoReconnectEnabled = true
+        if (activeSession != null) {
+            AppLogger.i(TAG, "Ignoring manual CANedge sync while drive recording is active")
+            return
+        }
+        val device = discovery.currentDevice
+        if (device == null) {
+            pendingSyncRequested = true
+            scope.launch {
+                val found = discovery.probeKnownHost()
+                if (found) {
+                    discovery.currentDevice?.let { launchSyncPass(it, isPostStopTrigger = false) }
+                } else {
+                    discovery.startDiscovery { ok ->
+                        if (ok) {
+                            discovery.currentDevice?.let { launchSyncPass(it, isPostStopTrigger = false) }
+                        }
+                    }
+                }
+            }
+            return
+        }
+        if (syncJob?.isActive == true) {
+            pendingSyncRequested = true
+            return
+        }
+        launchSyncPass(device, isPostStopTrigger = false)
+    }
 
-        val unified = remote.map { rFile ->
-            val localName = getLocalFileName(rFile)
-            val sessionFile = allSessionFilesByName[localName]
-            val poolFile = poolFilesByName[localName]
+    private fun launchSyncPass(device: CanedgeDevice, isPostStopTrigger: Boolean) {
+        syncJob?.cancel()
+        syncJob = scope.launch {
+            runSyncPass(device, isPostStopTrigger)
+        }
+    }
 
-            val folderName = rFile.path.trim('/').split('/').let { parts ->
-                if (parts.size >= 2) parts[parts.size - 2] else "ROOT"
+    private suspend fun runSyncPass(device: CanedgeDevice, isPostStopTrigger: Boolean) {
+        val passStartMs = System.currentTimeMillis()
+        lastRemotePollMs = passStartMs
+        cleanOrphanDownloads()
+        backfillPoolIndexFromDisk()
+
+        if (activeSession != null) return
+
+        val pendingCountBefore = readManifestSafe().pendingCount()
+        updateStatsSnapshot(
+            discovery.connectionState.value,
+            isSyncing = true,
+            isFinalizing = isPostStopTrigger && pendingCountBefore > 0,
+            lastError = null
+        )
+
+        try {
+            // 1. Scan 2 newest folders when idle, or up to 10 folders when pending sessions need reconciliation
+            val scanFolders = if (pendingCountBefore > 0) PENDING_FOLDER_SCOPE else IDLE_FOLDER_SCOPE
+            AppLogger.d(
+                TAG,
+                "Starting sync pass (pendingSessions=$pendingCountBefore, scanFolders=$scanFolders, trigger=${if (isPostStopTrigger) "POST_STOP" else "WATCHDOG"})"
+            )
+            val scannedFiles = repository.listRecentSessionMf4Files(device, maxFolders = scanFolders)
+            if (activeSession != null) return
+
+            if (scannedFiles.isEmpty()) {
+                val stillAlive = httpClient.verifyDeviceAt(device.ipAddress, timeoutMs = 1500) != null
+                if (!stillAlive) {
+                    discovery.markConnectionLost("HTTP scan returned no data / device unreachable")
+                    reconcilePendingSessionsOffline()
+                    updateStatsSnapshot(discovery.connectionState.value, isSyncing = false, isFinalizing = false)
+                    return
+                }
             }
 
-            val inSession = sessionFile != null && sessionFile.length() > 0
-            val inPool = poolFile != null && (poolFile.length() == rFile.sizeBytes || rFile.sizeBytes == 0L)
-            val isCopied = inPool || inSession
+            _remoteFiles.value = scannedFiles
+
+            // 2. Measure RTC offset strictly from observed live rollover between consecutive polls
+            val pollNowMs = System.currentTimeMillis()
+            val prevSnapshot = prevRemoteFilesByPath.toMap()
+            val measured = CanedgeSyncPlanner.measureClockOffsetFromLiveTransition(
+                previousFilesByPath = prevSnapshot,
+                currentFiles = scannedFiles,
+                prevPollWallMs = prevPollWallMs,
+                nowPollWallMs = pollNowMs
+            )
+            prevRemoteFilesByPath.clear()
+            scannedFiles.forEach { prevRemoteFilesByPath[it.path] = it }
+            prevPollWallMs = pollNowMs
+
+            if (measured != null) {
+                measuredClockOffsetMs = measured
+                appPreferences?.canedgeLastClockOffsetMs = measured
+                appPreferences?.canedgeLastClockMeasuredAtMs = pollNowMs
+                synchronized(stateLock) {
+                    val m = CanSyncManifest.load(manifestFile)
+                    CanSyncManifest.save(
+                        manifestFile,
+                        m.copy(lastClockOffsetMs = measured, lastClockMeasuredAtMs = pollNowMs)
+                    )
+                }
+                AppLogger.i(TAG, "Measured live CANedge2 clock offset from chunk rollover: ${measured} ms")
+            }
+
+            val effectiveOffsetMs = resolveEffectiveClockOffsetMs(pollNowMs)
+            val poolIndex = readPoolIndexSafe()
+            val headerStartByLocalName = poolIndex.entries.associate { it.localName to it.headerStartTimeMs }
+            val manifestSnapshot = readManifestSafe()
+
+            // 3. Identify priority files required by PENDING / WAITING / PARTIAL sessions + open tail status
+            val prioritySessionFiles = mutableListOf<CanedgeFile>()
+            val pendingSessions = manifestSnapshot.sessions.filter {
+                it.status != CanSessionSyncStatus.COMPLETE && it.stopTimeWallMs != null
+            }
+            var anyWaitingFinalChunk = false
+
+            for (rec in pendingSessions) {
+                val plan = CanedgeSyncPlanner.planSessionChunks(
+                    session = rec,
+                    remoteFiles = scannedFiles,
+                    clockOffsetMs = effectiveOffsetMs,
+                    nowWallMs = pollNowMs,
+                    isSessionCurrentlyRecording = false,
+                    headerStartTimeByLocalName = headerStartByLocalName
+                )
+                if (plan.waitingForFinalChunk) {
+                    anyWaitingFinalChunk = true
+                }
+                for (rf in plan.matchedRemoteFiles) {
+                    if (repository.isFileStable(rf, scannedFiles, effectiveOffsetMs, pollNowMs)) {
+                        prioritySessionFiles.add(rf)
+                    } else {
+                        anyWaitingFinalChunk = true
+                    }
+                }
+            }
+
+            // 4. Add bounded idle pre-sync candidates (max 25 newest closed chunks across top 2 folders)
+            val allStableRemote = scannedFiles.filter { rf ->
+                repository.isFileStable(rf, scannedFiles, effectiveOffsetMs, pollNowMs)
+            }
+            val idlePoolCandidates = CanedgeSyncPlanner.selectIdlePoolCandidates(
+                stableRemoteFiles = allStableRemote,
+                maxFolders = IDLE_FOLDER_SCOPE,
+                maxFiles = MAX_IDLE_POOL_FILES
+            )
+            val orderedCandidates = (prioritySessionFiles + idlePoolCandidates).distinctBy { it.path }
+
+            // 5. Strict idempotent dedup across BOTH canedge_pool/ AND all sessions/session_<id>/can/
+            val poolCount = poolDir.listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }?.size ?: 0
+            val localSizesByName = collectAllLocalSizesByName()
+            val filesToDownload = CanedgeSyncPlanner.filterFilesNeedingDownload(orderedCandidates, localSizesByName)
+
+            val planSummary =
+                "Sync plan: remote=${scannedFiles.size} (stable=${allStableRemote.size}, scanFolders=$scanFolders), " +
+                        "candidates=${orderedCandidates.size} (sessionPriority=${prioritySessionFiles.size}, idleCap=${idlePoolCandidates.size}), " +
+                        "localUnique=${localSizesByName.size} (pool=$poolCount), toDownload=${filesToDownload.size}, offset=${effectiveOffsetMs}ms"
+            if (filesToDownload.isNotEmpty() || pendingSessions.isNotEmpty()) {
+                AppLogger.i(TAG, planSummary)
+                if (filesToDownload.isNotEmpty()) {
+                    val preview = filesToDownload.take(6).joinToString(", ") { it.localName }
+                    AppLogger.d(
+                        TAG,
+                        "Download queue preview (${filesToDownload.size}): [$preview${if (filesToDownload.size > 6) ", ..." else ""}]"
+                    )
+                }
+            } else {
+                AppLogger.d(TAG, planSummary)
+            }
+
+            // 6. Download needed chunks sequentially with zero-cost pause on recording start
+            val totalQueue = filesToDownload.size
+            var completedQueue = 0
+            for (rf in filesToDownload) {
+                if (activeSession != null) {
+                    throw CancellationException("Paused for active drive recording")
+                }
+
+                val targetPoolFile = File(poolDir, rf.localName)
+                val tempDownloadFile = File(poolDir, "${rf.localName}.download")
+
+                val ok = downloadFileWithRetry(device, rf, tempDownloadFile, targetPoolFile, completedQueue, totalQueue)
+                if (!ok) {
+                    val probeAlive = httpClient.verifyDeviceAt(device.ipAddress, timeoutMs = 1500) != null
+                    if (!probeAlive) {
+                        discovery.markConnectionLost("Transfer interrupted: CANedge unreachable")
+                        break
+                    }
+                    continue
+                }
+
+                completedQueue++
+                val headerInfo = Mdf4HeaderInspector.inspect(targetPoolFile)
+                val entry = PoolIndexEntry(
+                    localName = rf.localName,
+                    remotePath = rf.path,
+                    folderId = rf.folderName,
+                    sizeBytes = targetPoolFile.length(),
+                    remoteWrittenEpochSec = rf.lastWrittenEpochSec,
+                    headerStartTimeMs = headerInfo?.startTimeMs ?: 0L,
+                    downloadedAtMs = System.currentTimeMillis()
+                )
+                synchronized(stateLock) {
+                    val idx = PoolIndex.load(poolIndexFile).upsert(entry)
+                    PoolIndex.save(poolIndexFile, idx)
+                }
+            }
+
+            // 7. Reconcile all pending/waiting/partial sessions using newly-pooled files
+            val reconciliationResult = reconcilePendingSessionsOnline(
+                scannedFiles = scannedFiles,
+                effectiveOffsetMs = effectiveOffsetMs,
+                nowWallMs = System.currentTimeMillis()
+            )
+
+            // 8. Safe pool pruning after session staging
+            pruneStagingPool()
+            refreshLocalFileList()
+            updateUnifiedExplorerView(scannedFiles)
+
+            val updatedManifest = readManifestSafe()
+            val finalWaiting = anyWaitingFinalChunk || reconciliationResult.waitingFinalChunk
+            val targetScopeClosedCount = scannedFiles.count {
+                repository.isFileStable(it, scannedFiles, effectiveOffsetMs, System.currentTimeMillis())
+            }
+            val updatedLocalSizes = collectAllLocalSizesByName()
+            val syncedScopeCount = scannedFiles.count { rf ->
+                val sz = updatedLocalSizes[rf.localName]
+                sz != null && sz == rf.sizeBytes
+            }
+
+            updateStatsSnapshot(
+                connState = discovery.connectionState.value,
+                targetScopeFiles = targetScopeClosedCount,
+                poolSyncedFiles = syncedScopeCount,
+                isSyncing = false,
+                isFinalizing = false,
+                isPaused = false,
+                isWaitingTail = finalWaiting,
+                lastSyncTimeMs = System.currentTimeMillis(),
+                queueCompleted = completedQueue,
+                queueTotal = totalQueue,
+                activeFileName = null,
+                activeBytes = 0L,
+                activeTotal = 0L,
+                speedBps = 0L,
+                etaSec = 0,
+                currentSessionFiles = reconciliationResult.latestSessionStagedCount,
+                sessionTargetFiles = reconciliationResult.latestSessionMatchedCount,
+                manifestOverride = updatedManifest
+            )
+        } catch (e: CancellationException) {
+            cleanOrphanDownloads()
+            updateStatsSnapshot(
+                discovery.connectionState.value,
+                isSyncing = false,
+                isFinalizing = false,
+                isPaused = (activeSession != null),
+                activeFileName = null
+            )
+            throw e
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "CANedge sync pass error: ${e.message}", e)
+            cleanOrphanDownloads()
+            updateStatsSnapshot(
+                discovery.connectionState.value,
+                isSyncing = false,
+                isFinalizing = false,
+                lastError = e.message ?: "Sync error",
+                activeFileName = null
+            )
+        }
+    }
+
+    private suspend fun downloadFileWithRetry(
+        device: CanedgeDevice,
+        remoteFile: CanedgeFile,
+        tempFile: File,
+        destFile: File,
+        completedQueue: Int,
+        totalQueue: Int
+    ): Boolean {
+        for (attempt in 1..2) {
+            if (activeSession != null) throw CancellationException("Paused for recording")
+            tempFile.delete()
+            var lastSpeedBps = 0L
+            var lastTickAt = System.currentTimeMillis()
+            var lastTickBytes = 0L
+
+            val remoteUrl = "${device.apiBaseUrl}${remoteFile.path.trimStart('/')}"
+            val downloaded = httpClient.downloadToFile(
+                urlStr = remoteUrl,
+                destinationFile = tempFile
+            ) { bytesTransferred, totalBytes ->
+                val now = System.currentTimeMillis()
+                val dt = now - lastTickAt
+                if (dt >= 350L || bytesTransferred >= totalBytes) {
+                    val dBytes = bytesTransferred - lastTickBytes
+                    if (dt > 0L && dBytes > 0L) {
+                        lastSpeedBps = (dBytes * 1000L) / dt
+                    }
+                    lastTickAt = now
+                    lastTickBytes = bytesTransferred
+                    val effectiveTotal = if (totalBytes > 0L) totalBytes else remoteFile.sizeBytes
+                    val remaining = (effectiveTotal - bytesTransferred).coerceAtLeast(0L)
+                    val eta = if (lastSpeedBps > 0L) (remaining / lastSpeedBps).toInt() else 0
+                    val progress =
+                        if (effectiveTotal > 0L) (bytesTransferred.toFloat() / effectiveTotal).coerceIn(0f, 1f) else 0f
+
+                    _stats.value = _stats.value.copy(
+                        hudPhase = CanedgeHudPhase.SYNCING,
+                        isSyncing = true,
+                        activeFileName = remoteFile.localName,
+                        activeFileBytesTransferred = bytesTransferred,
+                        activeFileTotalBytes = effectiveTotal,
+                        activeFileProgress = progress,
+                        transferSpeedBytesPerSec = lastSpeedBps,
+                        etaSeconds = eta,
+                        queueCompletedFiles = completedQueue,
+                        queueTotalFiles = totalQueue
+                    )
+                }
+            }
+
+            if (downloaded && tempFile.exists() && tempFile.length() > 0L) {
+                if (destFile.exists()) destFile.delete()
+                if (!tempFile.renameTo(destFile)) {
+                    tempFile.copyTo(destFile, overwrite = true)
+                    tempFile.delete()
+                }
+                AppLogger.i(TAG, "Downloaded ${remoteFile.localName} (${destFile.length()} bytes) on attempt $attempt")
+                return true
+            }
+
+            tempFile.delete()
+            if (attempt < 2) {
+                delay(800L)
+            }
+        }
+        AppLogger.w(TAG, "Failed downloading ${remoteFile.path} after retries")
+        return false
+    }
+
+    private data class ReconcileSummary(
+        val waitingFinalChunk: Boolean,
+        val latestSessionStagedCount: Int,
+        val latestSessionMatchedCount: Int
+    )
+
+    private fun reconcilePendingSessionsOnline(
+        scannedFiles: List<CanedgeFile>,
+        effectiveOffsetMs: Long,
+        nowWallMs: Long
+    ): ReconcileSummary {
+        val manifest = readManifestSafe()
+        val poolIndex = readPoolIndexSafe()
+        val headerMap = poolIndex.entries.associate { it.localName to it.headerStartTimeMs }
+        val localFilesByName = collectAllLocalFileRefsByName()
+
+        var updatedManifest = manifest
+        var anyWaitingTail = false
+        var latestStaged = 0
+        var latestMatched = 0
+
+        val pending = manifest.sessions.filter {
+            it.status != CanSessionSyncStatus.COMPLETE && it.stopTimeWallMs != null
+        }
+
+        for (rec in pending) {
+            val sessionDir = File(sessionManager.sessionsBaseDir, rec.sessionDirName)
+            if (!sessionDir.exists()) {
+                updatedManifest = updatedManifest.upsertSession(
+                    rec.copy(
+                        status = CanSessionSyncStatus.COMPLETE,
+                        notes = "Session directory missing locally",
+                        lastAttemptMs = nowWallMs
+                    )
+                )
+                continue
+            }
+
+            val plan = CanedgeSyncPlanner.planSessionChunks(
+                session = rec,
+                remoteFiles = scannedFiles,
+                clockOffsetMs = effectiveOffsetMs,
+                nowWallMs = nowWallMs,
+                isSessionCurrentlyRecording = false,
+                headerStartTimeByLocalName = headerMap
+            )
+
+            val canDir = File(sessionDir, "can").apply { mkdirs() }
+            val matchedPaths = (rec.matchedRemotePaths + plan.matchedRemoteFiles.map { it.path }).distinct().sorted()
+            val stagedNames = stageLocalFilesIntoSessionCanDir(
+                canDir = canDir,
+                targetLocalNames = plan.matchedRemoteFiles.map { it.localName },
+                localFilesByName = localFilesByName
+            )
+
+            val allMatchedStaged = plan.matchedRemoteFiles.all { rf ->
+                val dest = File(canDir, rf.localName)
+                dest.exists() && dest.length() == rf.sizeBytes && rf.sizeBytes > 0L
+            }
+
+            val existingCanNames = canDir.listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }
+                ?.map { it.name }
+                .orEmpty()
+                .sorted()
+
+            val newStatus = when {
+                plan.waitingForFinalChunk -> {
+                    anyWaitingTail = true
+                    CanSessionSyncStatus.WAITING_FINAL_CHUNK
+                }
+
+                plan.matchedRemoteFiles.isNotEmpty() && allMatchedStaged -> CanSessionSyncStatus.COMPLETE
+                plan.matchedRemoteFiles.isEmpty() -> CanSessionSyncStatus.COMPLETE
+                else -> CanSessionSyncStatus.PARTIAL
+            }
+
+            val updatedRec = rec.copy(
+                status = newStatus,
+                clockOffsetMs = effectiveOffsetMs,
+                matchedRemotePaths = matchedPaths,
+                stagedLocalNames = existingCanNames,
+                lastAttemptMs = nowWallMs,
+                notes = when {
+                    plan.matchedRemoteFiles.isEmpty() && existingCanNames.isNotEmpty() && newStatus == CanSessionSyncStatus.COMPLETE ->
+                        "Retained ${existingCanNames.size} pre-existing CAN files"
+                    plan.matchedRemoteFiles.isEmpty() && newStatus == CanSessionSyncStatus.COMPLETE ->
+                        "No matching CAN chunks recorded during drive window"
+                    else -> null
+                }
+            )
+            updatedManifest = updatedManifest.upsertSession(updatedRec)
+            AppLogger.i(
+                TAG,
+                "Reconcile ${rec.sessionDirName}: ${rec.status} -> ${updatedRec.status} (matched=${plan.matchedRemoteFiles.size}, staged=${updatedRec.stagedLocalNames.size}, waitingTail=${plan.waitingForFinalChunk}, offset=${effectiveOffsetMs}ms)"
+            )
+
+            val countChanged = updatedRec.stagedLocalNames.size != rec.stagedLocalNames.size
+            val statusChanged = updatedRec.status != rec.status
+            if (statusChanged || countChanged) {
+                persistSessionMetadataAndTimeline(
+                    sessionDir,
+                    updatedRec,
+                    newlyStaged = stagedNames,
+                    offsetMs = effectiveOffsetMs
+                )
+            }
+
+            latestStaged = updatedRec.stagedLocalNames.size
+            latestMatched = updatedRec.matchedRemotePaths.size
+        }
+
+        synchronized(stateLock) {
+            CanSyncManifest.save(manifestFile, updatedManifest)
+        }
+        return ReconcileSummary(anyWaitingTail, latestStaged, latestMatched)
+    }
+
+    private fun reconcilePendingSessionsOffline() {
+        val manifest = readManifestSafe()
+        manifest.sessions
+            .filter { it.status != CanSessionSyncStatus.COMPLETE && it.stopTimeWallMs != null }
+            .forEach { rec -> rescueSessionFromPoolOffline(rec.sessionDirName) }
+    }
+
+    private fun rescueSessionFromPoolOffline(sessionDirName: String) {
+        val manifest = readManifestSafe()
+        val rec = manifest.sessions.firstOrNull { it.sessionDirName == sessionDirName } ?: return
+        if (rec.stopTimeWallMs == null) return
+
+        backfillPoolIndexFromDisk()
+        val poolIndex = readPoolIndexSafe()
+        val artifacts = poolIndex.entries.mapNotNull { entry ->
+            val file = File(poolDir, entry.localName)
+            if (!file.exists() || file.length() <= 0L) null
+            else PoolArtifact(
+                localName = entry.localName,
+                sizeBytes = file.length(),
+                remoteWrittenEpochSec = entry.remoteWrittenEpochSec,
+                headerStartTimeMs = entry.headerStartTimeMs
+            )
+        }
+        val offsetMs = rec.clockOffsetMs ?: resolveEffectiveClockOffsetMs(System.currentTimeMillis())
+        val matched = CanedgeSyncPlanner.planPoolRescueForSession(rec, artifacts, offsetMs)
+        if (matched.isEmpty()) return
+
+        val sessionDir = File(sessionManager.sessionsBaseDir, sessionDirName)
+        val canDir = File(sessionDir, "can").apply { mkdirs() }
+        val localFilesByName = collectAllLocalFileRefsByName()
+        val staged = stageLocalFilesIntoSessionCanDir(canDir, matched.map { it.localName }, localFilesByName)
+        if (staged.isNotEmpty()) {
+            val allInCan =
+                canDir.listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }?.map { it.name }.orEmpty().sorted()
+            val updatedRec = rec.copy(
+                stagedLocalNames = allInCan,
+                lastAttemptMs = System.currentTimeMillis()
+            )
+            synchronized(stateLock) {
+                CanSyncManifest.save(manifestFile, readManifestSafe().upsertSession(updatedRec))
+            }
+            persistSessionMetadataAndTimeline(sessionDir, updatedRec, newlyStaged = staged, offsetMs = offsetMs)
+        }
+    }
+
+    private fun stageLocalFilesIntoSessionCanDir(
+        canDir: File,
+        targetLocalNames: List<String>,
+        localFilesByName: Map<String, File>
+    ): List<String> {
+        val newlyStaged = mutableListOf<String>()
+        for (localName in targetLocalNames) {
+            val dest = File(canDir, localName)
+            val src = localFilesByName[localName] ?: continue
+            if (src.absolutePath == dest.absolutePath) continue
+            if (dest.exists() && dest.length() == src.length() && dest.length() > 0L) continue
+            try {
+                src.copyTo(dest, overwrite = true)
+                newlyStaged.add(localName)
+            } catch (e: Exception) {
+                AppLogger.w(TAG, "Failed staging $localName -> ${canDir.path}: ${e.message}")
+            }
+        }
+        return newlyStaged
+    }
+
+    private fun persistSessionMetadataAndTimeline(
+        sessionDir: File,
+        rec: CanSessionSyncRecord,
+        newlyStaged: List<String>,
+        offsetMs: Long
+    ) {
+        val memSession = recentSessionsByDir[sessionDir.name]
+        if (memSession != null) {
+            memSession.canSyncStatus = rec.status.name
+            memSession.canClockOffsetMs = offsetMs
+            sessionManager.writeMetadata(memSession)
+        } else {
+            val metaFile = File(sessionDir, SessionManager.METADATA_FILE_NAME)
+            if (metaFile.exists()) {
+                try {
+                    val root = JSONObject(metaFile.readText())
+                    val canDir = File(sessionDir, "can")
+                    val canFiles = canDir.listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) } ?: emptyArray()
+                    val canObj = JSONObject().apply {
+                        put("sensor", "CSS Electronics CANedge2")
+                        put("totalFiles", canFiles.size)
+                        put("syncStatus", rec.status.name)
+                        put("clockOffsetMs", offsetMs)
+                    }
+                    root.put("can", canObj)
+                    metaFile.writeText(root.toString(2))
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Failed updating metadata for ${sessionDir.name}: ${e.message}")
+                }
+            }
+        }
+
+        if (newlyStaged.isNotEmpty() || rec.status == CanSessionSyncStatus.COMPLETE) {
+            val timelineFile = File(sessionDir, "session_timeline.csv")
+            val marker = "CAN_SYNC_${rec.status.name}:${rec.stagedLocalNames.size}"
+            val alreadyRecorded = try {
+                timelineFile.exists() && timelineFile.readText().contains(marker)
+            } catch (_: Exception) {
+                false
+            }
+            if (!alreadyRecorded) {
+                val activeRef = recentSessionsByDir[sessionDir.name]
+                if (activeRef != null && activeSession?.sessionDir?.name == sessionDir.name) {
+                    sessionManager.recordTimelineEvent(
+                        elapsedRealtimeNs = android.os.SystemClock.elapsedRealtimeNanos(),
+                        sensor = "CAN",
+                        event = marker,
+                        sequenceId = rec.stagedLocalNames.size.toLong(),
+                        relativePath = "can/",
+                        summary = "${rec.stagedLocalNames.size} MF4 files (offset=${offsetMs}ms)"
+                    )
+                } else if (timelineFile.exists()) {
+                    try {
+                        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX", Locale.US)
+                        val wall = sdf.format(Date())
+                        val monoNs = android.os.SystemClock.elapsedRealtimeNanos()
+                        timelineFile.appendText("$wall,$monoNs,CAN,$marker,${rec.stagedLocalNames.size},can/,\"${rec.stagedLocalNames.size} MF4 files (offset=${offsetMs}ms)\"\n")
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+        }
+    }
+
+    fun refreshLocalFileList() {
+        val poolFiles = poolDir.listFiles { _, name ->
+            name.endsWith(".mf4", ignoreCase = true)
+        }?.sortedByDescending { it.name } ?: emptyList()
+        _localSyncedFiles.value = poolFiles
+
+        val latestDirName = activeSession?.sessionDir?.name
+            ?: readManifestSafe().sessions.lastOrNull()?.sessionDirName
+        val canFiles = if (latestDirName != null) {
+            File(File(sessionManager.sessionsBaseDir, latestDirName), "can")
+                .listFiles { _, name -> name.endsWith(".mf4", ignoreCase = true) }
+                ?.sortedBy { it.name }
+                ?: emptyList()
+        } else {
+            emptyList()
+        }
+        _localSessionFiles.value = canFiles
+        updateUnifiedExplorerView(_remoteFiles.value)
+    }
+
+    /**
+     * Safely prunes redundant files from `canedge_pool/` ONLY after they are safely staged
+     * inside `COMPLETE` sessions, protecting all pending/partial/waiting sessions and recent
+     * unstaged pre-sync pool entries.
+     */
+    fun pruneStagingPool() {
+        val manifest = readManifestSafe()
+        val stagedInAllSessions = collectAllSessionCanFileNames()
+        val poolFiles = poolDir.listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }
+            ?.sortedBy { it.name }
+            ?: return
+
+        val prunePlan = CanedgeSyncPlanner.planPoolPrune(
+            poolLocalNamesSortedOldestFirst = poolFiles.map { it.name },
+            manifest = manifest,
+            allStagedLocalNames = stagedInAllSessions,
+            maxPoolFiles = MAX_POOL_FILES
+        )
+        val toDelete = prunePlan.allToDelete.toSet()
+
+        if (toDelete.isEmpty()) return
+
+        var prunedStaged = 0
+        var prunedOverflow = 0
+        val stagedSet = prunePlan.stagedAndCompleteToDelete.toSet()
+        for (f in poolFiles) {
+            if (f.name in toDelete && f.delete()) {
+                if (f.name in stagedSet) prunedStaged++ else prunedOverflow++
+            }
+        }
+
+        val remainingNames = poolDir.listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }
+            ?.map { it.name }
+            ?.toSet()
+            ?: emptySet()
+        synchronized(stateLock) {
+            val cleanedIndex = PoolIndex.load(poolIndexFile).retainOnly(remainingNames)
+            PoolIndex.save(poolIndexFile, cleanedIndex)
+        }
+
+        val totalPruned = prunedStaged + prunedOverflow
+        if (totalPruned > 0) {
+            val sample = toDelete.take(5).joinToString(", ")
+            AppLogger.i(
+                TAG,
+                "Pruned $totalPruned files from canedge_pool (stagedComplete=$prunedStaged, overflow=$prunedOverflow, retained=${remainingNames.size}, protected=${prunePlan.protectedNames.size}, sample=[$sample])"
+            )
+        }
+        refreshLocalFileList()
+    }
+
+    private fun updateUnifiedExplorerView(remoteList: List<CanedgeFile>) {
+        val sessionCanNames = collectAllSessionCanFileNames()
+        val localFilesByName = collectAllLocalFileRefsByName()
+        val remoteByLocalName = remoteList.filter { it.isMf4 }.associateBy { it.localName }
+
+        val combinedKeys = (remoteByLocalName.keys + localFilesByName.keys).distinct().sortedDescending()
+        val items = combinedKeys.map { localName ->
+            val rf = remoteByLocalName[localName]
+            val localFile = localFilesByName[localName]
+            val onCanedge = rf != null
+            val onDevice = localFile != null && localFile.length() > 0L
+            val inSession = localName in sessionCanNames
+
+            val fileModel = rf ?: CanedgeFile(
+                name = localName.substringAfter("_", localName),
+                path = "/${localName.replace("_", "/")}",
+                isDirectory = false,
+                sizeBytes = localFile?.length() ?: 0L,
+                lastWrittenEpochSec = (localFile?.lastModified() ?: 0L) / 1000L
+            )
 
             val status = when {
                 inSession -> CanedgeFileStatus.IN_SESSION
-                inPool -> CanedgeFileStatus.IN_POOL
+                onDevice -> CanedgeFileStatus.IN_POOL
                 else -> CanedgeFileStatus.REMOTE_ONLY
             }
 
-            val localRef = sessionFile ?: poolFile
-
             CanedgeUnifiedFileItem(
-                file = rFile,
-                folderName = folderName,
+                file = fileModel,
+                folderName = rf?.folderName ?: localName.substringBefore("_", "root"),
                 status = status,
-                localFile = localRef,
-                isOnCanedge = true,
-                isCopiedToDevice = isCopied,
+                localFile = localFile,
+                isOnCanedge = onCanedge,
+                isCopiedToDevice = onDevice,
                 isAssignedToSession = inSession
             )
         }
-
-        _unifiedFiles.value = unified
+        _unifiedFiles.value = items
     }
 
-    /**
-     * Attaches an active RoadSense recording session.
-     * High-volume CAN copying is immediately deferred to guarantee 100% CPU/bandwidth for Radar and Camera.
-     */
-    fun onSessionStarted(sessionInfo: SessionInfo) {
-        activeSession = sessionInfo
-        lastCompletedSession = null
-        // Preempt any running idle sync job immediately
-        syncJob?.cancel()
-        syncJob = null
-
-        _stats.update {
-            it.copy(
-                currentSessionFiles = 0,
-                sessionTargetFiles = 0,
-                isFinalizingSession = false,
-                isSyncing = false
-            )
+    private fun collectAllLocalSizesByName(): Map<String, Long> {
+        val map = LinkedHashMap<String, Long>()
+        poolDir.listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }?.forEach { f ->
+            if (f.length() > 0L) map[f.name] = f.length()
         }
-        refreshLocalFileList()
-        AppLogger.i(TAG, "Attached to active session: ${sessionInfo.sessionId}. In-drive CAN sync deferred for Radar & Camera priority.")
-    }
-
-    /**
-     * Detaches active recording session and initiates post-recording staging finalizer.
-     * Pulls remaining closed chunks from CANedge and stages matching drive chunks into session/can/.
-     */
-    fun onSessionStopped() {
-        val completedSession = activeSession ?: return
-        activeSession = null
-        lastCompletedSession = completedSession
-
-        AppLogger.i(TAG, "Session stopped: ${completedSession.sessionId}. Launching post-recording staging finalizer...")
-
-        scope.launch {
-            try {
-                _stats.update { it.copy(isFinalizingSession = true) }
-                finalizeSessionIngestion(completedSession)
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Error in post-recording staging finalizer: ${e.message}", e)
-                _stats.update { it.copy(lastError = "Finalizing error: ${e.message}") }
-            } finally {
-                _stats.update {
-                    it.copy(
-                        isFinalizingSession = false,
-                        lastSyncTimeMs = System.currentTimeMillis(),
-                        activeFileName = null,
-                        activeFileBytesTransferred = 0L,
-                        activeFileTotalBytes = 0L,
-                        activeFileProgress = 0f,
-                        transferSpeedBytesPerSec = 0L,
-                        etaSeconds = 0
-                    )
-                }
-                refreshLocalFileList()
-                pruneStagingPool()
-            }
-        }
-    }
-
-    /**
-     * Finalizes session ingestion: pulls drive chunks into pool, copies into session/can/,
-     * and logs chronological physical monotonic events into session_timeline.csv.
-     */
-    private suspend fun finalizeSessionIngestion(session: SessionInfo) = withContext(Dispatchers.IO) {
-        val device = discovery.currentDevice
-        if (device == null) {
-            AppLogger.w(TAG, "Cannot finalize CAN logs: Device disconnected")
-            return@withContext
-        }
-
-        AppLogger.i(TAG, "Scanning CANedge recent folders for session ${session.sessionId}...")
-        delay(1200) // Brief delay to give logger time to finalize closing split chunk
-
-        val recentFiles = repository.listRecentSessionMf4Files(device, TOP_RECENT_FOLDERS)
-        _remoteFiles.value = recentFiles
-        _stats.update { it.copy(targetScopeFiles = recentFiles.size) }
-
-        val windowStartMs = session.startTimeWallMs - SESSION_WINDOW_GRACE_MS
-        val windowStopMs = (session.stopTimeWallMs ?: System.currentTimeMillis()) + SESSION_WINDOW_GRACE_MS
-
-        val sessionCandidates = recentFiles.filter { file ->
-            val isWithinWindow = file.lastWrittenMs in windowStartMs..windowStopMs
-            val isFromLatest = recentFiles.isNotEmpty() &&
-                    file.path.contains("/${recentFiles.first().path.trim('/').split('/').dropLast(1).last()}/") &&
-                    file.lastWrittenMs >= (session.startTimeWallMs - 30_000L)
-            isWithinWindow || isFromLatest
-        }.sortedBy { it.path }
-
-        _stats.update { it.copy(sessionTargetFiles = sessionCandidates.size, currentSessionFiles = 0) }
-        AppLogger.i(TAG, "Identified ${sessionCandidates.size} CAN chunks belonging to session ${session.sessionId}")
-
-        val sessionCanDir = File(session.sessionDir, CAN_DIR_NAME).apply { mkdirs() }
-        var stagedCount = 0
-
-        for ((index, file) in sessionCandidates.withIndex()) {
-            val localName = getLocalFileName(file)
-            val poolFile = File(poolDir, localName)
-
-            // Step 1: Ensure chunk is downloaded into local staging pool
-            if (!poolFile.exists() || poolFile.length() != file.sizeBytes) {
-                if (repository.isFileStable(file, recentFiles)) {
-                    val tempFile = File(poolDir, "$localName.download")
-                    val remoteUrl = "${device.apiBaseUrl}${file.path.trimStart('/')}"
-                    AppLogger.i(TAG, "Pulling remaining chunk for drive: ${file.path} (${file.sizeBytes} bytes)...")
-
-                    val downloadStartTime = SystemClock.elapsedRealtime()
-                    _stats.update {
-                        it.copy(
-                            activeFileName = localName,
-                            activeFileBytesTransferred = 0L,
-                            activeFileTotalBytes = file.sizeBytes,
-                            activeFileProgress = 0f,
-                            transferSpeedBytesPerSec = 0L,
-                            etaSeconds = 0
-                        )
-                    }
-
-                    val downloaded = httpClient.downloadToFile(remoteUrl, tempFile) { bytesCopied, totalBytes ->
-                        val elapsedMs = (SystemClock.elapsedRealtime() - downloadStartTime).coerceAtLeast(1L)
-                        val speedBps = (bytesCopied * 1000L) / elapsedMs
-                        val remainingBytes = (totalBytes - bytesCopied).coerceAtLeast(0L)
-                        val etaSec = if (speedBps > 0) (remainingBytes / speedBps).toInt() else 0
-                        val progress = if (totalBytes > 0) (bytesCopied.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
-
-                        _stats.update {
-                            it.copy(
-                                activeFileName = localName,
-                                activeFileBytesTransferred = bytesCopied,
-                                activeFileTotalBytes = totalBytes,
-                                activeFileProgress = progress,
-                                transferSpeedBytesPerSec = speedBps,
-                                etaSeconds = etaSec
-                            )
-                        }
-                    }
-
-                    if (downloaded && tempFile.exists() && (tempFile.length() == file.sizeBytes || file.sizeBytes == 0L)) {
-                        if (poolFile.exists()) poolFile.delete()
-                        tempFile.renameTo(poolFile)
-                    } else {
-                        if (tempFile.exists()) tempFile.delete()
-                    }
+        sessionManager.listSessions().forEach { sDir ->
+            File(sDir, "can").listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }?.forEach { f ->
+                if (f.length() > 0L) {
+                    map.putIfAbsent(f.name, f.length())
                 }
             }
+        }
+        return map
+    }
 
-            // Step 2: Copy from pool into session folder
-            if (poolFile.exists() && poolFile.length() > 0) {
-                val sessionDestFile = File(sessionCanDir, localName)
-                if (!sessionDestFile.exists() || sessionDestFile.length() != poolFile.length()) {
-                    poolFile.copyTo(sessionDestFile, overwrite = true)
-                }
+    private fun collectAllLocalFileRefsByName(): Map<String, File> {
+        val map = LinkedHashMap<String, File>()
+        poolDir.listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }?.forEach { f ->
+            if (f.length() > 0L) map[f.name] = f
+        }
+        sessionManager.listSessions().forEach { sDir ->
+            File(sDir, "can").listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }?.forEach { f ->
+                if (f.length() > 0L) map.putIfAbsent(f.name, f)
+            }
+        }
+        return map
+    }
 
-                stagedCount++
-                _stats.update { it.copy(currentSessionFiles = stagedCount) }
+    private fun collectAllSessionCanFileNames(): Set<String> {
+        val names = HashSet<String>()
+        sessionManager.listSessions().forEach { sDir ->
+            File(sDir, "can").listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }?.forEach { f ->
+                if (f.length() > 0L) names.add(f.name)
+            }
+        }
+        return names
+    }
 
-                // Step 3: Record accurate physical recording monotonic timestamp
-                // 1-minute split chunk was logged between (file.lastWrittenMs - CHUNK_DURATION_MS) and file.lastWrittenMs
-                val chunkStartOffsetMs = (file.lastWrittenMs - CHUNK_DURATION_MS) - session.startTimeWallMs
-                val chunkMonoNs = session.startTimeMonotonicNs + (chunkStartOffsetMs.coerceAtLeast(0L) * 1_000_000L)
+    private fun backfillPoolIndexFromDisk() {
+        val existingIdx = readPoolIndexSafe()
+        val byName = existingIdx.byLocalName().toMutableMap()
+        var dirty = false
 
-                sessionManager.recordTimelineEvent(
-                    elapsedRealtimeNs = chunkMonoNs,
-                    sensor = "CAN",
-                    event = "MF4_FILE",
-                    sequenceId = (index + 1).toLong(),
-                    relativePath = "$CAN_DIR_NAME/${sessionDestFile.name}",
-                    summary = "size=${sessionDestFile.length()};remotePath=${file.path};lastWrittenMs=${file.lastWrittenMs}"
+        val diskFiles = poolDir.listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) } ?: emptyArray()
+        for (f in diskFiles) {
+            if (!byName.containsKey(f.name) && f.length() > 0L) {
+                val hdr = Mdf4HeaderInspector.inspect(f)
+                val folder = CanedgeSyncPlanner.parseChunkKey(f.name)?.folderId ?: ""
+                byName[f.name] = PoolIndexEntry(
+                    localName = f.name,
+                    remotePath = if (folder.isNotEmpty()) "/$folder/${f.name.substringAfter("_")}" else "/${f.name}",
+                    folderId = folder,
+                    sizeBytes = f.length(),
+                    remoteWrittenEpochSec = 0L,
+                    headerStartTimeMs = hdr?.startTimeMs ?: 0L,
+                    downloadedAtMs = f.lastModified()
                 )
-                AppLogger.i(TAG, "Staged chunk #${index + 1} (${sessionDestFile.name}) into session at offset +${chunkStartOffsetMs / 1000f}s")
+                dirty = true
             }
         }
-
-        // Reset active transfer telemetry after staging completes
-        _stats.update {
-            it.copy(
-                activeFileName = null,
-                activeFileBytesTransferred = 0L,
-                activeFileTotalBytes = 0L,
-                activeFileProgress = 0f,
-                transferSpeedBytesPerSec = 0L,
-                etaSeconds = 0
-            )
+        if (dirty) {
+            synchronized(stateLock) {
+                PoolIndex.save(poolIndexFile, PoolIndex(byName.values.sortedBy { it.localName }))
+            }
         }
+    }
 
-        // Step 4: Finalize session metadata
-        sessionManager.writeMetadata(session)
-        AppLogger.i(TAG, "Session CAN staging completed: $stagedCount / ${sessionCandidates.size} files staged.")
+    private fun cleanOrphanDownloads() {
+        poolDir.listFiles { _, n -> n.endsWith(".download", ignoreCase = true) }?.forEach { f ->
+            if (f.delete()) {
+                AppLogger.i(TAG, "Cleaned orphaned partial transfer: ${f.name}")
+            }
+        }
     }
 
     /**
-     * Triggers an immediate one-shot sync cycle for idle pool caching.
+     * Scans recent closed session folders on disk (including pre-manifest sessions recorded while
+     * offline/disconnected) and registers any session missing `can.syncStatus == COMPLETE` into
+     * `can_sync_manifest.json` so background idle passes backfill them from up to 10 CANedge folders.
      */
-    fun triggerSync() {
-        if (activeSession != null) {
-            AppLogger.d(TAG, "Recording in progress. Deferring heavy sync until stop.")
-            return
-        }
+    private fun importUnreconciledDiskSessions(maxSessionsToInspect: Int = 15) {
+        val diskSessions = sessionManager.listSessions()
+            .sortedByDescending { it.name }
+            .take(maxSessionsToInspect)
+        if (diskSessions.isEmpty()) return
 
-        if (_stats.value.isSyncing) {
-            AppLogger.d(TAG, "Sync already in progress. Skipping duplicate trigger.")
-            return
-        }
+        synchronized(stateLock) {
+            var manifest = CanSyncManifest.load(manifestFile)
+            val existingDirs = manifest.sessions.map { it.sessionDirName }.toHashSet()
+            var addedCount = 0
 
-        syncJob?.cancel()
-        syncJob = scope.launch {
-            val device = discovery.currentDevice
-            if (device == null) {
-                AppLogger.w(TAG, "Cannot sync: No CANedge device currently connected")
-                _stats.update { it.copy(lastError = "Device not connected") }
-                return@launch
-            }
+            for (sDir in diskSessions) {
+                if (sDir.name == activeSession?.sessionDir?.name) continue
+                if (sDir.name in existingDirs) continue
 
-            try {
-                _stats.update { it.copy(isSyncing = true, lastError = null) }
-                performPoolSync(device)
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "Sync error: ${e.message}", e)
-                _stats.update { it.copy(lastError = e.message) }
-            } finally {
-                _stats.update {
-                    it.copy(
-                        isSyncing = false,
-                        lastSyncTimeMs = System.currentTimeMillis(),
-                        activeFileName = null,
-                        activeFileBytesTransferred = 0L,
-                        activeFileTotalBytes = 0L,
-                        activeFileProgress = 0f,
-                        transferSpeedBytesPerSec = 0L,
-                        etaSeconds = 0
+                val metaFile = File(sDir, SessionManager.METADATA_FILE_NAME)
+                if (!metaFile.exists() || !metaFile.isFile) continue
+
+                try {
+                    val root = JSONObject(metaFile.readText())
+                    val startMs = root.optLong("startTimeWallMs", 0L)
+                    val stopMs = root.optLong("stopTimeWallMs", 0L)
+                    if (startMs <= 0L || stopMs <= 0L) continue
+
+                    val canObj = root.optJSONObject("can")
+                    val existingStatus = canObj?.optString("syncStatus", "") ?: ""
+                    if (existingStatus.equals(CanSessionSyncStatus.COMPLETE.name, ignoreCase = true)) continue
+
+                    val canFiles = File(sDir, "can")
+                        .listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }
+                        ?.map { it.name }
+                        ?.sorted()
+                        ?: emptyList()
+
+                    val rec = CanSessionSyncRecord(
+                        sessionId = root.optString("sessionId", sDir.name),
+                        sessionDirName = sDir.name,
+                        startTimeWallMs = startMs,
+                        stopTimeWallMs = stopMs,
+                        status = CanSessionSyncStatus.PENDING,
+                        stagedLocalNames = canFiles,
+                        lastAttemptMs = 0L,
+                        notes = "Imported legacy/offline session for CAN reconciliation"
                     )
+                    manifest = manifest.upsertSession(rec)
+                    addedCount++
+                } catch (e: Exception) {
+                    AppLogger.w(TAG, "Skipping metadata import for ${sDir.name}: ${e.message}")
                 }
-                refreshLocalFileList()
-                pruneStagingPool()
+            }
+
+            if (addedCount > 0) {
+                CanSyncManifest.save(manifestFile, manifest)
+                AppLogger.i(TAG, "Imported $addedCount unreconciled session(s) from disk into can_sync_manifest.json for background CAN backfill")
             }
         }
     }
 
-    /**
-     * Downloads stable chunks from top 5 recent folders into canedge_pool/ while idle.
-     */
-    private suspend fun performPoolSync(device: CanedgeDevice) = withContext(Dispatchers.IO) {
-        AppLogger.i(TAG, "Scanning top $TOP_RECENT_FOLDERS recent session folders on ${device.deviceId}...")
-        val recentFiles = repository.listRecentSessionMf4Files(device, TOP_RECENT_FOLDERS)
-
-        _remoteFiles.value = recentFiles
-        _stats.update { it.copy(targetScopeFiles = recentFiles.size) }
-
-        var newFilesCount = 0
-
-        for (file in recentFiles) {
-            if (activeSession != null) {
-                AppLogger.i(TAG, "Session started during sync. Preempting idle sync immediately.")
-                break
-            }
-
-            if (!repository.isFileStable(file, recentFiles)) {
-                AppLogger.d(TAG, "Skipping active/unstable file: ${file.path}")
-                continue
-            }
-
-            val localFileName = getLocalFileName(file)
-            val poolFile = File(poolDir, localFileName)
-
-            if (poolFile.exists() && poolFile.length() == file.sizeBytes) {
-                continue
-            }
-
-            val tempFile = File(poolDir, "$localFileName.download")
-            val remoteUrl = "${device.apiBaseUrl}${file.path.trimStart('/')}"
-
-            AppLogger.i(TAG, "Downloading to pool: ${file.path} (${file.sizeBytes} bytes)...")
-
-            val downloadStartTime = SystemClock.elapsedRealtime()
-            _stats.update {
-                it.copy(
-                    activeFileName = localFileName,
-                    activeFileBytesTransferred = 0L,
-                    activeFileTotalBytes = file.sizeBytes,
-                    activeFileProgress = 0f,
-                    transferSpeedBytesPerSec = 0L,
-                    etaSeconds = 0
-                )
-            }
-
-            val success = httpClient.downloadToFile(remoteUrl, tempFile) { bytesCopied, totalBytes ->
-                val elapsedMs = (SystemClock.elapsedRealtime() - downloadStartTime).coerceAtLeast(1L)
-                val speedBps = (bytesCopied * 1000L) / elapsedMs
-                val remainingBytes = (totalBytes - bytesCopied).coerceAtLeast(0L)
-                val etaSec = if (speedBps > 0) (remainingBytes / speedBps).toInt() else 0
-                val progress = if (totalBytes > 0) (bytesCopied.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f) else 0f
-
-                _stats.update {
-                    it.copy(
-                        activeFileName = localFileName,
-                        activeFileBytesTransferred = bytesCopied,
-                        activeFileTotalBytes = totalBytes,
-                        activeFileProgress = progress,
-                        transferSpeedBytesPerSec = speedBps,
-                        etaSeconds = etaSec
-                    )
-                }
-            }
-
-            if (success && tempFile.exists() && (tempFile.length() == file.sizeBytes || file.sizeBytes == 0L)) {
-                if (poolFile.exists()) poolFile.delete()
-                if (tempFile.renameTo(poolFile)) {
-                    newFilesCount++
-                    refreshLocalFileList()
-                    AppLogger.i(TAG, "SUCCESS: Cached in pool -> ${poolFile.name}")
-                } else {
-                    tempFile.delete()
-                }
-            } else {
-                if (tempFile.exists()) tempFile.delete()
+    private fun loadInitialPersistedOffset() {
+        val nowMs = System.currentTimeMillis()
+        val prefMeasuredAt = appPreferences?.canedgeLastClockMeasuredAtMs ?: 0L
+        if (prefMeasuredAt > 0L && (nowMs - prefMeasuredAt) < CLOCK_PREF_MAX_AGE_MS) {
+            measuredClockOffsetMs = appPreferences?.canedgeLastClockOffsetMs
+        } else {
+            val manifest = readManifestSafe()
+            val mAt = manifest.lastClockMeasuredAtMs ?: 0L
+            if (mAt > 0L && (nowMs - mAt) < CLOCK_PREF_MAX_AGE_MS) {
+                measuredClockOffsetMs = manifest.lastClockOffsetMs
             }
         }
-
-        // Reset active transfer telemetry after sync completes
-        _stats.update {
-            it.copy(
-                activeFileName = null,
-                activeFileBytesTransferred = 0L,
-                activeFileTotalBytes = 0L,
-                activeFileProgress = 0f,
-                transferSpeedBytesPerSec = 0L,
-                etaSeconds = 0
-            )
-        }
-
-        AppLogger.i(TAG, "Idle pool sync complete. Ingested $newFilesCount new files into staging pool.")
     }
 
-    /**
-     * Smart Auto-Pruning Engine:
-     * - Scans all recorded sessions to ensure no needed files are lost.
-     * - Auto-rescues/backfills any un-staged CAN chunks into matching recorded sessions.
-     * - Clears redundant duplicates from canedge_pool/ that are already safely stored in recorded sessions.
-     * - Deletes stale accumulated pool files that belong to no recorded session and fall outside the active top-5 scope.
-     * - Enforces FIFO storage cap (MAX_POOL_SIZE_BYTES = 300 MB).
-     * - Cleans incomplete .download temp files and wipes legacy canedge_cache.
-     */
-    fun pruneStagingPool() {
-        scope.launch(Dispatchers.IO) {
-            try {
-                // Safety guard: Do not run pruning while a session is actively finalizing CAN logs
-                if (_stats.value.isFinalizingSession) {
-                    AppLogger.d(TAG, "Auto-pruning deferred: Session finalizer is actively running.")
-                    return@launch
-                }
-
-                val pool = poolDir
-                val legacy = File(sessionManager.sessionsBaseDir, LEGACY_CACHE_DIR_NAME)
-
-                // 1. Wipe legacy cache completely if it exists
-                if (legacy.exists()) {
-                    val legacyFiles = legacy.listFiles()
-                    legacyFiles?.forEach { it.delete() }
-                    if (legacy.delete()) {
-                        AppLogger.i(TAG, "Legacy cache directory wiped: ${legacy.absolutePath}")
-                    }
-                }
-
-                // 2. Clean up any partial download temp files
-                pool.listFiles { f -> f.name.endsWith(".download") }?.forEach { temp ->
-                    AppLogger.d(TAG, "Deleting orphaned download temp file: ${temp.name}")
-                    temp.delete()
-                }
-
-                val poolFiles = pool.listFiles { f -> f.isFile && f.name.endsWith(".mf4", ignoreCase = true) } ?: emptyArray()
-                if (poolFiles.isEmpty()) {
-                    refreshLocalFileList()
-                    return@launch
-                }
-
-                // 3. Index all recorded sessions on the device
-                val recordedSessions = sessionManager.sessionsBaseDir.listFiles { f ->
-                    f.isDirectory && f.name.startsWith("session_")
-                } ?: emptyArray()
-
-                class RecordedSessionMeta(
-                    val sessionDir: File,
-                    val canDir: File,
-                    val startMs: Long,
-                    val stopMs: Long,
-                    val stagedFileNames: MutableSet<String>
-                )
-
-                val sessionMetas = mutableListOf<RecordedSessionMeta>()
-                val allStagedFileNames = mutableSetOf<String>()
-
-                for (sDir in recordedSessions) {
-                    val canDir = File(sDir, CAN_DIR_NAME).apply { mkdirs() }
-                    val staged = canDir.listFiles { f -> f.isFile && f.name.endsWith(".mf4", ignoreCase = true) } ?: emptyArray()
-                    val stagedNames = staged.map { it.name }.toMutableSet()
-                    allStagedFileNames.addAll(stagedNames)
-
-                    // Extract start/stop timestamps from session metadata or directory name
-                    val metaFile = File(sDir, SessionManager.METADATA_FILE_NAME)
-                    var startMs = 0L
-                    var stopMs = 0L
-
-                    if (metaFile.exists()) {
-                        try {
-                            val json = JSONObject(metaFile.readText())
-                            startMs = json.optLong("startTimeWallMs", 0L)
-                            stopMs = json.optLong("stopTimeWallMs", 0L)
-                        } catch (e: Exception) {
-                            AppLogger.w(TAG, "Failed reading metadata for ${sDir.name}: ${e.message}")
-                        }
-                    }
-
-                    if (startMs == 0L) {
-                        // Fallback to directory name timestamp
-                        val stamp = sDir.name.removePrefix("session_")
-                        val parsedDate = try {
-                            java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).parse(stamp)
-                        } catch (e: Exception) { null }
-                        startMs = parsedDate?.time ?: sDir.lastModified()
-                    }
-                    if (stopMs == 0L) {
-                        stopMs = sDir.lastModified().coerceAtLeast(startMs + 60_000L)
-                    }
-
-                    sessionMetas.add(RecordedSessionMeta(sDir, canDir, startMs, stopMs, stagedNames))
-                }
-
-                // 4. Remote scope files mapping
-                val planned = _remoteFiles.value
-                val plannedByLocalName = planned.associateBy { getLocalFileName(it) }
-                val validPlannedFileNames = plannedByLocalName.keys
-                val activeSessionStartMs = activeSession?.startTimeWallMs
-
-                var rescuedCount = 0
-                var prunedCount = 0
-                var bytesReclaimed = 0L
-
-                // 5. Inspect pool files: Backfill un-staged files or mark for pruning
-                for (pFile in poolFiles) {
-                    val pName = pFile.name
-
-                    // NEVER prune chunks that might belong to the active recording session!
-                    if (activeSessionStartMs != null) {
-                        val fileTime = plannedByLocalName[pName]?.lastWrittenMs ?: pFile.lastModified()
-                        if (fileTime >= activeSessionStartMs - SESSION_WINDOW_GRACE_MS) {
-                            continue
-                        }
-                    }
-
-                    val fileTime = plannedByLocalName[pName]?.lastWrittenMs ?: pFile.lastModified()
-
-                    // A: Check if this file is needed by any recorded session that hasn't staged it yet
-                    var neededBySession: RecordedSessionMeta? = null
-                    for (sInfo in sessionMetas) {
-                        if (!sInfo.stagedFileNames.contains(pName)) {
-                            val inWindow = fileTime in (sInfo.startMs - SESSION_WINDOW_GRACE_MS)..(sInfo.stopMs + SESSION_WINDOW_GRACE_MS)
-                            if (inWindow) {
-                                neededBySession = sInfo
-                                break
-                            }
-                        }
-                    }
-
-                    // If needed by an existing recorded session, backfill it now!
-                    if (neededBySession != null && pFile.length() > 0) {
-                        val targetFile = File(neededBySession.canDir, pName)
-                        try {
-                            pFile.copyTo(targetFile, overwrite = true)
-                            neededBySession.stagedFileNames.add(pName)
-                            allStagedFileNames.add(pName)
-                            rescuedCount++
-                            AppLogger.i(TAG, "Smart auto-pruner: Rescued un-staged CAN chunk $pName into ${neededBySession.sessionDir.name}")
-                        } catch (e: Exception) {
-                            AppLogger.e(TAG, "Failed rescuing chunk $pName: ${e.message}", e)
-                        }
-                    }
-
-                    // B: Decide if pFile should be cleared from pool
-                    val isAlreadyStagedInSession = allStagedFileNames.contains(pName)
-                    val isInActiveScope = validPlannedFileNames.contains(pName)
-
-                    val shouldPrune = when {
-                        // Empty/corrupted file
-                        pFile.length() == 0L -> true
-
-                        // Already permanently stored in a recorded session's can/ folder -> remove pool duplicate!
-                        isAlreadyStagedInSession -> true
-
-                        // Accumulated older file: NOT needed in any session AND not in current device scope
-                        !isInActiveScope && validPlannedFileNames.isNotEmpty() -> true
-
-                        // If offline/no remote scope, but file is older than 48 hours and not in any session
-                        validPlannedFileNames.isEmpty() && (System.currentTimeMillis() - fileTime) > 48 * 3600_000L -> true
-
-                        else -> false
-                    }
-
-                    if (shouldPrune) {
-                        val len = pFile.length()
-                        if (pFile.delete()) {
-                            prunedCount++
-                            bytesReclaimed += len
-                            AppLogger.i(TAG, "Smart auto-pruner: Cleared pool file: $pName (${len / 1024} KB). [Reason: ${if (isAlreadyStagedInSession) "already staged in session" else "stale out-of-scope"}]")
-                        }
-                    }
-                }
-
-                // 6. Enforce storage cap (MAX_POOL_SIZE_BYTES = 300 MB)
-                var currentPoolSize = pool.listFiles { f -> f.isFile && f.name.endsWith(".mf4", ignoreCase = true) }
-                    ?.sumOf { it.length() } ?: 0L
-
-                if (currentPoolSize > MAX_POOL_SIZE_BYTES) {
-                    val remainingFiles = pool.listFiles { f -> f.isFile && f.name.endsWith(".mf4", ignoreCase = true) }
-                        ?.sortedBy { it.lastModified() } ?: emptyList()
-
-                    for (f in remainingFiles) {
-                        if (currentPoolSize <= MAX_POOL_SIZE_BYTES) break
-                        if (activeSessionStartMs != null && f.lastModified() >= activeSessionStartMs - SESSION_WINDOW_GRACE_MS) {
-                            continue
-                        }
-                        val len = f.length()
-                        if (f.delete()) {
-                            prunedCount++
-                            bytesReclaimed += len
-                            currentPoolSize -= len
-                            AppLogger.i(TAG, "Smart auto-pruner: Trimmed pool file to stay under 300 MB cap: ${f.name}")
-                        }
-                    }
-                }
-
-                AppLogger.i(TAG, "Smart auto-pruning complete: $prunedCount files cleared (${bytesReclaimed / 1024 / 1024} MB reclaimed), $rescuedCount files rescued into sessions. Remaining pool size: ${currentPoolSize / 1024 / 1024} MB.")
-            } catch (e: Exception) {
-                AppLogger.w(TAG, "Error during smart auto-pruning: ${e.message}")
-            } finally {
-                refreshLocalFileList()
-            }
+    private fun resolveEffectiveClockOffsetMs(nowMs: Long): Long {
+        measuredClockOffsetMs?.let { return it }
+        val prefMeasuredAt = appPreferences?.canedgeLastClockMeasuredAtMs ?: 0L
+        if (prefMeasuredAt > 0L && (nowMs - prefMeasuredAt) < CLOCK_PREF_MAX_AGE_MS) {
+            return appPreferences?.canedgeLastClockOffsetMs ?: 0L
         }
+        return 0L
+    }
+
+    private fun readManifestSafe(): CanSyncManifest = synchronized(stateLock) { CanSyncManifest.load(manifestFile) }
+    private fun readPoolIndexSafe(): PoolIndex = synchronized(stateLock) { PoolIndex.load(poolIndexFile) }
+
+    private fun recomputeIdleStats() {
+        updateStatsSnapshot(discovery.connectionState.value)
+    }
+
+    private fun updateStatsSnapshot(
+        connState: CanedgeConnectionState,
+        targetScopeFiles: Int = _stats.value.targetScopeFiles,
+        poolSyncedFiles: Int = _stats.value.poolSyncedFiles,
+        currentSessionFiles: Int = _stats.value.currentSessionFiles,
+        sessionTargetFiles: Int = _stats.value.sessionTargetFiles,
+        isSyncing: Boolean = _stats.value.isSyncing,
+        isFinalizing: Boolean = _stats.value.isFinalizingSession,
+        isPaused: Boolean = (activeSession != null),
+        isWaitingTail: Boolean = _stats.value.isWaitingFinalChunk,
+        lastSyncTimeMs: Long = _stats.value.lastSyncTimeMs,
+        lastError: String? = _stats.value.lastError,
+        queueCompleted: Int = _stats.value.queueCompletedFiles,
+        queueTotal: Int = _stats.value.queueTotalFiles,
+        activeFileName: String? = _stats.value.activeFileName,
+        activeBytes: Long = _stats.value.activeFileBytesTransferred,
+        activeTotal: Long = _stats.value.activeFileTotalBytes,
+        speedBps: Long = _stats.value.transferSpeedBytesPerSec,
+        etaSec: Int = _stats.value.etaSeconds,
+        overridePhase: CanedgeHudPhase? = null,
+        manifestOverride: CanSyncManifest? = null
+    ) {
+        val manifest = manifestOverride ?: readManifestSafe()
+        val pendingCount = manifest.pendingCount()
+        val poolCount = poolDir.listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }?.size ?: 0
+        val waitingAny =
+            isWaitingTail || manifest.sessions.any { it.status == CanSessionSyncStatus.WAITING_FINAL_CHUNK }
+
+        val computedPhase = overridePhase ?: when {
+            activeSession != null || isPaused -> CanedgeHudPhase.PAUSED_RECORDING
+            isSyncing -> CanedgeHudPhase.SYNCING
+            connState is CanedgeConnectionState.Scanning -> CanedgeHudPhase.SCANNING
+            connState is CanedgeConnectionState.Error -> CanedgeHudPhase.ERROR
+            connState is CanedgeConnectionState.Disconnected ->
+                if (pendingCount > 0) CanedgeHudPhase.OFFLINE_PENDING else CanedgeHudPhase.OFFLINE
+
+            waitingAny -> CanedgeHudPhase.WAITING_FINAL_CHUNK
+            else -> CanedgeHudPhase.CONNECTED_SYNCED
+        }
+
+        _stats.value = CanedgeSyncStats(
+            targetScopeFiles = targetScopeFiles,
+            poolSyncedFiles = poolSyncedFiles,
+            poolFilesCount = poolCount,
+            currentSessionFiles = currentSessionFiles,
+            sessionTargetFiles = sessionTargetFiles,
+            isFinalizingSession = isFinalizing,
+            lastSyncTimeMs = lastSyncTimeMs,
+            isSyncing = isSyncing,
+            lastError = lastError,
+            activeFileName = activeFileName,
+            activeFileBytesTransferred = activeBytes,
+            activeFileTotalBytes = activeTotal,
+            activeFileProgress = if (activeTotal > 0L) (activeBytes.toFloat() / activeTotal).coerceIn(0f, 1f) else 0f,
+            transferSpeedBytesPerSec = speedBps,
+            etaSeconds = etaSec,
+            hudPhase = computedPhase,
+            pendingSessionsCount = pendingCount,
+            measuredClockOffsetMs = measuredClockOffsetMs ?: appPreferences?.canedgeLastClockOffsetMs?.takeIf {
+                (appPreferences?.canedgeLastClockMeasuredAtMs ?: 0L) > 0L
+            },
+            queueCompletedFiles = queueCompleted,
+            queueTotalFiles = queueTotal,
+            isPausedDuringRecording = activeSession != null || isPaused,
+            isWaitingFinalChunk = waitingAny
+        )
     }
 }

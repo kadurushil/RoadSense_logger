@@ -163,6 +163,60 @@ class CanedgeDiscovery(
         _connectionState.value = CanedgeConnectionState.Connected(device)
     }
 
+    /**
+     * Fast, low-overhead single-host probe for background watchdog auto-connect.
+     * Probes only the cached IP and configured `<deviceId>` hostname without performing a
+     * 254-address subnet sweep or disturbing UI discovery states.
+     */
+    suspend fun probeKnownHost(): Boolean = withContext(Dispatchers.IO) {
+        if (_connectionState.value is CanedgeConnectionState.Connected) return@withContext true
+        if (_connectionState.value is CanedgeConnectionState.Scanning) return@withContext false
+
+        val cachedIp = appPreferences.canedgeLastIp.trim()
+        if (cachedIp.isNotEmpty()) {
+            AppLogger.d(TAG, "Watchdog probing cached CANedge IP $cachedIp:$PORT...")
+            if (isPortOpen(cachedIp, PORT, SOCKET_PROBE_TIMEOUT_MS)) {
+                val devId = httpClient.verifyDeviceAt(cachedIp, timeoutMs = 1800)
+                if (devId != null) {
+                    AppLogger.i(TAG, "Watchdog connected via cached IP $cachedIp (Device=$devId)")
+                    onDeviceFound(cachedIp, devId)
+                    return@withContext true
+                }
+            }
+        }
+
+        val targetId = appPreferences.canedgeDeviceId.trim()
+        if (targetId.isNotEmpty()) {
+            AppLogger.d(TAG, "Watchdog probing CANedge hostname $targetId:$PORT...")
+            if (isPortOpen(targetId, PORT, SOCKET_PROBE_TIMEOUT_MS)) {
+                val devId = httpClient.verifyDeviceAt(targetId, timeoutMs = 1800)
+                if (devId != null) {
+                    val resolvedIp = try {
+                        java.net.InetAddress.getByName(targetId).hostAddress ?: targetId
+                    } catch (_: Exception) {
+                        targetId
+                    }
+                    AppLogger.i(TAG, "Watchdog connected via hostname $targetId -> $resolvedIp (Device=$devId)")
+                    onDeviceFound(resolvedIp, devId)
+                    return@withContext true
+                }
+            }
+        }
+        AppLogger.d(TAG, "Watchdog probe: CANedge not reachable yet (cachedIp='$cachedIp', host='$targetId')")
+        false
+    }
+
+    /**
+     * Marks an active connection as lost (e.g. Wi-Fi hotspot toggled or CANedge powered off)
+     * so the background watchdog can resume lightweight reconnect probes.
+     */
+    fun markConnectionLost(reason: String = "Link lost") {
+        if (_connectionState.value is CanedgeConnectionState.Connected) {
+            AppLogger.w(TAG, "CANedge link marked offline: $reason")
+            _connectionState.value = CanedgeConnectionState.Disconnected
+        }
+    }
+
     fun disconnect() {
         scanJob?.cancel()
         _connectionState.value = CanedgeConnectionState.Disconnected
