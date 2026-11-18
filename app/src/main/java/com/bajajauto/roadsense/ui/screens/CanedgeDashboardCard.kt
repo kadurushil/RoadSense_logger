@@ -3,6 +3,8 @@ package com.bajajauto.roadsense.ui.screens
 import android.content.res.Configuration
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -58,6 +60,7 @@ fun CanedgeDashboardCard(
 ) {
     val connectionState by viewModel.canedgeConnectionState.collectAsState()
     val syncStats by viewModel.canedgeSyncStats.collectAsState()
+    val debugState by viewModel.debugToggleState.collectAsState()
     var showExplorerModal by remember { mutableStateOf(false) }
 
     val configuration = LocalConfiguration.current
@@ -92,14 +95,16 @@ fun CanedgeDashboardCard(
                     },
                     onSync = { viewModel.triggerCanedgeSync() },
                     onOpenExplorer = {
-                        viewModel.canedgeIngestionManager.refreshLocalFileList()
+                        viewModel.canedgeIngestionManager.refreshLocalFileListAsync()
                         showExplorerModal = true
                     },
                     onPrunePool = { viewModel.canedgeIngestionManager.pruneStagingPool() }
                 )
                 CanedgeDiagnosticsCard(
                     connectionState = connectionState,
-                    syncStats = syncStats
+                    syncStats = syncStats,
+                    verboseLogsEnabled = debugState.canedgeVerboseLogs,
+                    onToggleVerboseLogs = { viewModel.setCanedgeVerboseLogs(it) }
                 )
             }
 
@@ -115,7 +120,7 @@ fun CanedgeDashboardCard(
                 CanedgeMetricsRow(
                     syncStats = syncStats,
                     onCardClick = {
-                        viewModel.canedgeIngestionManager.refreshLocalFileList()
+                        viewModel.canedgeIngestionManager.refreshLocalFileListAsync()
                         showExplorerModal = true
                     }
                 )
@@ -166,14 +171,16 @@ fun CanedgeDashboardCard(
                 },
                 onSync = { viewModel.triggerCanedgeSync() },
                 onOpenExplorer = {
-                    viewModel.canedgeIngestionManager.refreshLocalFileList()
+                    viewModel.canedgeIngestionManager.refreshLocalFileListAsync()
                     showExplorerModal = true
                 },
                 onPrunePool = { viewModel.canedgeIngestionManager.pruneStagingPool() }
             )
             CanedgeDiagnosticsCard(
                 connectionState = connectionState,
-                syncStats = syncStats
+                syncStats = syncStats,
+                verboseLogsEnabled = debugState.canedgeVerboseLogs,
+                onToggleVerboseLogs = { viewModel.setCanedgeVerboseLogs(it) }
             )
         }
     }
@@ -775,6 +782,8 @@ private fun CanedgeControlActions(
 private fun CanedgeDiagnosticsCard(
     connectionState: CanedgeConnectionState,
     syncStats: CanedgeSyncStats,
+    verboseLogsEnabled: Boolean,
+    onToggleVerboseLogs: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -827,6 +836,25 @@ private fun CanedgeDiagnosticsCard(
                     SimpleDateFormat("HH:mm:ss", Locale.US).format(Date(syncStats.lastSyncTimeMs))
                 } else "Never"
             )
+            HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Verbose CANedge Debug Logs",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Switch(
+                    checked = verboseLogsEnabled,
+                    onCheckedChange = onToggleVerboseLogs
+                )
+            }
         }
     }
 }
@@ -897,23 +925,28 @@ private fun CanedgeUnifiedFileExplorerDialog(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = "CANedge File Explorer",
                             style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
                         )
                         Surface(
                             color = MaterialTheme.colorScheme.secondaryContainer,
                             shape = MaterialTheme.shapes.small
                         ) {
                             Text(
-                                text = "Scope: ${stats.targetScopeFiles} | Synced: ${stats.poolSyncedFiles} | In Session: ${stats.currentSessionFiles}",
+                                text = "Scope: ${stats.targetScopeFiles} | Synced: ${stats.poolSyncedFiles} | Session: ${stats.currentSessionFiles}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSecondaryContainer,
                                 fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                softWrap = false,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                             )
                         }
@@ -1021,30 +1054,28 @@ private fun CanedgeUnifiedFileExplorerDialog(
                             unifiedFiles.groupBy { it.folderName }.toSortedMap(compareByDescending { it })
                         }
                         val latestDir = grouped.keys.firstOrNull()
-                        var expandedFolders by remember { mutableStateOf(grouped.keys.toSet()) }
+                        // Expand only the latest folder on open so initial composition renders a handful of rows
+                        // instead of inflating hundreds of off-screen vector icons on the UI thread.
+                        var expandedFolders by remember(latestDir) {
+                            mutableStateOf(if (latestDir != null) setOf(latestDir) else emptySet())
+                        }
 
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             grouped.forEach { (dirName, filesInDir) ->
                                 val isLatest = dirName == latestDir
-                                val isExpanded = expandedFolders.contains(dirName)
+                                val isExpanded = dirName in expandedFolders
 
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 2.dp)
-                                ) {
-                                    // Folder Header (Collapsible Row)
+                                item(key = "hdr_$dirName", contentType = "folder_header") {
                                     Surface(
                                         color = if (isLatest) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                                                 else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                                         shape = MaterialTheme.shapes.small,
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .padding(top = 2.dp)
                                             .clickable {
                                                 expandedFolders = if (isExpanded) {
                                                     expandedFolders - dirName
@@ -1112,19 +1143,18 @@ private fun CanedgeUnifiedFileExplorerDialog(
                                             }
                                         }
                                     }
+                                }
 
-                                    // Nested Files under this Folder
-                                    if (isExpanded) {
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(start = 12.dp, top = 2.dp, bottom = 4.dp),
-                                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                                        ) {
-                                            filesInDir.forEach { item ->
-                                                CanedgeFileRow(item = item)
-                                            }
-                                        }
+                                if (isExpanded) {
+                                    items(
+                                        items = filesInDir,
+                                        key = { item -> "file_${item.file.path}" },
+                                        contentType = { "file_row" }
+                                    ) { item ->
+                                        CanedgeFileRow(
+                                            item = item,
+                                            modifier = Modifier.padding(start = 12.dp)
+                                        )
                                     }
                                 }
                             }
@@ -1142,17 +1172,17 @@ private fun CanedgeUnifiedFileExplorerDialog(
                 ) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = onPruneClick) {
-                            Text("Prune Pool", fontSize = 12.sp)
+                            Text("Prune Pool", fontSize = 12.sp, maxLines = 1, softWrap = false)
                         }
                         Button(
                             onClick = onSyncClick,
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                         ) {
-                            Text("Sync Scope", fontSize = 12.sp)
+                            Text("Sync Scope", fontSize = 12.sp, maxLines = 1, softWrap = false)
                         }
                     }
                     Button(onClick = onDismiss) {
-                        Text("Close", fontSize = 12.sp)
+                        Text("Close", fontSize = 12.sp, maxLines = 1, softWrap = false)
                     }
                 }
             }

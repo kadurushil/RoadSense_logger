@@ -59,5 +59,20 @@ class DebugTogglesTest {
         assertFalse(DebugToggles.state.value.bevShowGrid)
         assertTrue(DebugToggles.state.value.bevShowTracks)
     }
+
+    @Test
+    fun canedgeVerboseToggleWorksIndependentlyOfMasterSwitch() {
+        assertFalse("CANedge verbose logs must default OFF", DebugToggles.isCanedgeVerboseActive)
+        DebugToggles.setCanedgeVerboseLogs(true)
+        assertTrue(DebugToggles.isCanedgeVerboseActive)
+        assertTrue(DebugToggles.state.value.canedgeVerboseLogs)
+        assertFalse("Master switch stays OFF so 40 Hz Canvas logs stay silent", DebugToggles.isCanvasTimingActive)
+
+        DebugToggles.setCanedgeVerboseLogs(false)
+        assertFalse(DebugToggles.isCanedgeVerboseActive)
+
+        DebugToggles.setMasterDebugEnabled(true)
+        assertTrue("Master debug switch also activates CANedge verbose logs", DebugToggles.isCanedgeVerboseActive)
+    }
 }
 

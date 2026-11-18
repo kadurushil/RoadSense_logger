@@ -664,6 +664,14 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         DebugToggles.setBenchTimingLogging(enabled)
     }
 
+    fun setCanedgeVerboseLogs(enabled: Boolean) {
+        DebugToggles.setCanedgeVerboseLogs(enabled)
+        com.bajajauto.roadsense.logging.AppLogger.i(
+            "CanedgeIngestion",
+            "[CAN_DIAG] VERBOSE_LOGS enabled=$enabled"
+        )
+    }
+
     fun setHudOverlayMode(mode: HudOverlayMode) {
         DebugToggles.setHudOverlayMode(mode)
         appPreferences.hudOverlayMode = mode

@@ -1,6 +1,7 @@
 package com.bajajauto.roadsense.canedge.discovery
 
 import android.content.Context
+import com.bajajauto.roadsense.DebugToggles
 import com.bajajauto.roadsense.canedge.model.CanedgeConnectionState
 import com.bajajauto.roadsense.canedge.model.CanedgeDevice
 import com.bajajauto.roadsense.canedge.network.CanedgeHttpClient
@@ -174,11 +175,13 @@ class CanedgeDiscovery(
 
         val cachedIp = appPreferences.canedgeLastIp.trim()
         if (cachedIp.isNotEmpty()) {
-            AppLogger.d(TAG, "Watchdog probing cached CANedge IP $cachedIp:$PORT...")
+            if (DebugToggles.isCanedgeVerboseActive) {
+                AppLogger.d(TAG, "[CAN_DIAG] PROBE_HOST target=$cachedIp port=$PORT kind=cachedIp")
+            }
             if (isPortOpen(cachedIp, PORT, SOCKET_PROBE_TIMEOUT_MS)) {
                 val devId = httpClient.verifyDeviceAt(cachedIp, timeoutMs = 1800)
                 if (devId != null) {
-                    AppLogger.i(TAG, "Watchdog connected via cached IP $cachedIp (Device=$devId)")
+                    AppLogger.i(TAG, "[CAN_DIAG] PROBE_OK kind=cachedIp ip=$cachedIp device=$devId")
                     onDeviceFound(cachedIp, devId)
                     return@withContext true
                 }
@@ -187,7 +190,9 @@ class CanedgeDiscovery(
 
         val targetId = appPreferences.canedgeDeviceId.trim()
         if (targetId.isNotEmpty()) {
-            AppLogger.d(TAG, "Watchdog probing CANedge hostname $targetId:$PORT...")
+            if (DebugToggles.isCanedgeVerboseActive) {
+                AppLogger.d(TAG, "[CAN_DIAG] PROBE_HOST target=$targetId port=$PORT kind=hostname")
+            }
             if (isPortOpen(targetId, PORT, SOCKET_PROBE_TIMEOUT_MS)) {
                 val devId = httpClient.verifyDeviceAt(targetId, timeoutMs = 1800)
                 if (devId != null) {
@@ -196,13 +201,15 @@ class CanedgeDiscovery(
                     } catch (_: Exception) {
                         targetId
                     }
-                    AppLogger.i(TAG, "Watchdog connected via hostname $targetId -> $resolvedIp (Device=$devId)")
+                    AppLogger.i(TAG, "[CAN_DIAG] PROBE_OK kind=hostname host=$targetId ip=$resolvedIp device=$devId")
                     onDeviceFound(resolvedIp, devId)
                     return@withContext true
                 }
             }
         }
-        AppLogger.d(TAG, "Watchdog probe: CANedge not reachable yet (cachedIp='$cachedIp', host='$targetId')")
+        if (DebugToggles.isCanedgeVerboseActive) {
+            AppLogger.d(TAG, "[CAN_DIAG] PROBE_MISS cachedIp='$cachedIp' host='$targetId'")
+        }
         false
     }
 

@@ -1,5 +1,6 @@
 package com.bajajauto.roadsense.canedge.repository
 
+import com.bajajauto.roadsense.DebugToggles
 import com.bajajauto.roadsense.canedge.model.CanedgeDevice
 import com.bajajauto.roadsense.canedge.model.CanedgeFile
 import com.bajajauto.roadsense.canedge.network.CanedgeHttpClient
@@ -21,12 +22,16 @@ class CanedgeRepository(
         private const val FILE_STABILITY_AGE_MS = 12_000L // 12 seconds (> 10s split)
         private const val NEWEST_CHUNK_IDLE_AGE_MS = 75_000L // Guards active 60s chunk + residual RTC skew
         private const val SIZE_STABILITY_MIN_INTERVAL_MS = 3_000L
+        private val NUMERIC_DIR_REGEX = Regex("\\d+")
     }
 
     private data class ObservedSizeSample(val sizeBytes: Long, val observedAtMs: Long)
 
     // Cache of (remotePath -> observed size & timestamp) to detect active file growth across polls
     private val lastObservedSizes = mutableMapOf<String, ObservedSizeSample>()
+
+    @Volatile
+    private var cachedDeviceLogRootPath: String? = null
 
     /**
      * Lists files and folders directly inside `path` on the CANedge2 SD card.
@@ -40,7 +45,9 @@ class CanedgeRepository(
             } else {
                 "${device.apiBaseUrl}$cleanPath/"
             }
-            AppLogger.d(TAG, "Listing directory at $endpoint")
+            if (DebugToggles.isCanedgeVerboseActive) {
+                AppLogger.d(TAG, "[CAN_DIAG] HTTP_LIST endpoint=$endpoint")
+            }
 
             val jsonStr = httpClient.getJson(endpoint) ?: return@withContext emptyList()
             val filesList = mutableListOf<CanedgeFile>()
@@ -72,7 +79,9 @@ class CanedgeRepository(
                         )
                     }
                 }
-                AppLogger.d(TAG, "Directory $endpoint returned ${filesList.size} items: ${filesList.map { "${it.name}${if (it.isDirectory) "/" else ""}" }}")
+                if (DebugToggles.isCanedgeVerboseActive) {
+                    AppLogger.d(TAG, "[CAN_DIAG] HTTP_LIST_OK endpoint=$endpoint items=${filesList.size}")
+                }
             } catch (e: Exception) {
                 AppLogger.e(TAG, "Error parsing directory JSON from $endpoint: ${e.message}", e)
             }
@@ -127,13 +136,35 @@ class CanedgeRepository(
      */
     suspend fun listRecentSessionMf4Files(device: CanedgeDevice, maxFolders: Int = 10): List<CanedgeFile> =
         withContext(Dispatchers.IO) {
-            val logEntries = listDirectory(device, "/LOG/")
-            val deviceDir = logEntries.firstOrNull { it.isDirectory && (it.name.equals(device.deviceId, ignoreCase = true) || it.name.length == 8) }
-            val targetDevicePath = deviceDir?.path ?: "/LOG/${device.deviceId}/"
+            var targetDevicePath = cachedDeviceLogRootPath
+            if (targetDevicePath == null) {
+                val logEntries = listDirectory(device, "/LOG/")
+                val deviceDir = logEntries.firstOrNull {
+                    it.isDirectory && (it.name.equals(device.deviceId, ignoreCase = true) || it.name.length == 8)
+                }
+                targetDevicePath = deviceDir?.path ?: "/LOG/${device.deviceId}/"
+                cachedDeviceLogRootPath = targetDevicePath
+            }
 
-            val sessionDirs = listDirectory(device, targetDevicePath)
-                .filter { it.isDirectory && !it.name.startsWith(".") && it.name.matches(Regex("\\d+")) }
+            var sessionDirs = listDirectory(device, targetDevicePath)
+                .filter { it.isDirectory && !it.name.startsWith(".") && NUMERIC_DIR_REGEX.matches(it.name) }
                 .sortedByDescending { it.name }
+
+            if (sessionDirs.isEmpty()) {
+                // Invalidate cached device path once and retry discovery under /LOG/
+                cachedDeviceLogRootPath = null
+                val logEntries = listDirectory(device, "/LOG/")
+                val deviceDir = logEntries.firstOrNull {
+                    it.isDirectory && (it.name.equals(device.deviceId, ignoreCase = true) || it.name.length == 8)
+                }
+                val fallbackPath = deviceDir?.path ?: "/LOG/${device.deviceId}/"
+                if (fallbackPath != targetDevicePath) {
+                    sessionDirs = listDirectory(device, fallbackPath)
+                        .filter { it.isDirectory && !it.name.startsWith(".") && NUMERIC_DIR_REGEX.matches(it.name) }
+                        .sortedByDescending { it.name }
+                    if (sessionDirs.isNotEmpty()) cachedDeviceLogRootPath = fallbackPath
+                }
+            }
 
             if (sessionDirs.isEmpty()) {
                 AppLogger.w(TAG, "No session directories found under $targetDevicePath")
@@ -150,7 +181,9 @@ class CanedgeRepository(
                     AppLogger.w(TAG, "Transient error scanning directory ${dir.path}: ${e.message}")
                 }
             }
-            AppLogger.i(TAG, "Targeted recent session scan (${dirsToScan.map { it.name }}): ${files.size} MF4 files found")
+            if (DebugToggles.isCanedgeVerboseActive) {
+                AppLogger.d(TAG, "[CAN_DIAG] SCAN_SCOPE folders=${dirsToScan.size} remoteFiles=${files.size} maxFolders=$maxFolders")
+            }
             files
         }
 

@@ -30,7 +30,8 @@ data class DebugToggleSnapshot(
     val bevShowTracks: Boolean = true,
     val bevShowClusters: Boolean = true,
     val bevShowGrid: Boolean = true,
-    val hudOverlayMode: HudOverlayMode = HudOverlayMode.TRACKS_LOLLIPOP_80M
+    val hudOverlayMode: HudOverlayMode = HudOverlayMode.TRACKS_LOLLIPOP_80M,
+    val canedgeVerboseLogs: Boolean = false
 )
 
 /**
@@ -95,6 +96,10 @@ object DebugToggles {
     var hudOverlayMode: HudOverlayMode = HudOverlayMode.TRACKS_LOLLIPOP_80M
         private set
 
+    @Volatile
+    var canedgeVerboseLogs: Boolean = false
+        private set
+
     private val _state = MutableStateFlow(DebugToggleSnapshot())
     val state: StateFlow<DebugToggleSnapshot> = _state.asStateFlow()
 
@@ -113,6 +118,10 @@ object DebugToggles {
     /** True when disk-writer worker OS/Java thread priority verification logs should emit to `session_debug.log`. */
     val isDiskWriterPriorityLogsActive: Boolean
         get() = masterDebugEnabled && diskWriterPriorityLogs
+
+    /** True when CANedge2 verbose `[CAN_DIAG]` / poll debug logs should emit without forcing 40 Hz Canvas logs. */
+    val isCanedgeVerboseActive: Boolean
+        get() = canedgeVerboseLogs || masterDebugEnabled
 
     fun setMasterDebugEnabled(enabled: Boolean) {
         masterDebugEnabled = enabled
@@ -170,6 +179,11 @@ object DebugToggles {
         publishState()
     }
 
+    fun setCanedgeVerboseLogs(enabled: Boolean) {
+        canedgeVerboseLogs = enabled
+        publishState()
+    }
+
     fun resetDefaults() {
         masterDebugEnabled = DEFAULT_MASTER_DEBUG
         displayPacerVerboseLogs = true
@@ -182,6 +196,7 @@ object DebugToggles {
         bevShowClusters = true
         bevShowGrid = true
         hudOverlayMode = HudOverlayMode.TRACKS_LOLLIPOP_80M
+        canedgeVerboseLogs = false
         publishState()
     }
 
@@ -197,7 +212,8 @@ object DebugToggles {
             bevShowTracks = bevShowTracks,
             bevShowClusters = bevShowClusters,
             bevShowGrid = bevShowGrid,
-            hudOverlayMode = hudOverlayMode
+            hudOverlayMode = hudOverlayMode,
+            canedgeVerboseLogs = canedgeVerboseLogs
         )
     }
 }

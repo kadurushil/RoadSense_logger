@@ -1,5 +1,6 @@
 package com.bajajauto.roadsense.canedge.ingestion
 
+import com.bajajauto.roadsense.DebugToggles
 import com.bajajauto.roadsense.canedge.discovery.CanedgeDiscovery
 import com.bajajauto.roadsense.canedge.model.CanedgeConnectionState
 import com.bajajauto.roadsense.canedge.model.CanedgeDevice
@@ -105,6 +106,15 @@ class CanedgeIngestionManager(
     @Volatile
     private var measuredClockOffsetMs: Long? = null
 
+    @Volatile
+    private var cachedManifest: CanSyncManifest = CanSyncManifest.load(manifestFile)
+
+    @Volatile
+    private var cachedPoolCount: Int = 0
+
+    @Volatile
+    private var localSnapshotDirty: Boolean = true
+
     private val _stats = MutableStateFlow(CanedgeSyncStats())
     val stats: StateFlow<CanedgeSyncStats> = _stats.asStateFlow()
 
@@ -122,6 +132,7 @@ class CanedgeIngestionManager(
 
     init {
         cleanOrphanDownloads()
+        backfillPoolIndexFromDisk()
         loadInitialPersistedOffset()
         importUnreconciledDiskSessions()
         refreshLocalFileList()
@@ -193,22 +204,33 @@ class CanedgeIngestionManager(
                         return
                     }
                 }
-                updateStatsSnapshot(discovery.connectionState.value, isPaused = false)
+                val expectedPhase = when {
+                    connState is CanedgeConnectionState.Error -> CanedgeHudPhase.ERROR
+                    cachedManifest.pendingCount() > 0 -> CanedgeHudPhase.OFFLINE_PENDING
+                    else -> CanedgeHudPhase.OFFLINE
+                }
+                if (_stats.value.hudPhase != expectedPhase || _stats.value.isPausedDuringRecording) {
+                    updateStatsSnapshot(discovery.connectionState.value, isPaused = false)
+                }
             }
 
             is CanedgeConnectionState.Scanning -> {
-                updateStatsSnapshot(connState, isPaused = false)
+                if (_stats.value.hudPhase != CanedgeHudPhase.SCANNING || _stats.value.isPausedDuringRecording) {
+                    updateStatsSnapshot(connState, isPaused = false)
+                }
             }
 
             is CanedgeConnectionState.Connected -> {
                 val device = connState.device
                 if (syncJob?.isActive == true) return
                 if (nowMs < postStopSettleUntilMs) {
-                    updateStatsSnapshot(connState, isPaused = false)
+                    if (_stats.value.isPausedDuringRecording) {
+                        updateStatsSnapshot(connState, isPaused = false)
+                    }
                     return
                 }
 
-                val manifest = readManifestSafe()
+                val manifest = cachedManifest
                 val hasWaitingTail = manifest.sessions.any { it.status == CanSessionSyncStatus.WAITING_FINAL_CHUNK }
                 val hasPending = manifest.pendingCount() > 0
                 val intervalMs = when {
@@ -221,7 +243,11 @@ class CanedgeIngestionManager(
                 if ((nowMs - lastRemotePollMs) >= intervalMs) {
                     pendingSyncRequested = false
                     launchSyncPass(device, isPostStopTrigger = hasWaitingTail || hasPending)
-                } else {
+                } else if (_stats.value.hudPhase == CanedgeHudPhase.OFFLINE ||
+                    _stats.value.hudPhase == CanedgeHudPhase.OFFLINE_PENDING ||
+                    _stats.value.hudPhase == CanedgeHudPhase.SCANNING ||
+                    _stats.value.isPausedDuringRecording
+                ) {
                     updateStatsSnapshot(connState, isPaused = false)
                 }
             }
@@ -240,8 +266,7 @@ class CanedgeIngestionManager(
 
         val offsetMs = resolveEffectiveClockOffsetMs(System.currentTimeMillis())
         synchronized(stateLock) {
-            val manifest = CanSyncManifest.load(manifestFile)
-            val updated = manifest.upsertSession(
+            val updated = cachedManifest.upsertSession(
                 CanSessionSyncRecord(
                     sessionId = session.sessionId,
                     sessionDirName = session.sessionDir.name,
@@ -252,11 +277,11 @@ class CanedgeIngestionManager(
                     lastAttemptMs = System.currentTimeMillis()
                 )
             )
-            CanSyncManifest.save(manifestFile, updated)
+            saveManifestLocked(updated)
         }
 
         _localSessionFiles.value = emptyList()
-        AppLogger.i(TAG, "Recording started for ${session.sessionId}: background CANedge sync PAUSED")
+        AppLogger.i(TAG, "[CAN_DIAG] RECORDING_PAUSED session=${session.sessionId} status=PENDING")
         updateStatsSnapshot(
             discovery.connectionState.value,
             overridePhase = CanedgeHudPhase.PAUSED_RECORDING,
@@ -282,7 +307,7 @@ class CanedgeIngestionManager(
             val offsetMs = resolveEffectiveClockOffsetMs(nowMs)
 
             synchronized(stateLock) {
-                val manifest = CanSyncManifest.load(manifestFile)
+                val manifest = cachedManifest
                 val existing = manifest.sessions.firstOrNull { it.sessionDirName == session.sessionDir.name }
                 val rec = (existing ?: CanSessionSyncRecord(
                     sessionId = session.sessionId,
@@ -294,7 +319,7 @@ class CanedgeIngestionManager(
                     clockOffsetMs = existing?.clockOffsetMs ?: offsetMs,
                     lastAttemptMs = nowMs
                 )
-                CanSyncManifest.save(manifestFile, manifest.upsertSession(rec))
+                saveManifestLocked(manifest.upsertSession(rec))
             }
 
             session.canSyncStatus = CanSessionSyncStatus.PENDING.name
@@ -304,7 +329,7 @@ class CanedgeIngestionManager(
             rescueSessionFromPoolOffline(session.sessionDir.name)
             AppLogger.i(
                 TAG,
-                "Session ${session.sessionId} stopped (window ${session.startTimeWallMs}..$stopWallMs). Queued CAN reconciliation."
+                "[CAN_DIAG] SESSION_QUEUED session=${session.sessionId} start=${session.startTimeWallMs} stop=$stopWallMs offsetMs=$offsetMs"
             )
         }
 
@@ -318,6 +343,7 @@ class CanedgeIngestionManager(
      */
     fun triggerSync() {
         autoReconnectEnabled = true
+        localSnapshotDirty = true
         if (activeSession != null) {
             AppLogger.i(TAG, "Ignoring manual CANedge sync while drive recording is active")
             return
@@ -356,26 +382,22 @@ class CanedgeIngestionManager(
     private suspend fun runSyncPass(device: CanedgeDevice, isPostStopTrigger: Boolean) {
         val passStartMs = System.currentTimeMillis()
         lastRemotePollMs = passStartMs
-        cleanOrphanDownloads()
-        backfillPoolIndexFromDisk()
 
         if (activeSession != null) return
 
-        val pendingCountBefore = readManifestSafe().pendingCount()
-        updateStatsSnapshot(
-            discovery.connectionState.value,
-            isSyncing = true,
-            isFinalizing = isPostStopTrigger && pendingCountBefore > 0,
-            lastError = null
-        )
+        val pendingCountBefore = cachedManifest.pendingCount()
+        if (pendingCountBefore > 0 && isPostStopTrigger) {
+            updateStatsSnapshot(
+                discovery.connectionState.value,
+                isSyncing = true,
+                isFinalizing = true,
+                lastError = null
+            )
+        }
 
         try {
             // 1. Scan 2 newest folders when idle, or up to 10 folders when pending sessions need reconciliation
             val scanFolders = if (pendingCountBefore > 0) PENDING_FOLDER_SCOPE else IDLE_FOLDER_SCOPE
-            AppLogger.d(
-                TAG,
-                "Starting sync pass (pendingSessions=$pendingCountBefore, scanFolders=$scanFolders, trigger=${if (isPostStopTrigger) "POST_STOP" else "WATCHDOG"})"
-            )
             val scannedFiles = repository.listRecentSessionMf4Files(device, maxFolders = scanFolders)
             if (activeSession != null) return
 
@@ -389,19 +411,27 @@ class CanedgeIngestionManager(
                 }
             }
 
-            _remoteFiles.value = scannedFiles
-
             // 2. Measure RTC offset strictly from observed live rollover between consecutive polls
             val pollNowMs = System.currentTimeMillis()
             val prevSnapshot = prevRemoteFilesByPath.toMap()
+            val remoteChanged = prevSnapshot.isEmpty() ||
+                scannedFiles.size != prevSnapshot.size ||
+                scannedFiles.any { rf ->
+                    val prev = prevSnapshot[rf.path]
+                    prev == null || prev.sizeBytes != rf.sizeBytes || prev.lastWrittenEpochSec != rf.lastWrittenEpochSec
+                }
+
             val measured = CanedgeSyncPlanner.measureClockOffsetFromLiveTransition(
                 previousFilesByPath = prevSnapshot,
                 currentFiles = scannedFiles,
                 prevPollWallMs = prevPollWallMs,
                 nowPollWallMs = pollNowMs
             )
-            prevRemoteFilesByPath.clear()
-            scannedFiles.forEach { prevRemoteFilesByPath[it.path] = it }
+            if (remoteChanged) {
+                prevRemoteFilesByPath.clear()
+                scannedFiles.forEach { prevRemoteFilesByPath[it.path] = it }
+                _remoteFiles.value = scannedFiles
+            }
             prevPollWallMs = pollNowMs
 
             if (measured != null) {
@@ -409,25 +439,31 @@ class CanedgeIngestionManager(
                 appPreferences?.canedgeLastClockOffsetMs = measured
                 appPreferences?.canedgeLastClockMeasuredAtMs = pollNowMs
                 synchronized(stateLock) {
-                    val m = CanSyncManifest.load(manifestFile)
-                    CanSyncManifest.save(
-                        manifestFile,
-                        m.copy(lastClockOffsetMs = measured, lastClockMeasuredAtMs = pollNowMs)
+                    saveManifestLocked(
+                        cachedManifest.copy(lastClockOffsetMs = measured, lastClockMeasuredAtMs = pollNowMs)
                     )
                 }
                 AppLogger.i(TAG, "Measured live CANedge2 clock offset from chunk rollover: ${measured} ms")
             }
 
-            val effectiveOffsetMs = resolveEffectiveClockOffsetMs(pollNowMs)
-            val poolIndex = readPoolIndexSafe()
-            val headerStartByLocalName = poolIndex.entries.associate { it.localName to it.headerStartTimeMs }
-            val manifestSnapshot = readManifestSafe()
-
-            // 3. Identify priority files required by PENDING / WAITING / PARTIAL sessions + open tail status
-            val prioritySessionFiles = mutableListOf<CanedgeFile>()
+            val manifestSnapshot = cachedManifest
             val pendingSessions = manifestSnapshot.sessions.filter {
                 it.status != CanSessionSyncStatus.COMPLETE && it.stopTimeWallMs != null
             }
+
+            // Fast-path exit when remote directory hasn't changed and there are no pending sessions:
+            // skips all local filesystem scans, pruning, explorer rebuilds, and UI invalidations.
+            if (!remoteChanged && pendingSessions.isEmpty() && !localSnapshotDirty && _stats.value.lastSyncTimeMs > 0L) {
+                if (DebugToggles.isCanedgeVerboseActive) {
+                    AppLogger.d(TAG, "[CAN_DIAG] SYNC_FASTPATH remoteChanged=false pending=0 pool=$cachedPoolCount skipLocal=true")
+                }
+                return
+            }
+
+            val effectiveOffsetMs = resolveEffectiveClockOffsetMs(pollNowMs)
+            val poolIndex = readPoolIndexSafe()
+            val headerStartByLocalName = poolIndex.entries.associate { it.localName to it.headerStartTimeMs }
+            val prioritySessionFiles = mutableListOf<CanedgeFile>()
             var anyWaitingFinalChunk = false
 
             for (rec in pendingSessions) {
@@ -468,19 +504,25 @@ class CanedgeIngestionManager(
             val filesToDownload = CanedgeSyncPlanner.filterFilesNeedingDownload(orderedCandidates, localSizesByName)
 
             val planSummary =
-                "Sync plan: remote=${scannedFiles.size} (stable=${allStableRemote.size}, scanFolders=$scanFolders), " +
-                        "candidates=${orderedCandidates.size} (sessionPriority=${prioritySessionFiles.size}, idleCap=${idlePoolCandidates.size}), " +
-                        "localUnique=${localSizesByName.size} (pool=$poolCount), toDownload=${filesToDownload.size}, offset=${effectiveOffsetMs}ms"
+                "[CAN_DIAG] SYNC_PLAN remote=${scannedFiles.size} stable=${allStableRemote.size} scanFolders=$scanFolders " +
+                        "sessionPrio=${prioritySessionFiles.size} idleCap=${idlePoolCandidates.size} " +
+                        "localUnique=${localSizesByName.size} pool=$poolCount toDownload=${filesToDownload.size} offsetMs=${effectiveOffsetMs}"
             if (filesToDownload.isNotEmpty() || pendingSessions.isNotEmpty()) {
                 AppLogger.i(TAG, planSummary)
-                if (filesToDownload.isNotEmpty()) {
+                updateStatsSnapshot(
+                    discovery.connectionState.value,
+                    isSyncing = filesToDownload.isNotEmpty(),
+                    isFinalizing = isPostStopTrigger && pendingSessions.isNotEmpty(),
+                    lastError = null
+                )
+                if (filesToDownload.isNotEmpty() && DebugToggles.isCanedgeVerboseActive) {
                     val preview = filesToDownload.take(6).joinToString(", ") { it.localName }
                     AppLogger.d(
                         TAG,
-                        "Download queue preview (${filesToDownload.size}): [$preview${if (filesToDownload.size > 6) ", ..." else ""}]"
+                        "[CAN_DIAG] DOWNLOAD_QUEUE count=${filesToDownload.size} preview=[$preview${if (filesToDownload.size > 6) ", ..." else ""}]"
                     )
                 }
-            } else {
+            } else if (DebugToggles.isCanedgeVerboseActive) {
                 AppLogger.d(TAG, planSummary)
             }
 
@@ -506,6 +548,7 @@ class CanedgeIngestionManager(
                 }
 
                 completedQueue++
+                localSnapshotDirty = true
                 val headerInfo = Mdf4HeaderInspector.inspect(targetPoolFile)
                 val entry = PoolIndexEntry(
                     localName = rf.localName,
@@ -523,23 +566,32 @@ class CanedgeIngestionManager(
             }
 
             // 7. Reconcile all pending/waiting/partial sessions using newly-pooled files
-            val reconciliationResult = reconcilePendingSessionsOnline(
-                scannedFiles = scannedFiles,
-                effectiveOffsetMs = effectiveOffsetMs,
-                nowWallMs = System.currentTimeMillis()
-            )
-
-            // 8. Safe pool pruning after session staging
-            pruneStagingPool()
-            refreshLocalFileList()
-            updateUnifiedExplorerView(scannedFiles)
-
-            val updatedManifest = readManifestSafe()
-            val finalWaiting = anyWaitingFinalChunk || reconciliationResult.waitingFinalChunk
-            val targetScopeClosedCount = scannedFiles.count {
-                repository.isFileStable(it, scannedFiles, effectiveOffsetMs, System.currentTimeMillis())
+            val reconciliationResult = if (pendingSessions.isNotEmpty()) {
+                localSnapshotDirty = true
+                reconcilePendingSessionsOnline(
+                    scannedFiles = scannedFiles,
+                    effectiveOffsetMs = effectiveOffsetMs,
+                    nowWallMs = System.currentTimeMillis()
+                )
+            } else {
+                ReconcileSummary(false, _stats.value.currentSessionFiles, _stats.value.sessionTargetFiles)
             }
-            val updatedLocalSizes = collectAllLocalSizesByName()
+
+            // 8. Prune & refresh local view ONCE only if files changed, pending reconciled, or snapshot was dirty
+            if (completedQueue > 0 || localSnapshotDirty || pendingSessions.isNotEmpty()) {
+                pruneStagingPool(refreshUi = false)
+                refreshLocalFileList()
+                localSnapshotDirty = false
+            }
+
+            val updatedManifest = cachedManifest
+            val finalWaiting = anyWaitingFinalChunk || reconciliationResult.waitingFinalChunk
+            val targetScopeClosedCount = allStableRemote.size
+            val updatedLocalSizes = if (completedQueue > 0 || pendingSessions.isNotEmpty()) {
+                collectAllLocalSizesByName()
+            } else {
+                localSizesByName
+            }
             val syncedScopeCount = scannedFiles.count { rf ->
                 val sz = updatedLocalSizes[rf.localName]
                 sz != null && sz == rf.sizeBytes
@@ -750,7 +802,7 @@ class CanedgeIngestionManager(
             updatedManifest = updatedManifest.upsertSession(updatedRec)
             AppLogger.i(
                 TAG,
-                "Reconcile ${rec.sessionDirName}: ${rec.status} -> ${updatedRec.status} (matched=${plan.matchedRemoteFiles.size}, staged=${updatedRec.stagedLocalNames.size}, waitingTail=${plan.waitingForFinalChunk}, offset=${effectiveOffsetMs}ms)"
+                "[CAN_DIAG] RECONCILE session=${rec.sessionDirName} transition=${rec.status}->${updatedRec.status} matched=${plan.matchedRemoteFiles.size} staged=${updatedRec.stagedLocalNames.size} waitingTail=${plan.waitingForFinalChunk} offsetMs=${effectiveOffsetMs}"
             )
 
             val countChanged = updatedRec.stagedLocalNames.size != rec.stagedLocalNames.size
@@ -769,7 +821,7 @@ class CanedgeIngestionManager(
         }
 
         synchronized(stateLock) {
-            CanSyncManifest.save(manifestFile, updatedManifest)
+            saveManifestLocked(updatedManifest)
         }
         return ReconcileSummary(anyWaitingTail, latestStaged, latestMatched)
     }
@@ -807,6 +859,7 @@ class CanedgeIngestionManager(
         val localFilesByName = collectAllLocalFileRefsByName()
         val staged = stageLocalFilesIntoSessionCanDir(canDir, matched.map { it.localName }, localFilesByName)
         if (staged.isNotEmpty()) {
+            localSnapshotDirty = true
             val allInCan =
                 canDir.listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }?.map { it.name }.orEmpty().sorted()
             val updatedRec = rec.copy(
@@ -814,7 +867,7 @@ class CanedgeIngestionManager(
                 lastAttemptMs = System.currentTimeMillis()
             )
             synchronized(stateLock) {
-                CanSyncManifest.save(manifestFile, readManifestSafe().upsertSession(updatedRec))
+                saveManifestLocked(cachedManifest.upsertSession(updatedRec))
             }
             persistSessionMetadataAndTimeline(sessionDir, updatedRec, newlyStaged = staged, offsetMs = offsetMs)
         }
@@ -905,14 +958,21 @@ class CanedgeIngestionManager(
         }
     }
 
+    fun refreshLocalFileListAsync() {
+        scope.launch {
+            refreshLocalFileList()
+        }
+    }
+
     fun refreshLocalFileList() {
         val poolFiles = poolDir.listFiles { _, name ->
             name.endsWith(".mf4", ignoreCase = true)
         }?.sortedByDescending { it.name } ?: emptyList()
+        cachedPoolCount = poolFiles.size
         _localSyncedFiles.value = poolFiles
 
         val latestDirName = activeSession?.sessionDir?.name
-            ?: readManifestSafe().sessions.lastOrNull()?.sessionDirName
+            ?: cachedManifest.sessions.lastOrNull()?.sessionDirName
         val canFiles = if (latestDirName != null) {
             File(File(sessionManager.sessionsBaseDir, latestDirName), "can")
                 .listFiles { _, name -> name.endsWith(".mf4", ignoreCase = true) }
@@ -930,8 +990,8 @@ class CanedgeIngestionManager(
      * inside `COMPLETE` sessions, protecting all pending/partial/waiting sessions and recent
      * unstaged pre-sync pool entries.
      */
-    fun pruneStagingPool() {
-        val manifest = readManifestSafe()
+    fun pruneStagingPool(refreshUi: Boolean = true) {
+        val manifest = cachedManifest
         val stagedInAllSessions = collectAllSessionCanFileNames()
         val poolFiles = poolDir.listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }
             ?.sortedBy { it.name }
@@ -945,7 +1005,10 @@ class CanedgeIngestionManager(
         )
         val toDelete = prunePlan.allToDelete.toSet()
 
-        if (toDelete.isEmpty()) return
+        if (toDelete.isEmpty()) {
+            cachedPoolCount = poolFiles.size
+            return
+        }
 
         var prunedStaged = 0
         var prunedOverflow = 0
@@ -960,6 +1023,7 @@ class CanedgeIngestionManager(
             ?.map { it.name }
             ?.toSet()
             ?: emptySet()
+        cachedPoolCount = remainingNames.size
         synchronized(stateLock) {
             val cleanedIndex = PoolIndex.load(poolIndexFile).retainOnly(remainingNames)
             PoolIndex.save(poolIndexFile, cleanedIndex)
@@ -970,10 +1034,12 @@ class CanedgeIngestionManager(
             val sample = toDelete.take(5).joinToString(", ")
             AppLogger.i(
                 TAG,
-                "Pruned $totalPruned files from canedge_pool (stagedComplete=$prunedStaged, overflow=$prunedOverflow, retained=${remainingNames.size}, protected=${prunePlan.protectedNames.size}, sample=[$sample])"
+                "[CAN_DIAG] PRUNE_POOL total=$totalPruned stagedComplete=$prunedStaged overflow=$prunedOverflow retained=${remainingNames.size} protected=${prunePlan.protectedNames.size} sample=[$sample]"
             )
         }
-        refreshLocalFileList()
+        if (refreshUi) {
+            refreshLocalFileList()
+        }
     }
 
     private fun updateUnifiedExplorerView(remoteList: List<CanedgeFile>) {
@@ -1148,7 +1214,7 @@ class CanedgeIngestionManager(
             }
 
             if (addedCount > 0) {
-                CanSyncManifest.save(manifestFile, manifest)
+                saveManifestLocked(manifest)
                 AppLogger.i(TAG, "Imported $addedCount unreconciled session(s) from disk into can_sync_manifest.json for background CAN backfill")
             }
         }
@@ -1177,7 +1243,12 @@ class CanedgeIngestionManager(
         return 0L
     }
 
-    private fun readManifestSafe(): CanSyncManifest = synchronized(stateLock) { CanSyncManifest.load(manifestFile) }
+    private fun readManifestSafe(): CanSyncManifest = cachedManifest
+    private fun saveManifestLocked(manifest: CanSyncManifest) {
+        CanSyncManifest.save(manifestFile, manifest)
+        cachedManifest = manifest
+    }
+
     private fun readPoolIndexSafe(): PoolIndex = synchronized(stateLock) { PoolIndex.load(poolIndexFile) }
 
     private fun recomputeIdleStats() {
@@ -1206,9 +1277,9 @@ class CanedgeIngestionManager(
         overridePhase: CanedgeHudPhase? = null,
         manifestOverride: CanSyncManifest? = null
     ) {
-        val manifest = manifestOverride ?: readManifestSafe()
+        val manifest = manifestOverride ?: cachedManifest
         val pendingCount = manifest.pendingCount()
-        val poolCount = poolDir.listFiles { _, n -> n.endsWith(".mf4", ignoreCase = true) }?.size ?: 0
+        val poolCount = cachedPoolCount
         val waitingAny =
             isWaitingTail || manifest.sessions.any { it.status == CanSessionSyncStatus.WAITING_FINAL_CHUNK }
 
