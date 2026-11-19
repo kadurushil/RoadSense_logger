@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+# pyrefly: ignore[missing-import]
 import asammdf
 import numpy as np
 

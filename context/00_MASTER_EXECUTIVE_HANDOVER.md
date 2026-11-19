@@ -61,6 +61,7 @@ As of September 29, 2026, the following major architectural milestones have been
 | **Immersive Fullscreen SBS & BEV Presets** | **Production Ready** (50/50 `SurfaceView` + chromeless BEV, `±60°` FOV scale, `15/30/60/100/150m`) | `FullscreenSbsPreview.kt`, `RadarBevPlot.kt`, `AppPreferences.kt` |
 | **16:9 ISP-Cropped Stream Intrinsics & MCAP Video Fallback** | **Production Ready** (`cy=360` at 720p on `LENS_INTRINSIC_CALIBRATION` HALs; `/camera/video` without `camera_frames.csv`) | `CameraIntrinsicsProvider.kt`, `tools/convert_session_to_mcap.py` |
 | **CANedge2 Phase 2 Time Alignment & Live Verifier** | **Production Ready** (`tolerance=3` / `time.cloudflare.com`, `currInFolder.last()` rollover offset, Option A offline grace, 12h 0-CAN bench guard) | `CanedgeSyncPlanner.kt`, `CanedgeIngestionManager.kt`, `scripts/verify_canedge_live.py` |
+| **Modular CAN `.MF4` → MCAP Ingestion (`CAN_Processing`)** | **Production Ready** (30–60 s rolling Tier 1 `FrameNumber_Act` ↔ UART alignment `-451 ppm` drift fix, completeness audit, Dynamic Protobuf `/can/*` topics) | `tools/CAN_Processing/*.py`, `tools/sync_and_process_sessions.py`, `tools/convert_session_to_mcap.py` |
 
 ---
 

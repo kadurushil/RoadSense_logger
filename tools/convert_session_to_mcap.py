@@ -1162,7 +1162,12 @@ def convert_session_to_mcap(
     urdf_x=-1.40,
     urdf_y=0.00,
     urdf_z=0.00,
-    vision_json=None
+    vision_json=None,
+    can_bundle=None,
+    can_config=None,
+    can_mode=None,
+    strict_can=False,
+    skip_can=False
 ):
     """
     Main conversion entrypoint. Ingests all session data and compiles a unified Foxglove MCAP.
@@ -2033,6 +2038,45 @@ def convert_session_to_mcap(
             except Exception as e:
                 print(f"[-] Vision tracks ingestion error ({e}). Skipping vision topics.")
 
+        # 6.6. Ingest CANedge2 MDF4 Telemetry Topics (Modular tools/CAN_Processing/)
+        can_dir = os.path.join(session_dir, "can")
+        if not skip_can and (can_bundle is not None or os.path.isdir(can_dir)):
+            try:
+                from tools.CAN_Processing.pipeline import prepare_can_bundle, write_can_bundle_to_mcap
+
+                active_can_bundle = can_bundle
+                if active_can_bundle is None:
+                    print(f"    - Processing CANedge2 MF4 Logs (30-60s rolling align): {can_dir}")
+                    active_can_bundle = prepare_can_bundle(
+                        session_dir=session_dir,
+                        time_offset_ns=time_offset_ns,
+                        config_path=can_config,
+                        can_mode=can_mode,
+                        strict_can=strict_can,
+                    )
+
+                comp = active_can_bundle.completeness
+                align = active_can_bundle.alignment
+                print(
+                    f"      [CAN] Tier={align.primary_tier} | Chunks={comp.chunk_count} "
+                    f"| Coverage={comp.coverage_pct:.1f}% ({comp.status}) "
+                    f"| Offset={align.global_median_offset_sec:+.3f}s | Drift={align.estimated_drift_ppm:+.1f}ppm"
+                )
+                for w in comp.warnings:
+                    print(f"      [WARN] CAN Audit: {w}")
+
+                written_can = write_can_bundle_to_mcap(
+                    writer=writer,
+                    bundle=active_can_bundle,
+                    count_msg=count_msg,
+                    start_wall_ms=start_wall_ms,
+                )
+                print(f"      [+] Ingested {written_can:,} CAN Protobuf messages into MCAP.")
+            except Exception as e:
+                if strict_can:
+                    raise
+                print(f"    [!] CAN ingestion skipped/warned ({e}).")
+
         # 7. Add Native MCAP Attachments
         if os.path.isfile(meta_path):
             with open(meta_path, "rb") as mf:
@@ -2111,6 +2155,10 @@ def main():
     parser.add_argument("--urdf-y", type=float, default=0.00, help="Y translation in meters from base_link to URDF root (default: 0.00)")
     parser.add_argument("--urdf-z", type=float, default=0.00, help="Z translation in meters from base_link to URDF root (default: 0.00)")
     parser.add_argument("--vision-json", default=None, help="Optional path to pre-computed vision_tracks.json (auto-discovered if omitted)")
+    parser.add_argument("--can-config", default=None, help="Optional path to can_mcap_config.json")
+    parser.add_argument("--can-mode", choices=["all", "whitelist"], default=None, help="Override CAN message ingest mode (default from config)")
+    parser.add_argument("--strict-can", action="store_true", help="Abort conversion if CAN completeness/continuity audit finds gaps")
+    parser.add_argument("--skip-can", action="store_true", help="Skip CANedge2 .MF4 ingestion")
 
     args = parser.parse_args()
     if not os.path.isdir(args.session_dir):
@@ -2127,7 +2175,11 @@ def main():
         urdf_x=args.urdf_x,
         urdf_y=args.urdf_y,
         urdf_z=args.urdf_z,
-        vision_json=args.vision_json
+        vision_json=args.vision_json,
+        can_config=args.can_config,
+        can_mode=args.can_mode,
+        strict_can=args.strict_can,
+        skip_can=args.skip_can
     )
 
 

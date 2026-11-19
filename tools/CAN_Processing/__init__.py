@@ -25,4 +25,12 @@ def load_can_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     return cfg
 
 
-__all__ = ["DEFAULT_CONFIG_PATH", "load_can_config"]
+from .pipeline import CanSessionBundle, prepare_can_bundle, write_can_bundle_to_mcap
+
+__all__ = [
+    "DEFAULT_CONFIG_PATH",
+    "load_can_config",
+    "CanSessionBundle",
+    "prepare_can_bundle",
+    "write_can_bundle_to_mcap",
+]

@@ -1158,7 +1158,7 @@ def stream_write_track_history(
     print(f"    [+] Generated: {track_history_path} ({n_frames:,} frames, {n_tracks:,} unique tracks, {final_size / (1024 * 1024):.1f} MB)")
 
 
-def process_session(session_dir, force=False, export_mcap=False, flip_video=False, hwaccel="auto"):
+def process_session(session_dir, force=False, export_mcap=False, flip_video=False, hwaccel="auto", can_mode=None, strict_can=False, skip_can=False):
     """
     Converts raw session logs in `session_dir` into:
     1. track_history.json
@@ -1484,6 +1484,19 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
     else:
         print(f"    [!] Note: camera_video.mp4 is missing in {session_dir}/camera")
 
+    # Sequential CAN Processing step (modular tools/CAN_Processing/) before MCAP export
+    can_bundle = None
+    can_dir = os.path.join(session_dir, "can")
+    if export_mcap and not skip_can and os.path.isdir(can_dir):
+        try:
+            from tools.CAN_Processing.pipeline import prepare_can_bundle
+            print(f"[+] Pre-processing CANedge2 MF4 logs sequentially for [{session_name}]...")
+            can_bundle = prepare_can_bundle(session_dir, can_mode=can_mode, strict_can=strict_can)
+        except Exception as e:
+            if strict_can:
+                raise
+            print(f"    [!] Note: Sequential CAN pre-processing skipped ({e}).")
+
     # Optional MCAP export
     if export_mcap:
         try:
@@ -1492,7 +1505,15 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
             if script_dir not in sys.path:
                 sys.path.insert(0, script_dir)
             from convert_session_to_mcap import convert_session_to_mcap
-            convert_session_to_mcap(session_dir, flip_video=flip_video, hwaccel=hwaccel)
+            convert_session_to_mcap(
+                session_dir,
+                flip_video=flip_video,
+                hwaccel=hwaccel,
+                can_bundle=can_bundle,
+                can_mode=can_mode,
+                strict_can=strict_can,
+                skip_can=skip_can,
+            )
         except Exception as e:
             print(f"    [!] Error generating MCAP: {e}")
     else:
@@ -1511,6 +1532,9 @@ def main():
     parser.add_argument("--mcap", action="store_true", help="Automatically generate Foxglove .mcap file alongside visualizer JSON")
     parser.add_argument("--flip-video", action="store_true", help="Physically rotate video 180° during MCAP conversion")
     parser.add_argument("--hwaccel", choices=["auto", "nvenc", "cpu"], default="auto", help="Hardware acceleration mode for video re-encoding (default: auto)")
+    parser.add_argument("--can-mode", choices=["all", "whitelist"], default=None, help="CAN MCAP ingest mode override (default from tools/CAN_Processing/can_mcap_config.json)")
+    parser.add_argument("--strict-can", action="store_true", help="Abort MCAP export if CAN completeness audit fails")
+    parser.add_argument("--skip-can", action="store_true", help="Skip CANedge2 MF4 ingestion")
     args = parser.parse_args()
 
     if args.force_all:
@@ -1555,7 +1579,16 @@ def main():
     success_count = 0
     for s_dir in session_dirs:
         try:
-            if process_session(s_dir, force=args.force, export_mcap=args.mcap, flip_video=args.flip_video, hwaccel=args.hwaccel):
+            if process_session(
+                s_dir,
+                force=args.force,
+                export_mcap=args.mcap,
+                flip_video=args.flip_video,
+                hwaccel=args.hwaccel,
+                can_mode=args.can_mode,
+                strict_can=args.strict_can,
+                skip_can=args.skip_can,
+            ):
                 success_count += 1
         except Exception as e:
             print(f"    [!] Error processing {os.path.basename(s_dir)}: {e}")
