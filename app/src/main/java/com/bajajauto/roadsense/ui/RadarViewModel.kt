@@ -91,7 +91,20 @@ data class LiveMetricsSnapshot(
     val syncDeltaMs: Float = 0.0f,
     val isSyncActive: Boolean = false,
     val canHudPhase: com.bajajauto.roadsense.canedge.model.CanedgeHudPhase = com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.OFFLINE,
-    val canHudLabel: String = "OFF"
+    val canHudLabel: String = "OFF",
+    val radarPill: SensorPillStatus = SensorReadinessEvaluator.evaluateRadar(
+        com.bajajauto.roadsense.acquisition.RadarConnectionState.Disconnected, 0f, false, false
+    ),
+    val camPill: SensorPillStatus = SensorReadinessEvaluator.evaluateCamera(
+        com.bajajauto.roadsense.camera.CameraEngineState.Closed, 0f
+    ),
+    val gpsPill: SensorPillStatus = SensorReadinessEvaluator.evaluateGnss(
+        com.bajajauto.roadsense.gnss.GnssState.Disabled, 0f
+    ),
+    val imuPill: SensorPillStatus = SensorReadinessEvaluator.evaluateImu(0f, false, false),
+    val canPill: SensorPillStatus = SensorReadinessEvaluator.evaluateCan(
+        com.bajajauto.roadsense.canedge.model.CanedgeSyncStats()
+    )
 )
 
 @androidx.compose.runtime.Stable
@@ -289,6 +302,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     @Volatile private var radarFramesThisSec = 0
     @Volatile private var cameraFramesThisSec = 0
     @Volatile private var gnssFixesThisSec = 0
+    @Volatile private var radarWasConnectedInSession = false
+    @Volatile private var radarStreamActiveInSession = false
 
     init {
         // Sync baud rate from connection manager to packet assembler for accurate SOF physical byte timing
@@ -391,27 +406,53 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
                 val fix = gnssLocationManager.latestFix.value
                 val (liveSvUsed, liveSvInView) = gnssLocationManager.satelliteStatus.value
+                val gState = gnssLocationManager.gnssState.value
+                val rConnState = connectionManager.connectionState.value
+                val cEngineState = cameraEngine.engineState.value
+                val iHz = imuManager.imuHz.value
+                val isImuMonitoring = imuManager.telemetryState.value.isMonitoring
+                val isRec = sessionRecorder.currentSession != null
+                if (isRec) {
+                    if (rConnState is RadarConnectionState.Connected) {
+                        radarWasConnectedInSession = true
+                    }
+                    if (rHz > 0f) {
+                        radarStreamActiveInSession = true
+                    }
+                }
+                val radarDroppedMidRec = isRec && (
+                    (radarWasConnectedInSession && rConnState is RadarConnectionState.Disconnected) ||
+                    (radarStreamActiveInSession && rHz <= 0f)
+                )
+
                 val sync = syncAssociator.liveSyncTelemetry.value
                 val can = canedgeSyncStats.value
-                val canLabel = when (can.hudPhase) {
-                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.OFFLINE -> "OFF"
-                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.OFFLINE_PENDING -> "${can.pendingSessionsCount}P"
-                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.SCANNING -> "SCAN"
-                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.CALIBRATING -> "CAL"
-                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.CONNECTED_SYNCED -> "OK"
-                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.SYNCING -> {
-                        val pct = (can.activeFileProgress * 100).toInt().coerceIn(0, 99)
-                        if (can.queueTotalFiles > 1) "$pct% ${can.queueCompletedFiles + 1}/${can.queueTotalFiles}" else "$pct%"
-                    }
-                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.PAUSED_RECORDING -> "PAUSE"
-                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.WAITING_FINAL_CHUNK -> "WAIT"
-                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.ERROR -> "ERR"
-                }
+                val radarPill = SensorReadinessEvaluator.evaluateRadar(
+                    connState = rConnState,
+                    radarHz = rHz,
+                    isRecording = isRec,
+                    radarDroppedMidRecording = radarDroppedMidRec
+                )
+                val camPill = SensorReadinessEvaluator.evaluateCamera(
+                    engineState = cEngineState,
+                    cameraFps = cFps
+                )
+                val gpsPill = SensorReadinessEvaluator.evaluateGnss(
+                    gnssState = gState,
+                    gnssHz = gHz
+                )
+                val imuPill = SensorReadinessEvaluator.evaluateImu(
+                    imuHz = iHz,
+                    isMonitoring = isImuMonitoring,
+                    isRecording = isRec
+                )
+                val canPill = SensorReadinessEvaluator.evaluateCan(can)
+
                 val newSnapshot = LiveMetricsSnapshot(
                     radarHz = rHz,
                     cameraFps = cFps,
                     gnssHz = gHz,
-                    imuHz = imuManager.imuHz.value,
+                    imuHz = iHz,
                     satellitesUsed = if (liveSvInView > 0) liveSvUsed else (fix?.satellitesUsed ?: 0),
                     satellitesInView = if (liveSvInView > 0) liveSvInView else (fix?.satellitesInView ?: 0),
                     accuracyMeters = fix?.accuracyMeters ?: 0f,
@@ -423,7 +464,12 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                     syncDeltaMs = sync.camToImuDeltaMs,
                     isSyncActive = sync.isCameraActive && sync.isImuActive,
                     canHudPhase = can.hudPhase,
-                    canHudLabel = canLabel
+                    canHudLabel = canPill.fullValue,
+                    radarPill = radarPill,
+                    camPill = camPill,
+                    gpsPill = gpsPill,
+                    imuPill = imuPill,
+                    canPill = canPill
                 )
                 if (_liveMetricsSnapshot.value != newSnapshot) {
                     _liveMetricsSnapshot.value = newSnapshot
@@ -793,6 +839,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         }
         val session = sessionRecorder.startSession()
         if (session != null) {
+            radarWasConnectedInSession = connectionManager.connectionState.value is RadarConnectionState.Connected
+            radarStreamActiveInSession = false
             lastObservedRadarSeq = -1L
             totalRadarSequenceGaps = 0L
             totalRadarDroppedFrames = 0L
@@ -844,6 +892,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         imuManager.stopSessionRecording()
         sessionRecorder.currentSession?.totalImuFrames = imuFrames
         val stopped = sessionRecorder.stopSession()
+        radarWasConnectedInSession = false
+        radarStreamActiveInSession = false
         canedgeIngestionManager.onSessionStopped(stopped)
         val totalRecorded = stopped?.totalRadarFrames ?: 0L
         com.bajajauto.roadsense.logging.AppLogger.i(

@@ -18,11 +18,16 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
-import com.bajajauto.roadsense.canedge.model.CanedgeHudPhase
+import com.bajajauto.roadsense.acquisition.RadarConnectionState
+import com.bajajauto.roadsense.camera.CameraEngineState
 import com.bajajauto.roadsense.gnss.GnssFix
+import com.bajajauto.roadsense.gnss.GnssLocationManager
+import com.bajajauto.roadsense.gnss.GnssState
 import com.bajajauto.roadsense.sync.LiveSyncTelemetry
 import com.bajajauto.roadsense.ui.LiveMetricsSnapshot
 import com.bajajauto.roadsense.ui.RadarViewModel
+import com.bajajauto.roadsense.ui.SensorHudTone
+import com.bajajauto.roadsense.ui.SensorReadinessEvaluator
 import java.util.Locale
 
 private class HudHitBounds {
@@ -74,6 +79,13 @@ fun LiveMetricsBar(
     onSyncClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    val gnssState = if (latestFix != null) {
+        GnssState.Active(latestFix, 1L)
+    } else if (gnssHz > 0f) {
+        GnssState.Searching
+    } else {
+        GnssState.Disabled
+    }
     val snap = LiveMetricsSnapshot(
         radarHz = radarHz,
         cameraFps = cameraFps,
@@ -88,7 +100,26 @@ fun LiveMetricsBar(
         cpuTempC = cpuTempC,
         syncGrade = syncTelemetry.liveGrade,
         syncDeltaMs = syncTelemetry.camToImuDeltaMs,
-        isSyncActive = syncTelemetry.isCameraActive && syncTelemetry.isImuActive
+        isSyncActive = syncTelemetry.isCameraActive && syncTelemetry.isImuActive,
+        radarPill = SensorReadinessEvaluator.evaluateRadar(
+            connState = if (radarHz > 0f) RadarConnectionState.Connected("USB") else RadarConnectionState.Disconnected,
+            radarHz = radarHz,
+            isRecording = false,
+            radarDroppedMidRecording = false
+        ),
+        camPill = SensorReadinessEvaluator.evaluateCamera(
+            engineState = if (cameraFps > 0f) CameraEngineState.Closed else CameraEngineState.Closed,
+            cameraFps = cameraFps
+        ),
+        gpsPill = SensorReadinessEvaluator.evaluateGnss(
+            gnssState = gnssState,
+            gnssHz = gnssHz
+        ),
+        imuPill = SensorReadinessEvaluator.evaluateImu(
+            imuHz = imuHz,
+            isMonitoring = imuHz > 0f,
+            isRecording = false
+        )
     )
     LiveMetricsCanvasHud(
         snapshotProvider = { snap },
@@ -171,10 +202,17 @@ private fun LiveMetricsCanvasHud(
         val colorMuted = 0xFF78909C.toInt()
         val colorCyan = 0xFF80D8FF.toInt()
 
-        val radarColor = if (snap.radarHz > 15f) colorGreen else if (snap.radarHz > 0f) colorAmber else colorMuted
-        val camColor = if (snap.cameraFps > 20f) colorGreen else if (snap.cameraFps > 0f) colorAmber else colorMuted
-        val gpsColor = if (snap.gnssHz > 0.5f) colorGreen else colorMuted
-        val imuColor = if (snap.imuHz > 80f) colorGreen else if (snap.imuHz > 0f) colorAmber else colorMuted
+        fun toneColor(tone: SensorHudTone): Int = when (tone) {
+            SensorHudTone.GREEN -> colorGreen
+            SensorHudTone.YELLOW -> colorAmber
+            SensorHudTone.CYAN -> colorCyan
+            SensorHudTone.RED -> colorRed
+        }
+
+        val radarColor = toneColor(snap.radarPill.tone)
+        val camColor = toneColor(snap.camPill.tone)
+        val gpsColor = toneColor(snap.gpsPill.tone)
+        val imuColor = toneColor(snap.imuPill.tone)
         val syncColor = when (snap.syncGrade) {
             "GOLD" -> colorGreen
             "SILVER" -> colorMint
@@ -188,20 +226,13 @@ private fun LiveMetricsCanvasHud(
             "IDLE"
         }
 
-        val canColor = when (snap.canHudPhase) {
-            CanedgeHudPhase.CONNECTED_SYNCED -> colorGreen
-            CanedgeHudPhase.SYNCING -> colorCyan
-            CanedgeHudPhase.PAUSED_RECORDING,
-            CanedgeHudPhase.WAITING_FINAL_CHUNK,
-            CanedgeHudPhase.OFFLINE_PENDING,
-            CanedgeHudPhase.CALIBRATING,
-            CanedgeHudPhase.SCANNING -> colorAmber
-            CanedgeHudPhase.ERROR -> colorRed
-            CanedgeHudPhase.OFFLINE -> colorMuted
-        }
-        val canText = snap.canHudLabel
+        val canColor = toneColor(snap.canPill.tone)
 
-        val svColor = if (snap.satellitesUsed >= 6) colorGreen else colorAmber
+        val svColor = when {
+            snap.satellitesUsed >= GnssLocationManager.MIN_SATELLITES_FOR_LOCK -> colorGreen
+            snap.satellitesInView > 0 -> colorAmber
+            else -> colorRed
+        }
         val svText = "${snap.satellitesUsed}/${snap.satellitesInView}"
 
         val cpuColor = if (snap.cpuUsagePct > 80) colorRed else if (snap.cpuUsagePct > 40) colorAmber else colorGreen
@@ -218,25 +249,44 @@ private fun LiveMetricsCanvasHud(
         }
         val batText = String.format(Locale.US, "BAT %d%% • %.1f°C", snap.batteryPct, snap.batteryTempC)
 
-        fun drawPill(x: Float, baselineY: Float, label: String, value: String, valColor: Int): Float {
+        fun measurePill(label: String, value: String): Float {
+            return labelPaint.measureText(label) + labelValGap + valuePaint.measureText(value)
+        }
+
+        fun drawPill(x: Float, baselineY: Float, label: String, value: String, valColor: Int, gap: Float = pillGap): Float {
             nc.drawText(label, x, baselineY, labelPaint)
             val lw = labelPaint.measureText(label)
             val vx = x + lw + labelValGap
             valuePaint.color = valColor
             nc.drawText(value, vx, baselineY, valuePaint)
             val vw = valuePaint.measureText(value)
-            return vx + vw + pillGap
+            return vx + vw + gap
         }
 
         val textOffsetY = (valuePaint.descent() + valuePaint.ascent()) / 2f
 
         if (isLandscape) {
             val baseY = (h / 2f) - textOffsetY
+            val fullLandLeftWidth = padX +
+                measurePill("RADAR", snap.radarPill.fullValue) +
+                measurePill("CAM", snap.camPill.fullValue) +
+                measurePill("GPS", snap.gpsPill.fullValue) +
+                measurePill("IMU", snap.imuPill.fullValue) +
+                measurePill("SYNC", syncText) +
+                measurePill("CAN", snap.canPill.fullValue) +
+                (5f * pillGap)
+            val useFullLand = fullLandLeftWidth <= (w * 0.62f)
+            val rText = if (useFullLand) snap.radarPill.fullValue else snap.radarPill.compactValue
+            val cText = if (useFullLand) snap.camPill.fullValue else snap.camPill.compactValue
+            val gText = if (useFullLand) snap.gpsPill.fullValue else snap.gpsPill.compactValue
+            val iText = if (useFullLand) snap.imuPill.fullValue else snap.imuPill.compactValue
+            val canValText = if (useFullLand) snap.canPill.fullValue else snap.canPill.compactValue
+
             var curX = padX
-            curX = drawPill(curX, baseY, "RADAR", String.format(Locale.US, "%.1f Hz", snap.radarHz), radarColor)
-            curX = drawPill(curX, baseY, "CAM", String.format(Locale.US, "%.1f fps", snap.cameraFps), camColor)
-            curX = drawPill(curX, baseY, "GPS", String.format(Locale.US, "%.1f Hz", snap.gnssHz), gpsColor)
-            curX = drawPill(curX, baseY, "IMU", String.format(Locale.US, "%.1f Hz", snap.imuHz), imuColor)
+            curX = drawPill(curX, baseY, "RADAR", rText, radarColor)
+            curX = drawPill(curX, baseY, "CAM", cText, camColor)
+            curX = drawPill(curX, baseY, "GPS", gText, gpsColor)
+            curX = drawPill(curX, baseY, "IMU", iText, imuColor)
 
             val syncStartX = curX
             curX = drawPill(curX, baseY, "SYNC", syncText, syncColor)
@@ -246,7 +296,7 @@ private fun LiveMetricsCanvasHud(
             hitBounds.syncBottom = h
 
             val canStartX = curX
-            curX = drawPill(curX, baseY, "CAN", canText, canColor)
+            curX = drawPill(curX, baseY, "CAN", canValText, canColor)
             hitBounds.canLeft = canStartX - 4f * density
             hitBounds.canRight = curX
             hitBounds.canTop = 0f
@@ -257,7 +307,12 @@ private fun LiveMetricsCanvasHud(
             midX = drawPill(midX, baseY, "SVs", svText, svColor)
             if (snap.accuracyMeters > 0f) {
                 val accColor = if (snap.accuracyMeters <= 2.5f) colorGreen else colorAmber
-                drawPill(midX, baseY, "ACC", String.format(Locale.US, "±%.1fm", snap.accuracyMeters), accColor)
+                val accText = if (snap.accuracyMeters >= 10f) {
+                    String.format(Locale.US, "±%.0fm", snap.accuracyMeters)
+                } else {
+                    String.format(Locale.US, "±%.1fm", snap.accuracyMeters)
+                }
+                drawPill(midX, baseY, "ACC", accText, accColor)
             }
 
             // Right-aligned CPU & Battery
@@ -273,27 +328,46 @@ private fun LiveMetricsCanvasHud(
         } else {
             val row1Y = (h * 0.28f) - textOffsetY
             val row2Y = (h * 0.76f) - textOffsetY
+
+            val fullRow1Sum = measurePill("RADAR", snap.radarPill.fullValue) +
+                measurePill("CAM", snap.camPill.fullValue) +
+                measurePill("GPS", snap.gpsPill.fullValue) +
+                measurePill("IMU", snap.imuPill.fullValue) +
+                measurePill("SYNC", syncText)
+            val useFullRow1 = (2f * padX + fullRow1Sum + 4f * pillGap) <= w
+
+            val rText = if (useFullRow1) snap.radarPill.fullValue else snap.radarPill.compactValue
+            val cText = if (useFullRow1) snap.camPill.fullValue else snap.camPill.compactValue
+            val gText = if (useFullRow1) snap.gpsPill.fullValue else snap.gpsPill.compactValue
+            val iText = if (useFullRow1) snap.imuPill.fullValue else snap.imuPill.compactValue
+
+            val compactRow1Sum = if (useFullRow1) fullRow1Sum else (
+                measurePill("RADAR", rText) +
+                    measurePill("CAM", cText) +
+                    measurePill("GPS", gText) +
+                    measurePill("IMU", iText) +
+                    measurePill("SYNC", syncText)
+                )
+            val r1Gap = if (2f * padX + compactRow1Sum + 4f * pillGap <= w) {
+                pillGap
+            } else {
+                ((w - 2f * padX - compactRow1Sum) / 4f).coerceAtLeast(3f * density)
+            }
+
             var curX = padX
-            curX = drawPill(curX, row1Y, "RADAR", String.format(Locale.US, "%.1f Hz", snap.radarHz), radarColor)
-            curX = drawPill(curX, row1Y, "CAM", String.format(Locale.US, "%.1f fps", snap.cameraFps), camColor)
-            curX = drawPill(curX, row1Y, "GPS", String.format(Locale.US, "%.1f Hz", snap.gnssHz), gpsColor)
-            curX = drawPill(curX, row1Y, "IMU", String.format(Locale.US, "%.1f Hz", snap.imuHz), imuColor)
+            curX = drawPill(curX, row1Y, "RADAR", rText, radarColor, r1Gap)
+            curX = drawPill(curX, row1Y, "CAM", cText, camColor, r1Gap)
+            curX = drawPill(curX, row1Y, "GPS", gText, gpsColor, r1Gap)
+            curX = drawPill(curX, row1Y, "IMU", iText, imuColor, r1Gap)
 
             val syncStartX = curX
-            val syncEndX = drawPill(curX, row1Y, "SYNC", syncText, syncColor)
+            val syncEndX = drawPill(curX, row1Y, "SYNC", syncText, syncColor, r1Gap)
             hitBounds.syncLeft = syncStartX - 4f * density
             hitBounds.syncRight = syncEndX
             hitBounds.syncTop = 0f
             hitBounds.syncBottom = h * 0.55f
 
-            // Row 2: Left SVs/ACC, Right CPU/BAT
-            var r2X = padX
-            r2X = drawPill(r2X, row2Y, "SVs", svText, svColor)
-            if (snap.accuracyMeters > 0f) {
-                val accColor = if (snap.accuracyMeters <= 2.5f) colorGreen else colorAmber
-                drawPill(r2X, row2Y, "ACC", String.format(Locale.US, "±%.1fm", snap.accuracyMeters), accColor)
-            }
-
+            // Row 2: Right CPU/BAT anchored first, CAN positioned cleanly without colliding with SVs/ACC
             valuePaint.color = batColor
             val batW = valuePaint.measureText(batText)
             val batX = w - padX - batW
@@ -304,8 +378,27 @@ private fun LiveMetricsCanvasHud(
             val cpuStartX = batX - pillGap - cpuLabelW - labelValGap - cpuValW
             drawPill(cpuStartX, row2Y, "CPU", cpuText, cpuColor)
 
-            val canTotalW = labelPaint.measureText("CAN") + labelValGap + valuePaint.measureText(canText)
-            val canStartX = (cpuStartX - pillGap - canTotalW).coerceAtLeast(padX)
+            var r2X = padX
+            r2X = drawPill(r2X, row2Y, "SVs", svText, svColor, 6f * density)
+
+            val canFullW = measurePill("CAN", snap.canPill.fullValue)
+            val useFullCan = (r2X + canFullW + pillGap <= cpuStartX)
+            val canText = if (useFullCan) snap.canPill.fullValue else snap.canPill.compactValue
+            val canTotalW = if (useFullCan) canFullW else measurePill("CAN", canText)
+            val canStartX = (cpuStartX - pillGap - canTotalW).coerceAtLeast(r2X)
+
+            if (snap.accuracyMeters > 0f) {
+                val accColor = if (snap.accuracyMeters <= 2.5f) colorGreen else colorAmber
+                val accText = if (snap.accuracyMeters >= 10f) {
+                    String.format(Locale.US, "±%.0fm", snap.accuracyMeters)
+                } else {
+                    String.format(Locale.US, "±%.1fm", snap.accuracyMeters)
+                }
+                if (r2X + measurePill("ACC", accText) + 4f * density <= canStartX) {
+                    drawPill(r2X, row2Y, "ACC", accText, accColor)
+                }
+            }
+
             val canEndX = drawPill(canStartX, row2Y, "CAN", canText, canColor)
             hitBounds.canLeft = canStartX - 4f * density
             hitBounds.canRight = canEndX
