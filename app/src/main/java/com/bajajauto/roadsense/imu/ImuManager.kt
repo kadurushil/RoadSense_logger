@@ -36,7 +36,17 @@ class ImuManager(private val context: Context) {
         private const val JITTER_WINDOW_SIZE = 128
         private const val UI_UPDATE_INTERVAL_NS = 33_333_333L // 33.3 ms = 30 Hz ceiling for UI telemetry
         private const val STATS_UPDATE_INTERVAL_NS = 200_000_000L // 200 ms = 5 Hz
-        const val DEFAULT_SAMPLING_DELAY_US = SensorManager.SENSOR_DELAY_FASTEST // 0 µs: Hardware FIFO fastest raw rate without HAL decimation filter
+        const val DEFAULT_SAMPLING_DELAY_US =
+            SensorManager.SENSOR_DELAY_FASTEST // 0 µs: Hardware FIFO fastest raw rate without HAL decimation filter
+
+        /**
+         * Compute empirical Hz from the primary IMU driver stream (`TYPE_ACCELEROMETER`)
+         * rather than averaging heterogeneous sensors (200 Hz accel/gyro vs 100 Hz HAL fusion).
+         */
+        fun computePrimaryImuRateHz(primaryEventCount: Long, durationNs: Long): Float {
+            if (primaryEventCount <= 0L || durationNs <= 0L) return 0f
+            return (primaryEventCount * 1_000_000_000f) / durationNs.toFloat()
+        }
     }
 
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -115,9 +125,11 @@ class ImuManager(private val context: Context) {
         lastRotationCheckMonoNs = SystemClock.elapsedRealtimeNanos()
     }
 
-    // Frequency counter for LiveMetricsBar
+    // Frequency counter for LiveMetricsBar (tracks the primary CSV/MCAP frame driver)
     private var hzCounterStartMonoNs: Long = 0L
-    private var hzCounterEvents: Long = 0L
+    private var hzCounterPrimaryEvents: Long = 0L
+    @Volatile
+    private var hasAccelDriver: Boolean = true
 
     private fun getDisplayRotation(): Int {
         return try {
@@ -314,14 +326,15 @@ class ImuManager(private val context: Context) {
             try {
                 val nowNs = event.timestamp
                 val deliveryNs = SystemClock.elapsedRealtimeNanos()
-                hzCounterEvents++
 
                 when (event.sensor.type) {
                     Sensor.TYPE_ACCELEROMETER -> {
+                        hzCounterPrimaryEvents++
                         currentRawAccel[0] = event.values[0]
                         currentRawAccel[1] = event.values[1]
                         currentRawAccel[2] = event.values[2]
-                        currentRawAccel[3] = sqrt(event.values[0] * event.values[0] + event.values[1] * event.values[1] + event.values[2] * event.values[2])
+                        currentRawAccel[3] =
+                            sqrt(event.values[0] * event.values[0] + event.values[1] * event.values[1] + event.values[2] * event.values[2])
 
                         // Zero-allocation direct ring buffer recording on dedicated worker thread
                         val recorder = activeRecorder
@@ -369,13 +382,19 @@ class ImuManager(private val context: Context) {
                             }
                         }
                     }
+
                     Sensor.TYPE_LINEAR_ACCELERATION -> {
                         currentLinearAccel[0] = event.values[0]
                         currentLinearAccel[1] = event.values[1]
                         currentLinearAccel[2] = event.values[2]
-                        currentLinearAccel[3] = sqrt(event.values[0] * event.values[0] + event.values[1] * event.values[1] + event.values[2] * event.values[2])
+                        currentLinearAccel[3] =
+                            sqrt(event.values[0] * event.values[0] + event.values[1] * event.values[1] + event.values[2] * event.values[2])
                     }
+
                     Sensor.TYPE_GYROSCOPE -> {
+                        if (!hasAccelDriver) {
+                            hzCounterPrimaryEvents++
+                        }
                         // Raw rad/s for MCAP / ROS sensor_msgs/msg/Imu
                         currentGyroRad[0] = event.values[0]
                         currentGyroRad[1] = event.values[1]
@@ -385,6 +404,7 @@ class ImuManager(private val context: Context) {
                         currentGyroRates[1] = Math.toDegrees(event.values[1].toDouble()).toFloat()
                         currentGyroRates[2] = Math.toDegrees(event.values[2].toDouble()).toFloat()
                     }
+
                     Sensor.TYPE_GAME_ROTATION_VECTOR -> {
                         // Direct extraction of orientation quaternion [qx, qy, qz, qw] from event.values
                         // Avoids heavy 3x3 rotation matrix conversion and IPC binder calls on the fast 104 Hz path
@@ -404,13 +424,12 @@ class ImuManager(private val context: Context) {
                     }
                 }
 
-                // Rolling Hz calculation every 500 ms
+                // Rolling Hz calculation every 500 ms (matches true primary CSV/MCAP recording rate)
                 val hzDurationNs = deliveryNs - hzCounterStartMonoNs
                 if (hzDurationNs >= 500_000_000L) {
-                    val hz = (hzCounterEvents * 1_000_000_000f) / hzDurationNs
-                    _imuHz.value = hz / 4f
+                    _imuHz.value = computePrimaryImuRateHz(hzCounterPrimaryEvents, hzDurationNs)
                     hzCounterStartMonoNs = deliveryNs
-                    hzCounterEvents = 0L
+                    hzCounterPrimaryEvents = 0L
                 }
 
                 // Throttle UI emit to ~25 Hz (every 40 ms)
@@ -453,7 +472,8 @@ class ImuManager(private val context: Context) {
                         currentEulerAngles[0] = cameraPitchDeg
                         currentEulerAngles[1] = lateralRollDeg
                         currentEulerAngles[2] = yawDeg
-                    } catch (_: Exception) {}
+                    } catch (_: Exception) {
+                    }
 
                     _telemetryState.value = ImuTelemetryState(
                         rawAccel = currentRawAccel.clone(),
@@ -496,8 +516,9 @@ class ImuManager(private val context: Context) {
         }
 
         currentSamplingDelayUs = delayUs
+        hasAccelDriver = (accel != null)
         hzCounterStartMonoNs = SystemClock.elapsedRealtimeNanos()
-        hzCounterEvents = 0L
+        hzCounterPrimaryEvents = 0L
         lastUiEmitMonoNs = 0L
         lastRotationCheckMonoNs = hzCounterStartMonoNs
         cachedDisplayRotation = getDisplayRotation()
