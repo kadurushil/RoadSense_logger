@@ -1,0 +1,29 @@
+{
+  "dbc_path": "../VCU.dbc",
+  "ingest_mode": "all",
+  "important_messages": [
+    "VCU_Vehicle_Info1",
+    "VCU_Status",
+    "VCU_Vehicle_Info2",
+    "VCU_Trq_Command_1",
+    "MCU_Speed_Info",
+    "MCU_Power_Info",
+    "BMS_Overview",
+    "BMS_Sox",
+    "VCU_IMU_Processed_Accel_Msg",
+    "VCU_IMU_Processed_Angular_Msg",
+    "FCW_Warning_Info",
+    "RADAR_BSD_Info",
+    "ACC_Params_Info",
+    "RADAR_Debug_Info"
+  ],
+  "exclude_messages": [],
+  "per_message_max_rate_hz": null,
+  "alignment": {
+    "window_sec": 45.0,
+    "step_sec": 30.0,
+    "min_tier1_pairs_per_window": 10,
+    "tier2_min_speed_kmph": 3.0,
+    "max_jump_warn_ms": 250.0
+  }
+}

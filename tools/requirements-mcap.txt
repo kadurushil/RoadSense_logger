@@ -5,3 +5,5 @@ protobuf>=4.25.0
 zstandard>=0.22.0
 numpy>=1.26.0
 av>=14.0.0
+asammdf>=8.0.0
+cantools>=40.0.0
