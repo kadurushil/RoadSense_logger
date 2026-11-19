@@ -391,7 +391,10 @@ class CameraEngine(private val context: Context) {
         if (previewSurface === surface && captureSession != null && cameraDevice != null && _engineState.value !is CameraEngineState.Error) {
             currentViewWidth = width
             currentViewHeight = height
-            if (!isPreviewActive || !isRepeatingActive || _engineState.value is CameraEngineState.Closed) {
+            if (!isPreviewActive || !isRepeatingActive ||
+                _engineState.value is CameraEngineState.Closed ||
+                _engineState.value is CameraEngineState.Standby
+            ) {
                 isPreviewActive = true
                 resumeRepeatingPreviewIfNeeded()
             }
@@ -427,7 +430,7 @@ class CameraEngine(private val context: Context) {
                         try {
                             captureSession?.stopRepeating()
                             isRepeatingActive = false
-                            _engineState.value = CameraEngineState.Closed
+                            _engineState.value = if (cameraDevice != null) CameraEngineState.Standby else CameraEngineState.Closed
                             AppLogger.i(TAG, "Paused CameraCaptureSession repeating request (ISP idle while off-tab/muted)")
                         } catch (e: Exception) {
                             AppLogger.w(TAG, "Could not pause repeating request on park: ${e.message}")
@@ -507,7 +510,7 @@ class CameraEngine(private val context: Context) {
                     try {
                         captureSession?.stopRepeating()
                         isRepeatingActive = false
-                        _engineState.value = CameraEngineState.Closed
+                        _engineState.value = if (cameraDevice != null) CameraEngineState.Standby else CameraEngineState.Closed
                     } catch (e: Exception) {
                         AppLogger.w(TAG, "Could not pause repeating request on detach: ${e.message}")
                     }

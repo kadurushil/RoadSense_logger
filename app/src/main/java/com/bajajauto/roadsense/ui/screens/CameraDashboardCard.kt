@@ -498,7 +498,8 @@ private fun CameraPipelineStatusHeader(
                 } else {
                     Text(
                         text = when (engineState) {
-                            is CameraEngineState.Closed -> if (!hasCameraPermission) "Permission Required" else "Camera Idle / Muted"
+                            is CameraEngineState.Closed -> if (!hasCameraPermission) "Permission Required" else "Camera Closed"
+                            is CameraEngineState.Standby -> if (isPreviewMutedByUser) "Camera Paused (Muted)" else "Camera Standby (0% ISP Idle)"
                             is CameraEngineState.Opening -> "Opening Sensor Hardware..."
                             is CameraEngineState.Previewing -> "Preview Active (${selectedRes.label} @ ${selectedFps.label})"
                             is CameraEngineState.Recording -> ""
@@ -808,6 +809,7 @@ private fun CameraOverlayStatusBadge(
                 is CameraEngineState.Previewing -> "${selectedCamera?.displayName ?: "Camera"} • ${selectedRes.label}$lockBadge$aeBadge"
                 is CameraEngineState.Opening -> "OPENING..."
                 is CameraEngineState.Error -> "ERROR: ${state.message.take(16)}"
+                CameraEngineState.Standby,
                 CameraEngineState.Closed -> if (isPreviewMutedByUser) "PAUSED" else "STANDBY"
             },
             color = Color.White,

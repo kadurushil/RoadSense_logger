@@ -29,6 +29,8 @@ sealed class CameraEngineState {
     @Immutable
     object Closed : CameraEngineState()
     @Immutable
+    object Standby : CameraEngineState()
+    @Immutable
     object Opening : CameraEngineState()
     @Immutable
     data class Previewing(

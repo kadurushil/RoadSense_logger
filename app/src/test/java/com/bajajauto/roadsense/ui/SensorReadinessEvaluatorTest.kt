@@ -63,6 +63,10 @@ class SensorReadinessEvaluatorTest {
             SensorReadinessEvaluator.evaluateCamera(CameraEngineState.Closed, 0f)
         )
         assertEquals(
+            SensorPillStatus("STBY", "STBY", SensorHudTone.YELLOW),
+            SensorReadinessEvaluator.evaluateCamera(CameraEngineState.Standby, 0f)
+        )
+        assertEquals(
             SensorPillStatus("WAIT", "WAIT", SensorHudTone.YELLOW),
             SensorReadinessEvaluator.evaluateCamera(CameraEngineState.Previewing(CameraResolution.RES_720P, 30), 0f)
         )

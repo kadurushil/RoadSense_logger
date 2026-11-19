@@ -87,6 +87,7 @@ object SensorReadinessEvaluator {
             is CameraEngineState.Opening,
             is CameraEngineState.Previewing,
             is CameraEngineState.Recording -> SensorPillStatus("WAIT", "WAIT", SensorHudTone.YELLOW)
+            is CameraEngineState.Standby -> SensorPillStatus("STBY", "STBY", SensorHudTone.YELLOW)
             is CameraEngineState.Closed -> SensorPillStatus("OFF", "OFF", SensorHudTone.RED)
             is CameraEngineState.Error -> SensorPillStatus("ERR", "ERR", SensorHudTone.RED)
         }
