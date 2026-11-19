@@ -1313,6 +1313,17 @@ class CanedgeIngestionManager(
             hasVerifiedClockOffset = clockOffsetVerified
         )
 
+        val prevStats = _stats.value
+        val resolvedOffsetMs = measuredClockOffsetMs ?: appPreferences?.canedgeLastClockOffsetMs?.takeIf {
+            (appPreferences?.canedgeLastClockMeasuredAtMs ?: 0L) > 0L
+        }
+        if (prevStats.hudPhase != computedPhase || prevStats.isClockOffsetVerified != clockOffsetVerified) {
+            AppLogger.i(
+                TAG,
+                "[CAN_DIAG] HUD_PHASE ${prevStats.hudPhase} -> $computedPhase offsetVerified=$clockOffsetVerified offsetMs=${resolvedOffsetMs ?: "null"}"
+            )
+        }
+
         _stats.value = CanedgeSyncStats(
             targetScopeFiles = targetScopeFiles,
             poolSyncedFiles = poolSyncedFiles,
@@ -1331,9 +1342,7 @@ class CanedgeIngestionManager(
             etaSeconds = etaSec,
             hudPhase = computedPhase,
             pendingSessionsCount = pendingCount,
-            measuredClockOffsetMs = measuredClockOffsetMs ?: appPreferences?.canedgeLastClockOffsetMs?.takeIf {
-                (appPreferences?.canedgeLastClockMeasuredAtMs ?: 0L) > 0L
-            },
+            measuredClockOffsetMs = resolvedOffsetMs,
             isClockOffsetVerified = clockOffsetVerified,
             queueCompletedFiles = queueCompleted,
             queueTotalFiles = queueTotal,
