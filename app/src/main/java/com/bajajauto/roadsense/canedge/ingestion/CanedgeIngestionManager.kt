@@ -461,6 +461,7 @@ class CanedgeIngestionManager(
             }
 
             val effectiveOffsetMs = resolveEffectiveClockOffsetMs(pollNowMs)
+            val isClockOffsetVerified = hasVerifiedClockOffset(pollNowMs)
             val poolIndex = readPoolIndexSafe()
             val headerStartByLocalName = poolIndex.entries.associate { it.localName to it.headerStartTimeMs }
             val prioritySessionFiles = mutableListOf<CanedgeFile>()
@@ -473,7 +474,8 @@ class CanedgeIngestionManager(
                     clockOffsetMs = effectiveOffsetMs,
                     nowWallMs = pollNowMs,
                     isSessionCurrentlyRecording = false,
-                    headerStartTimeByLocalName = headerStartByLocalName
+                    headerStartTimeByLocalName = headerStartByLocalName,
+                    isClockOffsetVerified = isClockOffsetVerified
                 )
                 if (plan.waitingForFinalChunk) {
                     anyWaitingFinalChunk = true
@@ -568,10 +570,12 @@ class CanedgeIngestionManager(
             // 7. Reconcile all pending/waiting/partial sessions using newly-pooled files
             val reconciliationResult = if (pendingSessions.isNotEmpty()) {
                 localSnapshotDirty = true
+                val reconcileNowMs = System.currentTimeMillis()
                 reconcilePendingSessionsOnline(
                     scannedFiles = scannedFiles,
-                    effectiveOffsetMs = effectiveOffsetMs,
-                    nowWallMs = System.currentTimeMillis()
+                    effectiveOffsetMs = resolveEffectiveClockOffsetMs(reconcileNowMs),
+                    nowWallMs = reconcileNowMs,
+                    isClockOffsetVerified = hasVerifiedClockOffset(reconcileNowMs)
                 )
             } else {
                 ReconcileSummary(false, _stats.value.currentSessionFiles, _stats.value.sessionTargetFiles)
@@ -718,7 +722,8 @@ class CanedgeIngestionManager(
     private fun reconcilePendingSessionsOnline(
         scannedFiles: List<CanedgeFile>,
         effectiveOffsetMs: Long,
-        nowWallMs: Long
+        nowWallMs: Long,
+        isClockOffsetVerified: Boolean = true
     ): ReconcileSummary {
         val manifest = readManifestSafe()
         val poolIndex = readPoolIndexSafe()
@@ -753,7 +758,8 @@ class CanedgeIngestionManager(
                 clockOffsetMs = effectiveOffsetMs,
                 nowWallMs = nowWallMs,
                 isSessionCurrentlyRecording = false,
-                headerStartTimeByLocalName = headerMap
+                headerStartTimeByLocalName = headerMap,
+                isClockOffsetVerified = isClockOffsetVerified
             )
 
             val canDir = File(sessionDir, "can").apply { mkdirs() }
@@ -802,7 +808,7 @@ class CanedgeIngestionManager(
             updatedManifest = updatedManifest.upsertSession(updatedRec)
             AppLogger.i(
                 TAG,
-                "[CAN_DIAG] RECONCILE session=${rec.sessionDirName} transition=${rec.status}->${updatedRec.status} matched=${plan.matchedRemoteFiles.size} staged=${updatedRec.stagedLocalNames.size} waitingTail=${plan.waitingForFinalChunk} offsetMs=${effectiveOffsetMs}"
+                "[CAN_DIAG] RECONCILE session=${rec.sessionDirName} transition=${rec.status}->${updatedRec.status} matched=${plan.matchedRemoteFiles.size} staged=${updatedRec.stagedLocalNames.size} waitingTail=${plan.waitingForFinalChunk} offsetMs=${effectiveOffsetMs} offsetVerified=$isClockOffsetVerified"
             )
 
             val countChanged = updatedRec.stagedLocalNames.size != rec.stagedLocalNames.size
@@ -1232,6 +1238,12 @@ class CanedgeIngestionManager(
                 measuredClockOffsetMs = manifest.lastClockOffsetMs
             }
         }
+    }
+
+    private fun hasVerifiedClockOffset(nowMs: Long): Boolean {
+        if (measuredClockOffsetMs != null) return true
+        val prefMeasuredAt = appPreferences?.canedgeLastClockMeasuredAtMs ?: 0L
+        return prefMeasuredAt > 0L && (nowMs - prefMeasuredAt) < CLOCK_PREF_MAX_AGE_MS
     }
 
     private fun resolveEffectiveClockOffsetMs(nowMs: Long): Long {

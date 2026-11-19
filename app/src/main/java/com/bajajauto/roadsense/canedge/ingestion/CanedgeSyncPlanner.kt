@@ -45,6 +45,7 @@ object CanedgeSyncPlanner {
     private const val CHUNK_DEFAULT_DURATION_MS = 65_000L
     private const val WINDOW_BOUNDARY_PAD_MS = 10_000L
     private const val TAIL_FINALIZE_GRACE_MS = 90_000L
+    private const val UNVERIFIED_OFFSET_CALIBRATION_GRACE_MS = 75_000L
     private const val LIVE_ROLLOVER_MAX_AGE_MS = 25_000L
     private const val MAX_REASONABLE_OFFSET_MS = 12 * 3_600_000L
 
@@ -100,10 +101,12 @@ object CanedgeSyncPlanner {
         val midWallMs = (prevPollWallMs + nowPollWallMs) / 2L
 
         if (prevInFolder.isNotEmpty() && currInFolder.size > prevInFolder.size) {
-            val prevLast = prevInFolder.last()
-            val currMatchOfPrevLast = currInFolder.firstOrNull { it.path == prevLast.path }
-            if (currMatchOfPrevLast != null && currMatchOfPrevLast.lastWrittenEpochSec > 0L) {
-                val offset = midWallMs - currMatchOfPrevLast.lastWrittenMs
+            // CANedge2 exposes/flushes each 60s chunk to /api/LOG/ upon closing, with
+            // lastWrittenEpochSec recording that chunk's CLOSE timestamp. Measure against
+            // the newly closed chunk (currInFolder.last()), not prevLast (closed 60s earlier).
+            val newestChunk = currInFolder.last()
+            if (newestChunk.lastWrittenEpochSec > 0L) {
+                val offset = midWallMs - newestChunk.lastWrittenMs
                 if (kotlin.math.abs(offset) <= MAX_REASONABLE_OFFSET_MS) return offset
             }
         }
@@ -134,7 +137,8 @@ object CanedgeSyncPlanner {
         clockOffsetMs: Long,
         nowWallMs: Long,
         isSessionCurrentlyRecording: Boolean,
-        headerStartTimeByLocalName: Map<String, Long> = emptyMap()
+        headerStartTimeByLocalName: Map<String, Long> = emptyMap(),
+        isClockOffsetVerified: Boolean = true
     ): SessionSyncPlan {
         val mf4s = remoteFiles.filter { it.isMf4 && it.sizeBytes > 0L }
         if (mf4s.isEmpty()) {
@@ -206,25 +210,38 @@ object CanedgeSyncPlanner {
 
         // Distinguish active drive logging (wait up to 90s for CANedge's 60s split chunk to close)
         // from an idle/bench CANedge with no CAN bus traffic at all (settle after 8s confirm check).
+        // If clock offset has never been verified (< 24h) yet, defer chunk selection for up to 75s
+        // so the first post-drive 60s chunk rollover calibrates the true offset before matching.
+        val sinceStopMs = if (session.stopTimeWallMs != null) nowWallMs - session.stopTimeWallMs else 0L
+        val plausibleOfflineActivity = kotlin.math.abs(session.startTimeWallMs - newestRemoteEndWallMs) <= MAX_REASONABLE_OFFSET_MS
+        val deferForUnverifiedCalibration = !isSessionCurrentlyRecording &&
+            session.stopTimeWallMs != null &&
+            !isClockOffsetVerified &&
+            plausibleOfflineActivity &&
+            sinceStopMs < UNVERIFIED_OFFSET_CALIBRATION_GRACE_MS
+
         val waitingForFinalChunk = if (!isSessionCurrentlyRecording && session.stopTimeWallMs != null) {
-            val sinceStopMs = nowWallMs - session.stopTimeWallMs
-            val noRemoteActivityNearDrive = newestRemoteEndWallMs < (session.startTimeWallMs - 120_000L)
-            val effectiveGraceMs = when {
-                distinctSorted.isEmpty() && noRemoteActivityNearDrive -> 8_000L
-                distinctSorted.isEmpty() -> 65_000L
-                else -> TAIL_FINALIZE_GRACE_MS
+            if (deferForUnverifiedCalibration) {
+                true
+            } else {
+                val noRemoteActivityNearDrive = newestRemoteEndWallMs < (session.startTimeWallMs - 120_000L)
+                val effectiveGraceMs = when {
+                    distinctSorted.isEmpty() && noRemoteActivityNearDrive -> 8_000L
+                    distinctSorted.isEmpty() -> 65_000L
+                    else -> TAIL_FINALIZE_GRACE_MS
+                }
+                val withinGrace = sinceStopMs < effectiveGraceMs
+                val missingTailTime = maxEndWallMs == null || maxEndWallMs < (session.stopTimeWallMs - 2_000L)
+                withinGrace && missingTailTime
             }
-            val withinGrace = sinceStopMs < effectiveGraceMs
-            val missingTailTime = maxEndWallMs == null || maxEndWallMs < (session.stopTimeWallMs - 2_000L)
-            withinGrace && missingTailTime
         } else {
             false
         }
 
         return SessionSyncPlan(
-            matchedRemoteFiles = distinctSorted.map { it.file },
+            matchedRemoteFiles = if (deferForUnverifiedCalibration) emptyList() else distinctSorted.map { it.file },
             waitingForFinalChunk = waitingForFinalChunk,
-            estimatedMaxChunkEndWallMs = maxEndWallMs
+            estimatedMaxChunkEndWallMs = if (deferForUnverifiedCalibration) null else maxEndWallMs
         )
     }
 

@@ -138,3 +138,16 @@ A compact top bar directly explains the 3 columns:
 When the device is mounted in landscape orientation (`Configuration.ORIENTATION_LANDSCAPE`):
 * **Left Pane (Hardware & Controls):** Hardware connection status, AP credentials, Device ID/IP, action controls (Discover/Disconnect, Sync Scope, File Explorer, Prune Pool), and diagnostic telemetry.
 * **Right Pane (Live Operations Console):** `CanedgeLiveTransferCard` with active chunk name, progress bar, live speed, bytes transferred, and ETA, alongside the three cockpit metric cards (`TARGET SCOPE`, `SYNC STATUS`, `THIS SESSION`).
+
+---
+
+## 8. Phase 2 Timeline Continuity & Live Rollover Calibration
+
+### 8.1 CANedge2 RTC Continuity Configuration (`config-01.09.json`)
+To maintain a single continuous CAN timeline without abrupt mid-drive UTC step jumps while keeping boot-time UTC alignment accurate within `< 3 s` when internet is present:
+* `"sync": 2`, `"ntp_server": "time.cloudflare.com"`, `"tolerance": 3` (verified on vehicle drives to align `.MF4` boundaries within `< 1 s` of UTC and continue monotonically with zero jumps when hotspot internet is OFF).
+
+### 8.2 Live Rollover Offset & Unverified Offline Grace (`CanedgeSyncPlanner`)
+* **Rollover Offset Source:** CANedge2 exposes each 60 s chunk in `/api/LOG/` upon closing with `lastWrittenEpochSec` equal to that chunk's close timestamp. [`CanedgeSyncPlanner.measureClockOffsetFromLiveTransition()`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/canedge/ingestion/CanedgeSyncPlanner.kt) measures `midWallMs - currInFolder.last().lastWrittenMs` against the newly closed chunk (avoiding false `+60 s` shifts against `prevLast`).
+* **Option A Offline Calibration Closure:** When a recording stops with no verified clock offset (`measuredClockOffsetMs == null` and no `< 24 h` persisted measurement) and remote CAN chunks exist within `MAX_REASONABLE_OFFSET_MS` (`±12 h`), [`CanedgeSyncPlanner.planSessionChunks()`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/canedge/ingestion/CanedgeSyncPlanner.kt) defers chunk selection up to `UNVERIFIED_OFFSET_CALIBRATION_GRACE_MS` (`75 s`) in `WAITING_FINAL_CHUNK` so the first post-drive rollover calibrates the true offset before staging. Stale/0-CAN bench runs (`> 12 h` old) bypass this grace window and settle in `~8 s`.
+* **PC Live Desk & Vehicle Verifier:** `scripts/verify_canedge_live.py` audits `/device.json`, `config-01.09.json` `"rtc"`, `time.cloudflare.com` NTP UTC vs ADB clock vs `.MF4` `HDBLOCK` timestamps, and phone `canedge_pool/` completeness.

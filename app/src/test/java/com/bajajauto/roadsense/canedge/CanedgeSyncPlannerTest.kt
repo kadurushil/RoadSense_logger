@@ -66,11 +66,11 @@ class CanedgeSyncPlannerTest {
             )
         )
 
-        // Now chunk 2 closes and chunk 3 appears between t0 and t1
-        val prev = listOf(chunk("00000117", 2, (midWallMs - trueSkewMs) / 1000L))
+        // Chunk 2 closed 60s ago; now chunk 3 closes/appears between t0 and t1 with close mtime ~= midWallMs - trueSkewMs
+        val prev = listOf(chunk("00000117", 2, (midWallMs - 60_000L - trueSkewMs) / 1000L))
         val curr = listOf(
-            chunk("00000117", 2, (midWallMs - trueSkewMs) / 1000L),
-            chunk("00000117", 3, (midWallMs - trueSkewMs + 1000L) / 1000L)
+            chunk("00000117", 2, (midWallMs - 60_000L - trueSkewMs) / 1000L),
+            chunk("00000117", 3, (midWallMs - trueSkewMs) / 1000L)
         )
 
         val measured = CanedgeSyncPlanner.measureClockOffsetFromLiveTransition(
@@ -96,7 +96,7 @@ class CanedgeSyncPlannerTest {
             stopTimeWallMs = (baseWallSec + 250L) * 1000L
         )
 
-        // CANedge chunks written with -32s RTC clock
+        // CANedge chunks written with -32s RTC clock (lastWrittenEpochSec = chunk close time)
         val remote = listOf(
             chunk("00000117", 1, baseWallSec + 60L - 32L),   // wall interval [? .. +60] -> OUTSIDE
             chunk("00000117", 2, baseWallSec + 120L - 32L),  // wall interval [+60 .. +120] -> MATCH
@@ -319,5 +319,71 @@ class CanedgeSyncPlannerTest {
             )
         )
         assertEquals(idx, PoolIndex.fromJson(idx.toJson().toString()))
+    }
+
+    @Test
+    fun unverifiedClockOffsetDefersSelectionUntilRolloverOrGraceTimeout() {
+        // CANedge2 RTC is 180s behind Android (no internet, no prior offset within 24h)
+        val baseUtcSec = 1_795_000_000L
+        val session = CanSessionSyncRecord(
+            sessionId = "s_unverified",
+            sessionDirName = "session_unverified",
+            startTimeWallMs = (baseUtcSec + 180L) * 1000L,
+            stopTimeWallMs = (baseUtcSec + 300L) * 1000L,
+            status = CanSessionSyncStatus.PENDING
+        )
+        val remote = listOf(
+            chunk("00000120", 1, baseUtcSec + 60L),
+            chunk("00000120", 2, baseUtcSec + 120L),
+            chunk("00000120", 3, baseUtcSec + 180L)
+        )
+
+        // 5s after stop with unverified offset=0: must defer (waitingForFinalChunk=true, empty match)
+        val deferredPlan = CanedgeSyncPlanner.planSessionChunks(
+            session = session,
+            remoteFiles = remote,
+            clockOffsetMs = 0L,
+            nowWallMs = session.stopTimeWallMs!! + 5_000L,
+            isSessionCurrentlyRecording = false,
+            isClockOffsetVerified = false
+        )
+        assertTrue(deferredPlan.waitingForFinalChunk)
+        assertTrue(deferredPlan.matchedRemoteFiles.isEmpty())
+
+        // Once post-drive rollover measures +180_000ms (offsetVerified=true), all 3 chunks match cleanly
+        val calibratedPlan = CanedgeSyncPlanner.planSessionChunks(
+            session = session,
+            remoteFiles = remote,
+            clockOffsetMs = 180_000L,
+            nowWallMs = session.stopTimeWallMs!! + 45_000L,
+            isSessionCurrentlyRecording = false,
+            isClockOffsetVerified = true
+        )
+        assertFalse(calibratedPlan.waitingForFinalChunk)
+        assertEquals(listOf("00000120_00000001.MF4", "00000120_00000002.MF4", "00000120_00000003.MF4"),
+            calibratedPlan.matchedRemoteFiles.map { it.localName })
+
+        // After 75s unverified-calibration grace + 90s tail grace, must settle without hanging
+        val timedOutPlan = CanedgeSyncPlanner.planSessionChunks(
+            session = session,
+            remoteFiles = remote,
+            clockOffsetMs = 0L,
+            nowWallMs = session.stopTimeWallMs!! + 91_000L,
+            isSessionCurrentlyRecording = false,
+            isClockOffsetVerified = false
+        )
+        assertFalse(timedOutPlan.waitingForFinalChunk)
+
+        // Bench 0-CAN guard: if newest remote chunk is >12h old, do NOT wait 75s even if unverified (exit in 8s)
+        val staleRemote = listOf(chunk("00000117", 40, baseUtcSec - 25L * 3600L))
+        val benchExitPlan = CanedgeSyncPlanner.planSessionChunks(
+            session = session,
+            remoteFiles = staleRemote,
+            clockOffsetMs = 0L,
+            nowWallMs = session.stopTimeWallMs!! + 9_000L,
+            isSessionCurrentlyRecording = false,
+            isClockOffsetVerified = false
+        )
+        assertFalse(benchExitPlan.waitingForFinalChunk)
     }
 }
