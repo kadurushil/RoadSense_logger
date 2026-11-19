@@ -7,7 +7,10 @@ import com.bajajauto.roadsense.canedge.ingestion.CanedgeSyncPlanner
 import com.bajajauto.roadsense.canedge.ingestion.PoolArtifact
 import com.bajajauto.roadsense.canedge.ingestion.PoolIndex
 import com.bajajauto.roadsense.canedge.ingestion.PoolIndexEntry
+import com.bajajauto.roadsense.canedge.model.CanedgeConnectionState
+import com.bajajauto.roadsense.canedge.model.CanedgeDevice
 import com.bajajauto.roadsense.canedge.model.CanedgeFile
+import com.bajajauto.roadsense.canedge.model.CanedgeHudPhase
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -385,5 +388,108 @@ class CanedgeSyncPlannerTest {
             isClockOffsetVerified = false
         )
         assertFalse(benchExitPlan.waitingForFinalChunk)
+    }
+
+    @Test
+    fun resolveHudPhaseEnforcesCalibrationGateUntilRtcOffsetVerified() {
+        val connected = CanedgeConnectionState.Connected(
+            CanedgeDevice(deviceId = "7AC5E17F", ipAddress = "192.168.1.50")
+        )
+
+        // Connected & idle with unverified RTC offset -> CALIBRATING (yellow gate before recording)
+        assertEquals(
+            CanedgeHudPhase.CALIBRATING,
+            CanedgeSyncPlanner.resolveHudPhase(
+                isPausedDuringRecording = false,
+                isSyncing = false,
+                connState = connected,
+                pendingSessionsCount = 0,
+                waitingAnyFinalChunk = false,
+                hasVerifiedClockOffset = false
+            )
+        )
+
+        // Once 60s rollover measures clock offset -> CONNECTED_SYNCED (green OK)
+        assertEquals(
+            CanedgeHudPhase.CONNECTED_SYNCED,
+            CanedgeSyncPlanner.resolveHudPhase(
+                isPausedDuringRecording = false,
+                isSyncing = false,
+                connState = connected,
+                pendingSessionsCount = 0,
+                waitingAnyFinalChunk = false,
+                hasVerifiedClockOffset = true
+            )
+        )
+
+        // Waiting final tail or active sync or recording takes precedence over calibrating
+        assertEquals(
+            CanedgeHudPhase.WAITING_FINAL_CHUNK,
+            CanedgeSyncPlanner.resolveHudPhase(
+                isPausedDuringRecording = false,
+                isSyncing = false,
+                connState = connected,
+                pendingSessionsCount = 0,
+                waitingAnyFinalChunk = true,
+                hasVerifiedClockOffset = false
+            )
+        )
+        assertEquals(
+            CanedgeHudPhase.SYNCING,
+            CanedgeSyncPlanner.resolveHudPhase(
+                isPausedDuringRecording = false,
+                isSyncing = true,
+                connState = connected,
+                pendingSessionsCount = 0,
+                waitingAnyFinalChunk = true,
+                hasVerifiedClockOffset = false
+            )
+        )
+        assertEquals(
+            CanedgeHudPhase.PAUSED_RECORDING,
+            CanedgeSyncPlanner.resolveHudPhase(
+                isPausedDuringRecording = true,
+                isSyncing = true,
+                connState = connected,
+                pendingSessionsCount = 1,
+                waitingAnyFinalChunk = true,
+                hasVerifiedClockOffset = false
+            )
+        )
+
+        // Offline & Error mapping
+        assertEquals(
+            CanedgeHudPhase.OFFLINE,
+            CanedgeSyncPlanner.resolveHudPhase(
+                isPausedDuringRecording = false,
+                isSyncing = false,
+                connState = CanedgeConnectionState.Disconnected,
+                pendingSessionsCount = 0,
+                waitingAnyFinalChunk = false,
+                hasVerifiedClockOffset = false
+            )
+        )
+        assertEquals(
+            CanedgeHudPhase.OFFLINE_PENDING,
+            CanedgeSyncPlanner.resolveHudPhase(
+                isPausedDuringRecording = false,
+                isSyncing = false,
+                connState = CanedgeConnectionState.Disconnected,
+                pendingSessionsCount = 2,
+                waitingAnyFinalChunk = false,
+                hasVerifiedClockOffset = true
+            )
+        )
+        assertEquals(
+            CanedgeHudPhase.ERROR,
+            CanedgeSyncPlanner.resolveHudPhase(
+                isPausedDuringRecording = false,
+                isSyncing = false,
+                connState = CanedgeConnectionState.Error("Timeout"),
+                pendingSessionsCount = 0,
+                waitingAnyFinalChunk = false,
+                hasVerifiedClockOffset = true
+            )
+        )
     }
 }

@@ -243,12 +243,18 @@ class CanedgeIngestionManager(
                 if ((nowMs - lastRemotePollMs) >= intervalMs) {
                     pendingSyncRequested = false
                     launchSyncPass(device, isPostStopTrigger = hasWaitingTail || hasPending)
-                } else if (_stats.value.hudPhase == CanedgeHudPhase.OFFLINE ||
-                    _stats.value.hudPhase == CanedgeHudPhase.OFFLINE_PENDING ||
-                    _stats.value.hudPhase == CanedgeHudPhase.SCANNING ||
-                    _stats.value.isPausedDuringRecording
-                ) {
-                    updateStatsSnapshot(connState, isPaused = false)
+                } else {
+                    val expectedConnectedPhase = CanedgeSyncPlanner.resolveHudPhase(
+                        isPausedDuringRecording = false,
+                        isSyncing = false,
+                        connState = connState,
+                        pendingSessionsCount = manifest.pendingCount(),
+                        waitingAnyFinalChunk = hasWaitingTail,
+                        hasVerifiedClockOffset = hasVerifiedClockOffset(nowMs)
+                    )
+                    if (_stats.value.hudPhase != expectedConnectedPhase || _stats.value.isPausedDuringRecording) {
+                        updateStatsSnapshot(connState, isPaused = false)
+                    }
                 }
             }
         }
@@ -1295,17 +1301,17 @@ class CanedgeIngestionManager(
         val waitingAny =
             isWaitingTail || manifest.sessions.any { it.status == CanSessionSyncStatus.WAITING_FINAL_CHUNK }
 
-        val computedPhase = overridePhase ?: when {
-            activeSession != null || isPaused -> CanedgeHudPhase.PAUSED_RECORDING
-            isSyncing -> CanedgeHudPhase.SYNCING
-            connState is CanedgeConnectionState.Scanning -> CanedgeHudPhase.SCANNING
-            connState is CanedgeConnectionState.Error -> CanedgeHudPhase.ERROR
-            connState is CanedgeConnectionState.Disconnected ->
-                if (pendingCount > 0) CanedgeHudPhase.OFFLINE_PENDING else CanedgeHudPhase.OFFLINE
-
-            waitingAny -> CanedgeHudPhase.WAITING_FINAL_CHUNK
-            else -> CanedgeHudPhase.CONNECTED_SYNCED
-        }
+        val nowMs = System.currentTimeMillis()
+        val clockOffsetVerified = hasVerifiedClockOffset(nowMs)
+        val computedPhase = CanedgeSyncPlanner.resolveHudPhase(
+            overridePhase = overridePhase,
+            isPausedDuringRecording = activeSession != null || isPaused,
+            isSyncing = isSyncing,
+            connState = connState,
+            pendingSessionsCount = pendingCount,
+            waitingAnyFinalChunk = waitingAny,
+            hasVerifiedClockOffset = clockOffsetVerified
+        )
 
         _stats.value = CanedgeSyncStats(
             targetScopeFiles = targetScopeFiles,
@@ -1328,6 +1334,7 @@ class CanedgeIngestionManager(
             measuredClockOffsetMs = measuredClockOffsetMs ?: appPreferences?.canedgeLastClockOffsetMs?.takeIf {
                 (appPreferences?.canedgeLastClockMeasuredAtMs ?: 0L) > 0L
             },
+            isClockOffsetVerified = clockOffsetVerified,
             queueCompletedFiles = queueCompleted,
             queueTotalFiles = queueTotal,
             isPausedDuringRecording = activeSession != null || isPaused,

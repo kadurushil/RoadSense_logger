@@ -1,6 +1,8 @@
 package com.bajajauto.roadsense.canedge.ingestion
 
+import com.bajajauto.roadsense.canedge.model.CanedgeConnectionState
 import com.bajajauto.roadsense.canedge.model.CanedgeFile
+import com.bajajauto.roadsense.canedge.model.CanedgeHudPhase
 
 /**
  * Parsed `<folderId>_<seq>.MF4` identifier for contiguous sequence-gap checks.
@@ -401,4 +403,32 @@ object CanedgeSyncPlanner {
         allStagedLocalNames = allStagedLocalNames,
         maxPoolFiles = maxPoolFiles
     ).allToDelete
+
+    /**
+     * Resolve the CANedge2 HUD readiness phase from connection state, sync activity,
+     * pending reconciliation, and whether an RTC offset has been verified within the freshness window.
+     */
+    fun resolveHudPhase(
+        overridePhase: CanedgeHudPhase? = null,
+        isPausedDuringRecording: Boolean,
+        isSyncing: Boolean,
+        connState: CanedgeConnectionState,
+        pendingSessionsCount: Int,
+        waitingAnyFinalChunk: Boolean,
+        hasVerifiedClockOffset: Boolean
+    ): CanedgeHudPhase {
+        if (overridePhase != null) return overridePhase
+        return when {
+            isPausedDuringRecording -> CanedgeHudPhase.PAUSED_RECORDING
+            isSyncing -> CanedgeHudPhase.SYNCING
+            connState is CanedgeConnectionState.Scanning -> CanedgeHudPhase.SCANNING
+            connState is CanedgeConnectionState.Error -> CanedgeHudPhase.ERROR
+            connState is CanedgeConnectionState.Disconnected ->
+                if (pendingSessionsCount > 0) CanedgeHudPhase.OFFLINE_PENDING else CanedgeHudPhase.OFFLINE
+
+            waitingAnyFinalChunk -> CanedgeHudPhase.WAITING_FINAL_CHUNK
+            !hasVerifiedClockOffset -> CanedgeHudPhase.CALIBRATING
+            else -> CanedgeHudPhase.CONNECTED_SYNCED
+        }
+    }
 }

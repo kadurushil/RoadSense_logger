@@ -397,6 +397,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                     com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.OFFLINE -> "OFF"
                     com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.OFFLINE_PENDING -> "${can.pendingSessionsCount}P"
                     com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.SCANNING -> "SCAN"
+                    com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.CALIBRATING -> "CAL"
                     com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.CONNECTED_SYNCED -> "OK"
                     com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.SYNCING -> {
                         val pct = (can.activeFileProgress * 100).toInt().coerceIn(0, 99)

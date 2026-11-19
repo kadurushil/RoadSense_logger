@@ -82,7 +82,10 @@ fun CanedgeDashboardCard(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                CanedgeConnectionStatusCard(connectionState = connectionState)
+                CanedgeConnectionStatusCard(
+                    connectionState = connectionState,
+                    syncStats = syncStats
+                )
                 CanedgeControlActions(
                     connectionState = connectionState,
                     syncStats = syncStats,
@@ -150,7 +153,10 @@ fun CanedgeDashboardCard(
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            CanedgeConnectionStatusCard(connectionState = connectionState)
+            CanedgeConnectionStatusCard(
+                connectionState = connectionState,
+                syncStats = syncStats
+            )
             CanedgeMetricsRow(
                 syncStats = syncStats,
                 onCardClick = {
@@ -204,6 +210,7 @@ fun CanedgeDashboardCard(
 @Composable
 private fun CanedgeConnectionStatusCard(
     connectionState: CanedgeConnectionState,
+    syncStats: CanedgeSyncStats,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -227,10 +234,11 @@ private fun CanedgeConnectionStatusCard(
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
+                    modifier = Modifier.weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -246,11 +254,13 @@ private fun CanedgeConnectionStatusCard(
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         }
                     )
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "CSS Electronics CANedge2",
                             style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                         Text(
                             text = when (val state = connectionState) {
@@ -260,7 +270,9 @@ private fun CanedgeConnectionStatusCard(
                                 is CanedgeConnectionState.Disconnected -> "Offline (Tap Discover to connect)"
                             },
                             style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -270,7 +282,38 @@ private fun CanedgeConnectionStatusCard(
                         modifier = Modifier.size(22.dp),
                         strokeWidth = 2.dp
                     )
+                } else if (connectionState is CanedgeConnectionState.Connected) {
+                    val isRtcOk = syncStats.isClockOffsetVerified
+                    val badgeBg = if (isRtcOk) Color(0xFF00E676).copy(alpha = 0.18f) else Color(0xFFFFB300).copy(alpha = 0.22f)
+                    val badgeFg = if (isRtcOk) Color(0xFF00C853) else Color(0xFFFF8F00)
+                    val offsetText = syncStats.measuredClockOffsetMs?.let {
+                        String.format(Locale.US, "RTC %+.1fs OK", it / 1000.0)
+                    } ?: "RTC OK"
+                    Surface(
+                        color = badgeBg,
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = if (isRtcOk) offsetText else "RTC CAL",
+                            color = badgeFg,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            softWrap = false,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
                 }
+            }
+
+            if (connectionState is CanedgeConnectionState.Connected && !syncStats.isClockOffsetVerified) {
+                Text(
+                    text = "Calibrating RTC offset — wait for 1st 60s chunk rollover before recording",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFFF8F00),
+                    fontWeight = FontWeight.Medium
+                )
             }
 
             if (connectionState is CanedgeConnectionState.Scanning) {
@@ -827,8 +870,9 @@ private fun CanedgeDiagnosticsCard(
             DetailRow(
                 label = "Measured RTC Offset",
                 value = syncStats.measuredClockOffsetMs?.let {
-                    String.format(Locale.US, "%+.1f s", it / 1000.0)
-                } ?: "Awaiting rollover"
+                    val suffix = if (syncStats.isClockOffsetVerified) "(Verified)" else "(Stale)"
+                    String.format(Locale.US, "%+.1f s %s", it / 1000.0, suffix)
+                } ?: "Awaiting 60s rollover"
             )
             DetailRow(
                 label = "Last Sync Event",

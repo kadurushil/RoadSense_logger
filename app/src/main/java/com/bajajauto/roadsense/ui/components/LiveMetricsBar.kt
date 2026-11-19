@@ -194,6 +194,7 @@ private fun LiveMetricsCanvasHud(
             CanedgeHudPhase.PAUSED_RECORDING,
             CanedgeHudPhase.WAITING_FINAL_CHUNK,
             CanedgeHudPhase.OFFLINE_PENDING,
+            CanedgeHudPhase.CALIBRATING,
             CanedgeHudPhase.SCANNING -> colorAmber
             CanedgeHudPhase.ERROR -> colorRed
             CanedgeHudPhase.OFFLINE -> colorMuted
