@@ -1253,8 +1253,9 @@ def convert_session_to_mcap(
         message_counts[topic] = message_counts.get(topic, 0) + 1
 
     t_start = time.time()
-    with open(temp_output, "wb") as f_out:
-        writer = ProtobufWriter(f_out, chunk_size=1024 * 1024, compression=CompressionType.ZSTD)
+    try:
+        with open(temp_output, "wb") as f_out:
+            writer = ProtobufWriter(f_out, chunk_size=1024 * 1024, compression=CompressionType.ZSTD)
 
         # Register JSON Telemetry Schemas
         telemetry_schema_id = writer._writer.register_schema(
@@ -2125,6 +2126,13 @@ def convert_session_to_mcap(
         print("[+] Finalizing chunk indexes, summary statistics, and footer...")
         print(f"[PROGRESS] {json.dumps({'step': 'finalize', 'desc': 'Finalizing Chunk Indexes & Compressing...', 'pct': 97})}", flush=True)
         writer.finish()
+    except Exception:
+        if os.path.exists(temp_output):
+            try:
+                os.remove(temp_output)
+            except OSError:
+                pass
+        raise
 
     # Atomically move temp output to final destination
     if os.path.exists(output_path):

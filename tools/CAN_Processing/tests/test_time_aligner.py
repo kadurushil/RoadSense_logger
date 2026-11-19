@@ -109,6 +109,18 @@ class TestTimeAligner(unittest.TestCase):
             # Rolling piecewise windows must keep residual spread within 1 radar frame (< 50 ms)
             self.assertLess(res.residual_p95_p05_ms_after or 999.0, 50.0)
 
+    def test_multipass_recovers_large_mid_drive_ntp_step_jump(self) -> None:
+        n = 4000
+        t_raw = 1_795_000_000.0 + np.arange(n) * 0.05
+        ids = (100 + np.arange(n)) & 0xFFFF
+        # +31.0s offset for first half, then sudden -30.0s NTP jump -> +1.0s for second half
+        uart_utc = t_raw + 31.0
+        uart_utc[2000:] = t_raw[2000:] + 1.0
+        m_can, m_off = match_radar_frame_id_pairs(t_raw, ids, uart_utc, ids)
+        self.assertGreaterEqual(len(m_can), 3950)
+        self.assertAlmostEqual(float(np.median(m_off[:1500])), 31.0, delta=0.05)
+        self.assertAlmostEqual(float(np.median(m_off[-1500:])), 1.0, delta=0.05)
+
 
 if __name__ == "__main__":
     unittest.main()

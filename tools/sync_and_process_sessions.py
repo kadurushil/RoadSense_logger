@@ -1173,8 +1173,53 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
     mcap_path = os.path.join(session_dir, f"{session_name}.mcap")
     radar_bin = os.path.join(session_dir, "radar", "radar_frames.bin")
 
-    if not os.path.isfile(radar_bin):
-        print(f"\n[-] Skipping {os.path.basename(session_dir)}: radar_frames.bin not found.")
+    def _export_mcap_cleanly():
+        can_bundle = None
+        can_dir = os.path.join(session_dir, "can")
+        if not skip_can and os.path.isdir(can_dir):
+            try:
+                from tools.CAN_Processing.pipeline import prepare_can_bundle
+                print(f"[+] Pre-processing CANedge2 MF4 logs sequentially for [{session_name}]...")
+                can_bundle = prepare_can_bundle(session_dir, can_mode=can_mode, strict_can=strict_can)
+            except Exception as e:
+                if strict_can:
+                    raise
+                print(f"    [!] Note: Sequential CAN pre-processing skipped ({e}).")
+        print(f"[PROGRESS] {json.dumps({'step': 'mcap_start', 'desc': f'[{session_name}] Launching Foxglove MCAP export...', 'pct': 75})}", flush=True)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        if script_dir not in sys.path:
+            sys.path.insert(0, script_dir)
+        from convert_session_to_mcap import convert_session_to_mcap
+        convert_session_to_mcap(
+            session_dir,
+            flip_video=flip_video,
+            hwaccel=hwaccel,
+            can_bundle=can_bundle,
+            can_mode=can_mode,
+            strict_can=strict_can,
+            skip_can=skip_can,
+        )
+
+    radar_valid = os.path.isfile(radar_bin) and os.path.getsize(radar_bin) > 0
+    if not radar_valid:
+        if export_mcap:
+            has_other_streams = any([
+                os.path.isfile(os.path.join(session_dir, "camera", "camera_video.mp4")),
+                os.path.isdir(os.path.join(session_dir, "can")),
+                os.path.isfile(os.path.join(session_dir, "imu", "imu_frames.csv")),
+                os.path.isfile(os.path.join(session_dir, "gnss", "gnss_fixes.csv")),
+            ])
+            if has_other_streams and (force or not os.path.isfile(mcap_path)):
+                print(f"\n[+] Processing non-radar session [{session_name}] directly to MCAP...")
+                try:
+                    _export_mcap_cleanly()
+                    return True
+                except Exception as e:
+                    print(f"    [!] Error generating non-radar MCAP: {e}")
+                    if strict_can:
+                        raise
+                    return False
+        print(f"\n[-] Skipping {os.path.basename(session_dir)}: radar_frames.bin missing or empty.")
         return False
 
     # Smart skip check: verify if already generated and up-to-date
@@ -1188,7 +1233,7 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
         if th_mtime > radar_mtime and map_mtime > radar_mtime and mcap_mtime > radar_mtime:
             print(f"\n[+] Skipping {os.path.basename(session_dir)}: all outputs are up to date.")
             return True
-        if th_mtime >= radar_mtime and map_mtime >= radar_mtime:
+        if not export_mcap and th_mtime >= radar_mtime and map_mtime >= radar_mtime:
             print(f"\n[=] Skipping {os.path.basename(session_dir)}: Already processed and up-to-date (use --force to reprocess).")
             return True
 
@@ -1200,6 +1245,10 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
 
     radar_frames = parse_radar_frames_bin(radar_bin)
     if not radar_frames:
+        if export_mcap:
+            print(f"    [!] No decodable radar frames; falling back to MCAP export for remaining sensors.")
+            _export_mcap_cleanly()
+            return True
         print(f"    [-] No valid radar frames could be decoded. Skipping.")
         return False
     print(f"    [+] Decoded {len(radar_frames):,} radar frames from binary stream.")
@@ -1484,38 +1533,14 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
     else:
         print(f"    [!] Note: camera_video.mp4 is missing in {session_dir}/camera")
 
-    # Sequential CAN Processing step (modular tools/CAN_Processing/) before MCAP export
-    can_bundle = None
-    can_dir = os.path.join(session_dir, "can")
-    if export_mcap and not skip_can and os.path.isdir(can_dir):
-        try:
-            from tools.CAN_Processing.pipeline import prepare_can_bundle
-            print(f"[+] Pre-processing CANedge2 MF4 logs sequentially for [{session_name}]...")
-            can_bundle = prepare_can_bundle(session_dir, can_mode=can_mode, strict_can=strict_can)
-        except Exception as e:
-            if strict_can:
-                raise
-            print(f"    [!] Note: Sequential CAN pre-processing skipped ({e}).")
-
     # Optional MCAP export
     if export_mcap:
         try:
-            print(f"[PROGRESS] {json.dumps({'step': 'mcap_start', 'desc': f'[{session_name}] Launching Foxglove MCAP export...', 'pct': 75})}", flush=True)
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            if script_dir not in sys.path:
-                sys.path.insert(0, script_dir)
-            from convert_session_to_mcap import convert_session_to_mcap
-            convert_session_to_mcap(
-                session_dir,
-                flip_video=flip_video,
-                hwaccel=hwaccel,
-                can_bundle=can_bundle,
-                can_mode=can_mode,
-                strict_can=strict_can,
-                skip_can=skip_can,
-            )
+            _export_mcap_cleanly()
         except Exception as e:
             print(f"    [!] Error generating MCAP: {e}")
+            if strict_can:
+                raise
     else:
         print(f"[PROGRESS] {json.dumps({'step': 'done', 'desc': f'[{session_name}] Visualizer processing complete', 'pct': 100, 'overall_pct': 100})}", flush=True)
 

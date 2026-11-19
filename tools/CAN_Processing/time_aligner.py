@@ -163,31 +163,64 @@ def match_radar_frame_id_pairs(
     if not candidate_offsets:
         return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)
 
-    cand_arr = np.asarray(candidate_offsets, dtype=np.float64)
-    bins = np.round(cand_arr).astype(np.int64)
-    uniq_bins, counts = np.unique(bins, return_counts=True)
-    peak_bin = float(uniq_bins[int(np.argmax(counts))])
-    in_peak = cand_arr[np.abs(cand_arr - peak_bin) <= 3.0]
-    coarse_offset = float(np.median(in_peak)) if len(in_peak) > 0 else peak_bin
-
-    # 2. Pair every matching frame ID strictly within +/- match_tolerance_sec of coarse_offset
+    # 2. Multi-pass mode matching so rare multi-second mid-drive NTP jumps (> +/-5s)
+    # match all segments cleanly rather than dropping the post-jump half.
     paired_can: List[float] = []
     paired_off: List[float] = []
-    for t_u, fid_raw in zip(uart_utc_sec, uart_id16):
-        c_list = can_by_id.get(int(fid_raw) & 0xFFFF)
-        if not c_list:
-            continue
-        best_tc: Optional[float] = None
-        best_err = match_tolerance_sec
-        for t_c in c_list:
-            off = float(t_u) - t_c
-            err = abs(off - coarse_offset)
-            if err <= best_err:
-                best_err = err
-                best_tc = t_c
-        if best_tc is not None:
-            paired_can.append(best_tc)
-            paired_off.append(float(t_u) - best_tc)
+    used_u_indices: set[int] = set()
+    used_c_keys: set[Tuple[int, float]] = set()
+
+    for _pass_idx in range(3):
+        rem_candidates: List[float] = []
+        u_indices = [i for i in range(len(uart_utc_sec)) if i not in used_u_indices]
+        if len(u_indices) < 10 and _pass_idx > 0:
+            break
+        step_u = max(1, len(u_indices) // 8000)
+        for idx_u in u_indices[::step_u]:
+            fid = int(uart_id16[idx_u]) & 0xFFFF
+            c_list = can_by_id.get(fid)
+            if c_list:
+                t_u = float(uart_utc_sec[idx_u])
+                for t_c in c_list:
+                    if (fid, t_c) not in used_c_keys:
+                        rem_candidates.append(t_u - t_c)
+        if not rem_candidates:
+            break
+
+        cand_arr = np.asarray(rem_candidates, dtype=np.float64)
+        bins = np.round(cand_arr).astype(np.int64)
+        uniq_bins, counts = np.unique(bins, return_counts=True)
+        peak_idx = int(np.argmax(counts))
+        if _pass_idx > 0 and int(counts[peak_idx]) < 10:
+            break
+        peak_bin = float(uniq_bins[peak_idx])
+        in_peak = cand_arr[np.abs(cand_arr - peak_bin) <= 3.0]
+        coarse_offset = float(np.median(in_peak)) if len(in_peak) > 0 else peak_bin
+
+        matched_this_pass = 0
+        for idx_u in u_indices:
+            fid = int(uart_id16[idx_u]) & 0xFFFF
+            c_list = can_by_id.get(fid)
+            if not c_list:
+                continue
+            t_u = float(uart_utc_sec[idx_u])
+            best_tc: Optional[float] = None
+            best_err = match_tolerance_sec
+            for t_c in c_list:
+                if (fid, t_c) in used_c_keys:
+                    continue
+                err = abs((t_u - t_c) - coarse_offset)
+                if err <= best_err:
+                    best_err = err
+                    best_tc = t_c
+            if best_tc is not None:
+                used_u_indices.add(idx_u)
+                used_c_keys.add((fid, best_tc))
+                paired_can.append(best_tc)
+                paired_off.append(t_u - best_tc)
+                matched_this_pass += 1
+        if matched_this_pass == 0:
+            break
 
     if not paired_can:
         return np.empty(0, dtype=np.float64), np.empty(0, dtype=np.float64)

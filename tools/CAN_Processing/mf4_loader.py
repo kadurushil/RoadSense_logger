@@ -164,7 +164,11 @@ def check_chunk_continuity(
     enriched: List[ChunkHeaderInfo] = []
     warnings: List[str] = []
     for ch in chunks:
-        r_min, r_max = _probe_chunk_raw_span(ch.path)
+        try:
+            r_min, r_max = _probe_chunk_raw_span(ch.path)
+        except Exception as exc:
+            warnings.append(f"Quarantined unreadable MF4 chunk {ch.filename}: {exc}")
+            continue
         enriched.append(
             ChunkHeaderInfo(
                 path=ch.path,
@@ -271,9 +275,40 @@ def load_can_session(
         return CanLoadResult(session_dir=str(sess_path), dbc_path=dbc_path, ingest_mode=mode)
 
     enriched_chunks, warnings = check_chunk_continuity(chunks, max_jump_warn_ms=max_jump_warn_ms)
-    file_paths = [c.path for c in enriched_chunks]
+    if not enriched_chunks:
+        return CanLoadResult(
+            session_dir=str(sess_path),
+            dbc_path=dbc_path,
+            ingest_mode=mode,
+            continuity_warnings=warnings,
+        )
 
-    mdf = asammdf.MDF.concatenate(file_paths, sync=True) if len(file_paths) > 1 else asammdf.MDF(file_paths[0])
+    file_paths = [c.path for c in enriched_chunks]
+    try:
+        mdf = asammdf.MDF.concatenate(file_paths, sync=True) if len(file_paths) > 1 else asammdf.MDF(file_paths[0])
+    except Exception as exc:
+        # Quarantine individual bad chunks if batch concatenation fails
+        good_chunks: List[ChunkHeaderInfo] = []
+        good_mdfs: List[asammdf.MDF] = []
+        for ch in enriched_chunks:
+            try:
+                good_mdfs.append(asammdf.MDF(ch.path))
+                good_chunks.append(ch)
+            except Exception as c_exc:
+                warnings.append(f"Quarantined corrupt MF4 chunk {ch.filename}: {c_exc}")
+        if not good_mdfs:
+            return CanLoadResult(
+                session_dir=str(sess_path),
+                dbc_path=dbc_path,
+                ingest_mode=mode,
+                continuity_warnings=warnings + [f"All MF4 chunks failed load: {exc}"],
+            )
+        for gm in good_mdfs:
+            gm.close()
+        enriched_chunks = good_chunks
+        file_paths = [c.path for c in enriched_chunks]
+        mdf = asammdf.MDF.concatenate(file_paths, sync=True) if len(file_paths) > 1 else asammdf.MDF(file_paths[0])
+
     try:
         concat_hd_start_sec = float(mdf.header.start_time.timestamp())
         ext = mdf.extract_bus_logging({"CAN": [(dbc_path, 0)]})

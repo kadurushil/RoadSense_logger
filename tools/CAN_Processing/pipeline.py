@@ -154,7 +154,17 @@ def write_can_bundle_to_mcap(
         utc_ns_arr = bundle.aligned_utc_ns_by_msg[msg_name]
         if len(utc_ns_arr) == 0:
             continue
-        raw_ns_arr = np.round(decoded.raw_can_sec * 1_000_000_000.0).astype(np.int64)
+        raw_can_arr = decoded.raw_can_sec
+        signals_to_emit = decoded.signals
+
+        # Guard np.searchsorted and MCAP monotonicity if chunks slightly overlap at seams
+        if len(utc_ns_arr) > 1 and not np.all(utc_ns_arr[:-1] <= utc_ns_arr[1:]):
+            sort_order = np.argsort(utc_ns_arr, kind="stable")
+            utc_ns_arr = utc_ns_arr[sort_order]
+            raw_can_arr = raw_can_arr[sort_order]
+            signals_to_emit = {k: v[sort_order] for k, v in signals_to_emit.items()}
+
+        raw_ns_arr = np.round(raw_can_arr * 1_000_000_000.0).astype(np.int64)
         off_ms_arr = (utc_ns_arr - raw_ns_arr) / 1_000_000.0
 
         m0, m1 = int(utc_ns_arr[0]), int(utc_ns_arr[-1])
@@ -163,7 +173,7 @@ def write_can_bundle_to_mcap(
 
         used_fields = {"raw_can_ts_ns", "applied_offset_ms"}
         col_items: List[Tuple[str, List[Any]]] = []
-        for sig_name, arr in decoded.signals.items():
+        for sig_name, arr in signals_to_emit.items():
             clean_sig = _sanitize_proto_ident(sig_name, fallback_prefix="sig")
             while clean_sig in used_fields:
                 clean_sig = f"{clean_sig}_f"

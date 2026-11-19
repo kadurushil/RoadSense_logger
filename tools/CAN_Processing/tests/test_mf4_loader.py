@@ -98,6 +98,23 @@ class TestMf4Loader(unittest.TestCase):
         self.assertAlmostEqual(float(vcu.raw_can_sec[0]), 1795065600.085, delta=1.0)
         self.assertAlmostEqual(float(vcu.raw_can_sec[-1]), 1795065779.945, delta=1.0)
 
+    def test_corrupt_chunk_is_quarantined_without_losing_valid_chunks(self) -> None:
+        valid_src = REPO_ROOT / "logs" / "session_20261119_121554" / "can" / "00000123_00000001.MF4"
+        if not valid_src.is_file():
+            self.skipTest("Archived session logs/session_20261119_121554 not available")
+        with tempfile.TemporaryDirectory() as tmp:
+            can_dir = Path(tmp) / "can"
+            can_dir.mkdir(parents=True)
+            (can_dir / "00000123_00000001.MF4").write_bytes(valid_src.read_bytes())
+            # Second chunk has valid HDBLOCK header followed by garbage body bytes
+            (can_dir / "00000123_00000002.MF4").write_bytes(
+                _build_synthetic_mf4_header(1_795_070_760_000_000_000) + b"\xff" * 256
+            )
+            res = load_can_session(tmp, can_mode="whitelist")
+            self.assertTrue(res.has_data)
+            self.assertEqual(len(res.chunks), 1)
+            self.assertTrue(any("Quarantined" in w for w in res.continuity_warnings))
+
 
 if __name__ == "__main__":
     unittest.main()
