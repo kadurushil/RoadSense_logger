@@ -390,6 +390,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                 tickCount++
 
                 val fix = gnssLocationManager.latestFix.value
+                val (liveSvUsed, liveSvInView) = gnssLocationManager.satelliteStatus.value
                 val sync = syncAssociator.liveSyncTelemetry.value
                 val can = canedgeSyncStats.value
                 val canLabel = when (can.hudPhase) {
@@ -410,8 +411,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                     cameraFps = cFps,
                     gnssHz = gHz,
                     imuHz = imuManager.imuHz.value,
-                    satellitesUsed = fix?.satellitesUsed ?: 0,
-                    satellitesInView = fix?.satellitesInView ?: 0,
+                    satellitesUsed = if (liveSvInView > 0) liveSvUsed else (fix?.satellitesUsed ?: 0),
+                    satellitesInView = if (liveSvInView > 0) liveSvInView else (fix?.satellitesInView ?: 0),
                     accuracyMeters = fix?.accuracyMeters ?: 0f,
                     batteryPct = batPct,
                     batteryTempC = batTemp,
