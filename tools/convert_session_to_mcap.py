@@ -1257,875 +1257,875 @@ def convert_session_to_mcap(
         with open(temp_output, "wb") as f_out:
             writer = ProtobufWriter(f_out, chunk_size=1024 * 1024, compression=CompressionType.ZSTD)
 
-        # Register JSON Telemetry Schemas
-        telemetry_schema_id = writer._writer.register_schema(
-            name="roadsense.VehicleTelemetry",
-            encoding="jsonschema",
-            data=json.dumps({
-                "type": "object",
-                "properties": {
-                    "speed_kmph": {"type": "number"},
-                    "radar_frame_id_rel": {"type": "integer"},
-                    "radar_frame_id_abs": {"type": "integer"},
-                    "yaw_rate_radps": {"type": "number"},
-                    "pitch_rate_radps": {"type": "number"},
-                    "roll_rate_radps": {"type": "number"},
-                    "accel_x_mps2": {"type": "number"},
-                    "accel_y_mps2": {"type": "number"},
-                    "accel_avg_mps2": {"type": "number"},
-                    "road_grade_deg": {"type": "number"},
-                    "shaft_torque_nm": {"type": "number"},
-                    "roll_cf_deg": {"type": "number"},
-                    "yaw_cf_deg": {"type": "number"},
-                    "timestamp_ms": {"type": "integer"},
-                    "gear": {"type": "integer"},
-                    "brake_status": {"type": "integer"},
-                    "motion_state": {"type": "integer"},
-                    "is_vcu_can_valid": {"type": "boolean"},
-                    "imu_stuck_flag": {"type": "boolean"},
-                    "accel_pedal_pct": {"type": "number"}
-                }
-            }).encode("utf-8")
-        )
-        telemetry_chan_id = writer._writer.register_channel(
-            topic="/vehicle/telemetry",
-            message_encoding="json",
-            schema_id=telemetry_schema_id
-        )
+            # Register JSON Telemetry Schemas
+            telemetry_schema_id = writer._writer.register_schema(
+                name="roadsense.VehicleTelemetry",
+                encoding="jsonschema",
+                data=json.dumps({
+                    "type": "object",
+                    "properties": {
+                        "speed_kmph": {"type": "number"},
+                        "radar_frame_id_rel": {"type": "integer"},
+                        "radar_frame_id_abs": {"type": "integer"},
+                        "yaw_rate_radps": {"type": "number"},
+                        "pitch_rate_radps": {"type": "number"},
+                        "roll_rate_radps": {"type": "number"},
+                        "accel_x_mps2": {"type": "number"},
+                        "accel_y_mps2": {"type": "number"},
+                        "accel_avg_mps2": {"type": "number"},
+                        "road_grade_deg": {"type": "number"},
+                        "shaft_torque_nm": {"type": "number"},
+                        "roll_cf_deg": {"type": "number"},
+                        "yaw_cf_deg": {"type": "number"},
+                        "timestamp_ms": {"type": "integer"},
+                        "gear": {"type": "integer"},
+                        "brake_status": {"type": "integer"},
+                        "motion_state": {"type": "integer"},
+                        "is_vcu_can_valid": {"type": "boolean"},
+                        "imu_stuck_flag": {"type": "boolean"},
+                        "accel_pedal_pct": {"type": "number"}
+                    }
+                }).encode("utf-8")
+            )
+            telemetry_chan_id = writer._writer.register_channel(
+                topic="/vehicle/telemetry",
+                message_encoding="json",
+                schema_id=telemetry_schema_id
+            )
 
-        diags_schema_id = writer._writer.register_schema(
-            name="roadsense.RadarDiagnostics",
-            encoding="jsonschema",
-            data=json.dumps({
-                "type": "object",
-                "properties": {
-                    "num_inliers": {"type": "integer"},
-                    "radar_frame_id_rel": {"type": "integer"},
-                    "radar_frame_id_abs": {"type": "integer"},
-                    "ransac_ok": {"type": "boolean"},
-                    "motion_state": {"type": "integer"},
-                    "filtered_vx_iir": {"type": "number"},
-                    "filtered_vy_iir": {"type": "number"},
-                    "ego_vy": {"type": "number"},
-                    "ego_vx": {"type": "number"},
-                    "ego_ax": {"type": "number"},
-                    "ego_ay": {"type": "number"},
-                    "ego_yaw_rate": {"type": "number"},
-                    "road_boundary_left_x": {"type": "number"},
-                    "road_boundary_right_x": {"type": "number"},
-                    "tracker_proc_time_us": {"type": "integer"}
-                }
-            }).encode("utf-8")
-        )
-        diags_chan_id = writer._writer.register_channel(
-            topic="/radar/diagnostics",
-            message_encoding="json",
-            schema_id=diags_schema_id
-        )
+            diags_schema_id = writer._writer.register_schema(
+                name="roadsense.RadarDiagnostics",
+                encoding="jsonschema",
+                data=json.dumps({
+                    "type": "object",
+                    "properties": {
+                        "num_inliers": {"type": "integer"},
+                        "radar_frame_id_rel": {"type": "integer"},
+                        "radar_frame_id_abs": {"type": "integer"},
+                        "ransac_ok": {"type": "boolean"},
+                        "motion_state": {"type": "integer"},
+                        "filtered_vx_iir": {"type": "number"},
+                        "filtered_vy_iir": {"type": "number"},
+                        "ego_vy": {"type": "number"},
+                        "ego_vx": {"type": "number"},
+                        "ego_ax": {"type": "number"},
+                        "ego_ay": {"type": "number"},
+                        "ego_yaw_rate": {"type": "number"},
+                        "road_boundary_left_x": {"type": "number"},
+                        "road_boundary_right_x": {"type": "number"},
+                        "tracker_proc_time_us": {"type": "integer"}
+                    }
+                }).encode("utf-8")
+            )
+            diags_chan_id = writer._writer.register_channel(
+                topic="/radar/diagnostics",
+                message_encoding="json",
+                schema_id=diags_schema_id
+            )
 
-        # Register Sync Ground Truth Frame Info Schema
-        sync_schema_id = writer._writer.register_schema(
-            name="roadsense.SyncFrameInfo",
-            encoding="jsonschema",
-            data=json.dumps({
-                "type": "object",
-                "properties": {
-                    "video_frame_index": {"type": "integer"},
-                    "camera_hw_frame_number": {"type": "integer"},
-                    "radar_frame_id_rel": {"type": "integer"},
-                    "radar_frame_id_abs": {"type": "integer"},
-                    "sync_delta_ms": {"type": "number"},
-                    "speed_kmph": {"type": "number"}
-                }
-            }).encode("utf-8")
-        )
-        sync_chan_id = writer._writer.register_channel(
-            topic="/sync/frame_info",
-            message_encoding="json",
-            schema_id=sync_schema_id
-        )
+            # Register Sync Ground Truth Frame Info Schema
+            sync_schema_id = writer._writer.register_schema(
+                name="roadsense.SyncFrameInfo",
+                encoding="jsonschema",
+                data=json.dumps({
+                    "type": "object",
+                    "properties": {
+                        "video_frame_index": {"type": "integer"},
+                        "camera_hw_frame_number": {"type": "integer"},
+                        "radar_frame_id_rel": {"type": "integer"},
+                        "radar_frame_id_abs": {"type": "integer"},
+                        "sync_delta_ms": {"type": "number"},
+                        "speed_kmph": {"type": "number"}
+                    }
+                }).encode("utf-8")
+            )
+            sync_chan_id = writer._writer.register_channel(
+                topic="/sync/frame_info",
+                message_encoding="json",
+                schema_id=sync_schema_id
+            )
 
-        adas_schema_id = writer._writer.register_schema(
-            name="roadsense.RadarAdas",
-            encoding="jsonschema",
-            data=json.dumps({
-                "type": "object",
-                "properties": {
-                    "fcw": {
-                        "type": "object",
-                        "properties": {
-                            "stage": {"type": "integer"},
-                            "track_id": {"type": "integer"},
-                            "ttc_sec": {"type": "number"},
-                            "target_y": {"type": "number"},
-                            "target_x": {"type": "number"},
-                            "target_vy": {"type": "number"},
-                            "target_vx": {"type": "number"}
-                        }
-                    },
-                    "acc": {
-                        "type": "object",
-                        "properties": {
-                            "poi_id": {"type": "integer"},
-                            "target_y": {"type": "number"},
-                            "target_x": {"type": "number"},
-                            "target_vy": {"type": "number"},
-                            "tti_sec": {"type": "number"},
-                            "v_safe_mps": {"type": "number"},
-                            "fsm_state": {"type": "integer"},
-                            "a_ref_mps2": {"type": "number"}
-                        }
-                    },
-                    "bsd": {
-                        "type": "object",
-                        "properties": {
-                            "left_active": {"type": "boolean"},
-                            "right_active": {"type": "boolean"},
-                            "warning_level": {"type": "integer"},
-                            "approach_ttc_sec": {"type": "number"}
+            adas_schema_id = writer._writer.register_schema(
+                name="roadsense.RadarAdas",
+                encoding="jsonschema",
+                data=json.dumps({
+                    "type": "object",
+                    "properties": {
+                        "fcw": {
+                            "type": "object",
+                            "properties": {
+                                "stage": {"type": "integer"},
+                                "track_id": {"type": "integer"},
+                                "ttc_sec": {"type": "number"},
+                                "target_y": {"type": "number"},
+                                "target_x": {"type": "number"},
+                                "target_vy": {"type": "number"},
+                                "target_vx": {"type": "number"}
+                            }
+                        },
+                        "acc": {
+                            "type": "object",
+                            "properties": {
+                                "poi_id": {"type": "integer"},
+                                "target_y": {"type": "number"},
+                                "target_x": {"type": "number"},
+                                "target_vy": {"type": "number"},
+                                "tti_sec": {"type": "number"},
+                                "v_safe_mps": {"type": "number"},
+                                "fsm_state": {"type": "integer"},
+                                "a_ref_mps2": {"type": "number"}
+                            }
+                        },
+                        "bsd": {
+                            "type": "object",
+                            "properties": {
+                                "left_active": {"type": "boolean"},
+                                "right_active": {"type": "boolean"},
+                                "warning_level": {"type": "integer"},
+                                "approach_ttc_sec": {"type": "number"}
+                            }
                         }
                     }
-                }
-            }).encode("utf-8")
-        )
-        adas_chan_id = writer._writer.register_channel(
-            topic="/radar/adas",
-            message_encoding="json",
-            schema_id=adas_schema_id
-        )
+                }).encode("utf-8")
+            )
+            adas_chan_id = writer._writer.register_channel(
+                topic="/radar/adas",
+                message_encoding="json",
+                schema_id=adas_schema_id
+            )
 
-        # Build binary Protobuf schemas for /imu/data and /imu/vehicle (eliminates JSON parsing overhead in Foxglove)
-        imu_raw_cls, imu_veh_cls = _build_imu_protobuf_classes()
+            # Build binary Protobuf schemas for /imu/data and /imu/vehicle (eliminates JSON parsing overhead in Foxglove)
+            imu_raw_cls, imu_veh_cls = _build_imu_protobuf_classes()
 
-        # 5. Emit Static Transforms & Camera Calibration
-        base_sec = start_wall_ms // 1000
-        base_nano = (start_wall_ms % 1000) * 1_000_000
+            # 5. Emit Static Transforms & Camera Calibration
+            base_sec = start_wall_ms // 1000
+            base_nano = (start_wall_ms % 1000) * 1_000_000
 
-        # FrameTransforms: base_link -> radar_link and base_link -> camera_optical
-        tf_msg = FrameTransforms()
-        
-        # Transform 1: base_link -> radar_link
-        tf_radar = tf_msg.transforms.add()
-        tf_radar.timestamp.seconds = base_sec
-        tf_radar.timestamp.nanos = base_nano
-        tf_radar.parent_frame_id = "base_link"
-        tf_radar.child_frame_id = "radar_link"
-        tf_radar.translation.x = 0.0
-        tf_radar.translation.y = 0.0
-        tf_radar.translation.z = calib_params["radarHeightM"]
-        tf_radar.rotation.w = 1.0  # Aligned with vehicle coordinate frame
+            # FrameTransforms: base_link -> radar_link and base_link -> camera_optical
+            tf_msg = FrameTransforms()
+            
+            # Transform 1: base_link -> radar_link
+            tf_radar = tf_msg.transforms.add()
+            tf_radar.timestamp.seconds = base_sec
+            tf_radar.timestamp.nanos = base_nano
+            tf_radar.parent_frame_id = "base_link"
+            tf_radar.child_frame_id = "radar_link"
+            tf_radar.translation.x = 0.0
+            tf_radar.translation.y = 0.0
+            tf_radar.translation.z = calib_params["radarHeightM"]
+            tf_radar.rotation.w = 1.0  # Aligned with vehicle coordinate frame
 
-        # Transform 2: base_link -> camera_optical
-        # In ROS/Foxglove: camera_optical frame has +Z pointing into the scene, +X pointing right, +Y pointing down.
-        # Windshield camera is elevated by heightOffsetM, set back by setbackM, and rotated by pitch and yaw.
-        tf_cam = tf_msg.transforms.add()
-        tf_cam.timestamp.seconds = base_sec
-        tf_cam.timestamp.nanos = base_nano
-        tf_cam.parent_frame_id = "base_link"
-        tf_cam.child_frame_id = "camera_optical"
+            # Transform 2: base_link -> camera_optical
+            # In ROS/Foxglove: camera_optical frame has +Z pointing into the scene, +X pointing right, +Y pointing down.
+            # Windshield camera is elevated by heightOffsetM, set back by setbackM, and rotated by pitch and yaw.
+            tf_cam = tf_msg.transforms.add()
+            tf_cam.timestamp.seconds = base_sec
+            tf_cam.timestamp.nanos = base_nano
+            tf_cam.parent_frame_id = "base_link"
+            tf_cam.child_frame_id = "camera_optical"
 
-        # Determine camera optical roll:
-        # If flip_video is False, video is demuxed zero-copy (raw sensor orientation).
-        # We auto-detect the MP4 container's orientation hint (e.g. 180° for reverse landscape mounts)
-        # and fold it into the optical roll angle so Foxglove's 3D frustum projects 100% upright in world space!
-        mp4_rot = extract_video_orientation_degrees(video_mp4) if os.path.isfile(video_mp4) else 0
-        if not flip_video and mp4_rot != 0:
-            effective_roll = (calib_params.get("rollDeg", 0.0) + mp4_rot) % 360.0
-            print(f"[+] Camera mount orientation: {mp4_rot}° detected -> Adjusted 3D optical frame roll to {effective_roll}° (Zero-Copy Upright)")
-        else:
-            effective_roll = calib_params.get("rollDeg", 0.0)
+            # Determine camera optical roll:
+            # If flip_video is False, video is demuxed zero-copy (raw sensor orientation).
+            # We auto-detect the MP4 container's orientation hint (e.g. 180° for reverse landscape mounts)
+            # and fold it into the optical roll angle so Foxglove's 3D frustum projects 100% upright in world space!
+            mp4_rot = extract_video_orientation_degrees(video_mp4) if os.path.isfile(video_mp4) else 0
+            if not flip_video and mp4_rot != 0:
+                effective_roll = (calib_params.get("rollDeg", 0.0) + mp4_rot) % 360.0
+                print(f"[+] Camera mount orientation: {mp4_rot}° detected -> Adjusted 3D optical frame roll to {effective_roll}° (Zero-Copy Upright)")
+            else:
+                effective_roll = calib_params.get("rollDeg", 0.0)
 
-        camera_yaw_deg = float(calib_params.get("cameraYawDeg", 0.0))
-        cam_quat, cam_trans = compute_camera_optical_tf(
-            pitch_deg=calib_params.get("pitchDeg", 7.0),
-            yaw_deg=camera_yaw_deg,
-            roll_deg=effective_roll,
-            setback=calib_params.get("setbackM", 0.30),
-            lateral=calib_params.get("lateralOffsetM", 0.00),
-            height=calib_params.get("radarHeightM", 0.95) + calib_params.get("heightOffsetM", 0.50)
-        )
-        tf_cam.translation.x = cam_trans[0]
-        tf_cam.translation.y = cam_trans[1]
-        tf_cam.translation.z = cam_trans[2]
-        tf_cam.rotation.x = cam_quat[0]
-        tf_cam.rotation.y = cam_quat[1]
-        tf_cam.rotation.z = cam_quat[2]
-        tf_cam.rotation.w = cam_quat[3]
+            camera_yaw_deg = float(calib_params.get("cameraYawDeg", 0.0))
+            cam_quat, cam_trans = compute_camera_optical_tf(
+                pitch_deg=calib_params.get("pitchDeg", 7.0),
+                yaw_deg=camera_yaw_deg,
+                roll_deg=effective_roll,
+                setback=calib_params.get("setbackM", 0.30),
+                lateral=calib_params.get("lateralOffsetM", 0.00),
+                height=calib_params.get("radarHeightM", 0.95) + calib_params.get("heightOffsetM", 0.50)
+            )
+            tf_cam.translation.x = cam_trans[0]
+            tf_cam.translation.y = cam_trans[1]
+            tf_cam.translation.z = cam_trans[2]
+            tf_cam.rotation.x = cam_quat[0]
+            tf_cam.rotation.y = cam_quat[1]
+            tf_cam.rotation.z = cam_quat[2]
+            tf_cam.rotation.w = cam_quat[3]
 
-        # Transform 3: base_link -> velodyne_frame (URDF Root Bridge)
-        # Bridges the vehicle URDF root frame to the RoadSense coordinate tree.
-        # Places the car body such that radar (0,0,0) aligns with the car's front bumper / bonnet.
-        effective_urdf_root = calib_params.get("urdfRootFrame", urdf_root)
-        effective_urdf_x = float(calib_params.get("urdfOffsetX", urdf_x))
-        effective_urdf_y = float(calib_params.get("urdfOffsetY", urdf_y))
-        effective_urdf_z = float(calib_params.get("urdfOffsetZ", urdf_z))
+            # Transform 3: base_link -> velodyne_frame (URDF Root Bridge)
+            # Bridges the vehicle URDF root frame to the RoadSense coordinate tree.
+            # Places the car body such that radar (0,0,0) aligns with the car's front bumper / bonnet.
+            effective_urdf_root = calib_params.get("urdfRootFrame", urdf_root)
+            effective_urdf_x = float(calib_params.get("urdfOffsetX", urdf_x))
+            effective_urdf_y = float(calib_params.get("urdfOffsetY", urdf_y))
+            effective_urdf_z = float(calib_params.get("urdfOffsetZ", urdf_z))
 
-        tf_urdf = tf_msg.transforms.add()
-        tf_urdf.timestamp.seconds = base_sec
-        tf_urdf.timestamp.nanos = base_nano
-        tf_urdf.parent_frame_id = "base_link"
-        tf_urdf.child_frame_id = effective_urdf_root
-        tf_urdf.translation.x = effective_urdf_x
-        tf_urdf.translation.y = effective_urdf_y
-        tf_urdf.translation.z = effective_urdf_z
-        tf_urdf.rotation.w = 1.0
+            tf_urdf = tf_msg.transforms.add()
+            tf_urdf.timestamp.seconds = base_sec
+            tf_urdf.timestamp.nanos = base_nano
+            tf_urdf.parent_frame_id = "base_link"
+            tf_urdf.child_frame_id = effective_urdf_root
+            tf_urdf.translation.x = effective_urdf_x
+            tf_urdf.translation.y = effective_urdf_y
+            tf_urdf.translation.z = effective_urdf_z
+            tf_urdf.rotation.w = 1.0
 
-        # Transform 4..N: Standard Automotive URDF Aliases (base_footprint, chassis, car_link, vehicle_frame)
-        standard_aliases = ["velodyne_frame", "base_footprint", "chassis", "car_link", "vehicle_frame", "ego_vehicle"]
-        for alias_frame in standard_aliases:
-            if alias_frame != effective_urdf_root:
-                tf_alias = tf_msg.transforms.add()
-                tf_alias.timestamp.seconds = base_sec
-                tf_alias.timestamp.nanos = base_nano
-                tf_alias.parent_frame_id = "base_link"
-                tf_alias.child_frame_id = alias_frame
-                tf_alias.translation.x = effective_urdf_x
-                tf_alias.translation.y = effective_urdf_y
-                tf_alias.translation.z = effective_urdf_z
-                tf_alias.rotation.w = 1.0
+            # Transform 4..N: Standard Automotive URDF Aliases (base_footprint, chassis, car_link, vehicle_frame)
+            standard_aliases = ["velodyne_frame", "base_footprint", "chassis", "car_link", "vehicle_frame", "ego_vehicle"]
+            for alias_frame in standard_aliases:
+                if alias_frame != effective_urdf_root:
+                    tf_alias = tf_msg.transforms.add()
+                    tf_alias.timestamp.seconds = base_sec
+                    tf_alias.timestamp.nanos = base_nano
+                    tf_alias.parent_frame_id = "base_link"
+                    tf_alias.child_frame_id = alias_frame
+                    tf_alias.translation.x = effective_urdf_x
+                    tf_alias.translation.y = effective_urdf_y
+                    tf_alias.translation.z = effective_urdf_z
+                    tf_alias.rotation.w = 1.0
 
-        writer.write_message("/tf", tf_msg, log_time=start_wall_ms * 1_000_000)
-        count_msg("/tf")
+            writer.write_message("/tf", tf_msg, log_time=start_wall_ms * 1_000_000)
+            count_msg("/tf")
 
-        # Camera Calibration
-        cal_msg = CameraCalibration()
-        cal_msg.timestamp.seconds = base_sec
-        cal_msg.timestamp.nanos = base_nano
-        cal_msg.frame_id = "camera_optical"
+            # Camera Calibration
+            cal_msg = CameraCalibration()
+            cal_msg.timestamp.seconds = base_sec
+            cal_msg.timestamp.nanos = base_nano
+            cal_msg.frame_id = "camera_optical"
 
-        # Auto-detect actual video container resolution to ensure 100% 1:1 match with /camera/video
-        actual_vid_w = None
-        actual_vid_h = None
-        if os.path.isfile(video_mp4):
-            try:
-                import av
-                _c = av.open(video_mp4)
-                if _c.streams.video:
-                    actual_vid_w = _c.streams.video[0].width
-                    actual_vid_h = _c.streams.video[0].height
-                _c.close()
-            except Exception:
-                pass
+            # Auto-detect actual video container resolution to ensure 100% 1:1 match with /camera/video
+            actual_vid_w = None
+            actual_vid_h = None
+            if os.path.isfile(video_mp4):
+                try:
+                    import av
+                    _c = av.open(video_mp4)
+                    if _c.streams.video:
+                        actual_vid_w = _c.streams.video[0].width
+                        actual_vid_h = _c.streams.video[0].height
+                    _c.close()
+                except Exception:
+                    pass
 
-        stream_w = actual_vid_w if actual_vid_w else int(calib_params.get("streamWidth", 1920))
-        stream_h = actual_vid_h if actual_vid_h else int(calib_params.get("streamHeight", 1080))
-        hfov_deg = float(calib_params.get("hfovDeg", 65.7))
+            stream_w = actual_vid_w if actual_vid_w else int(calib_params.get("streamWidth", 1920))
+            stream_h = actual_vid_h if actual_vid_h else int(calib_params.get("streamHeight", 1080))
+            hfov_deg = float(calib_params.get("hfovDeg", 65.7))
 
-        calib_w = int(calib_params.get("streamWidth", stream_w))
-        scale = stream_w / float(calib_w) if (calib_w > 0 and calib_w != stream_w) else 1.0
+            calib_w = int(calib_params.get("streamWidth", stream_w))
+            scale = stream_w / float(calib_w) if (calib_w > 0 and calib_w != stream_w) else 1.0
 
-        default_fx = (stream_w / 2.0) / math.tan(math.radians(hfov_deg / 2.0))
-        fx = float(calib_params.get("fx", default_fx)) * scale
-        fy = float(calib_params.get("fy", default_fx)) * scale
-        cx = (float(calib_params.get("cx", stream_w / 2.0))) * scale
-        cy = (float(calib_params.get("cy", stream_h / 2.0))) * scale
+            default_fx = (stream_w / 2.0) / math.tan(math.radians(hfov_deg / 2.0))
+            fx = float(calib_params.get("fx", default_fx)) * scale
+            fy = float(calib_params.get("fy", default_fx)) * scale
+            cx = (float(calib_params.get("cx", stream_w / 2.0))) * scale
+            cy = (float(calib_params.get("cy", stream_h / 2.0))) * scale
 
-        cal_msg.width = stream_w
-        cal_msg.height = stream_h
-        cal_msg.distortion_model = "plumb_bob"
-        cal_msg.D.extend([0.0, 0.0, 0.0, 0.0, 0.0])
-        cal_msg.K.extend([fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0])
-        cal_msg.R.extend([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
-        cal_msg.P.extend([fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0])
+            cal_msg.width = stream_w
+            cal_msg.height = stream_h
+            cal_msg.distortion_model = "plumb_bob"
+            cal_msg.D.extend([0.0, 0.0, 0.0, 0.0, 0.0])
+            cal_msg.K.extend([fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0])
+            cal_msg.R.extend([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
+            cal_msg.P.extend([fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0])
 
-        writer.write_message("/camera/calib", cal_msg, log_time=start_wall_ms * 1_000_000)
-        count_msg("/camera/calib")
+            writer.write_message("/camera/calib", cal_msg, log_time=start_wall_ms * 1_000_000)
+            count_msg("/camera/calib")
 
-        # 6. Stream & Transcode Multimodal Sensors
-        print("[+] Processing and writing sensor streams...")
+            # 6. Stream & Transcode Multimodal Sensors
+            print("[+] Processing and writing sensor streams...")
 
-        # Setup PointCloud Fields Descriptor once
-        point_fields = [
-            PackedElementField(name="x", offset=0, type=PackedElementField.NumericType.FLOAT32),
-            PackedElementField(name="y", offset=4, type=PackedElementField.NumericType.FLOAT32),
-            PackedElementField(name="z", offset=8, type=PackedElementField.NumericType.FLOAT32),
-            PackedElementField(name="velocity", offset=12, type=PackedElementField.NumericType.FLOAT32),
-            PackedElementField(name="snr", offset=16, type=PackedElementField.NumericType.FLOAT32)
-        ]
+            # Setup PointCloud Fields Descriptor once
+            point_fields = [
+                PackedElementField(name="x", offset=0, type=PackedElementField.NumericType.FLOAT32),
+                PackedElementField(name="y", offset=4, type=PackedElementField.NumericType.FLOAT32),
+                PackedElementField(name="z", offset=8, type=PackedElementField.NumericType.FLOAT32),
+                PackedElementField(name="velocity", offset=12, type=PackedElementField.NumericType.FLOAT32),
+                PackedElementField(name="snr", offset=16, type=PackedElementField.NumericType.FLOAT32)
+            ]
 
-        # Ingest Radar Frames
-        radar_speed_by_abs = {}
-        if os.path.isfile(radar_bin):
-            print(f"    - Ingesting Radar Point Clouds & EKF Tracks: {radar_bin}")
-            print(f"[PROGRESS] {json.dumps({'step': 'radar_start', 'desc': 'Ingesting Radar Point Clouds & EKF Tracks', 'pct': 5, 'eta_s': 0})}", flush=True)
-            radar_count = 0
-            t_radar_start = time.time()
-            for r_frame in parse_radar_stream(radar_bin):
-                radar_count += 1
-                if radar_count % 500 == 0:
-                    r_elapsed = max(time.time() - t_radar_start, 0.001)
-                    r_fps = radar_count / r_elapsed
-                    pct = min(round(5.0 + (radar_count / 7200.0) * 20.0, 1), 25.0)
-                    hw_fn = r_frame["hw_frame_num"]
-                    print(f"[PROGRESS] {json.dumps({'step': 'radar', 'desc': f'Ingesting Radar Frame #{hw_fn}', 'current': radar_count, 'pct': pct, 'fps': round(r_fps, 1), 'eta_s': 0})}", flush=True)
-                utc_ns = r_frame["mono_ns"] + time_offset_ns
-                sec = utc_ns // 1_000_000_000
-                nano = utc_ns % 1_000_000_000
+            # Ingest Radar Frames
+            radar_speed_by_abs = {}
+            if os.path.isfile(radar_bin):
+                print(f"    - Ingesting Radar Point Clouds & EKF Tracks: {radar_bin}")
+                print(f"[PROGRESS] {json.dumps({'step': 'radar_start', 'desc': 'Ingesting Radar Point Clouds & EKF Tracks', 'pct': 5, 'eta_s': 0})}", flush=True)
+                radar_count = 0
+                t_radar_start = time.time()
+                for r_frame in parse_radar_stream(radar_bin):
+                    radar_count += 1
+                    if radar_count % 500 == 0:
+                        r_elapsed = max(time.time() - t_radar_start, 0.001)
+                        r_fps = radar_count / r_elapsed
+                        pct = min(round(5.0 + (radar_count / 7200.0) * 20.0, 1), 25.0)
+                        hw_fn = r_frame["hw_frame_num"]
+                        print(f"[PROGRESS] {json.dumps({'step': 'radar', 'desc': f'Ingesting Radar Frame #{hw_fn}', 'current': radar_count, 'pct': pct, 'fps': round(r_fps, 1), 'eta_s': 0})}", flush=True)
+                    utc_ns = r_frame["mono_ns"] + time_offset_ns
+                    sec = utc_ns // 1_000_000_000
+                    nano = utc_ns % 1_000_000_000
 
-                # 6.1 Point Cloud
-                pts = r_frame["points"]
-                if pts:
-                    pc_msg = PointCloud()
-                    pc_msg.timestamp.seconds = sec
-                    pc_msg.timestamp.nanos = nano
-                    pc_msg.frame_id = "radar_link"
-                    pc_msg.point_stride = 20
-                    pc_msg.fields.extend(point_fields)
-                    # Pack binary float32 array
-                    buf = bytearray(len(pts) * 20)
-                    struct.pack_into(f"<{len(pts)*5}f", buf, 0, *[val for pt in pts for val in pt])
-                    pc_msg.data = bytes(buf)
+                    # 6.1 Point Cloud
+                    pts = r_frame["points"]
+                    if pts:
+                        pc_msg = PointCloud()
+                        pc_msg.timestamp.seconds = sec
+                        pc_msg.timestamp.nanos = nano
+                        pc_msg.frame_id = "radar_link"
+                        pc_msg.point_stride = 20
+                        pc_msg.fields.extend(point_fields)
+                        # Pack binary float32 array
+                        buf = bytearray(len(pts) * 20)
+                        struct.pack_into(f"<{len(pts)*5}f", buf, 0, *[val for pt in pts for val in pt])
+                        pc_msg.data = bytes(buf)
 
-                    writer.write_message("/radar/points", pc_msg, log_time=utc_ns)
-                    count_msg("/radar/points")
+                        writer.write_message("/radar/points", pc_msg, log_time=utc_ns)
+                        count_msg("/radar/points")
 
-                # 6.1.1 Target Clusters PointCloud (/radar/clusters)
-                cls_pts = r_frame.get("clusters", [])
-                if cls_pts:
-                    cls_msg = PointCloud()
-                    cls_msg.timestamp.seconds = sec
-                    cls_msg.timestamp.nanos = nano
-                    cls_msg.frame_id = "radar_link"
-                    cls_msg.point_stride = 20
-                    cls_msg.fields.extend(point_fields)
-                    c_buf = bytearray(len(cls_pts) * 20)
-                    struct.pack_into(f"<{len(cls_pts)*5}f", c_buf, 0, *[val for pt in cls_pts for val in pt])
-                    cls_msg.data = bytes(c_buf)
+                    # 6.1.1 Target Clusters PointCloud (/radar/clusters)
+                    cls_pts = r_frame.get("clusters", [])
+                    if cls_pts:
+                        cls_msg = PointCloud()
+                        cls_msg.timestamp.seconds = sec
+                        cls_msg.timestamp.nanos = nano
+                        cls_msg.frame_id = "radar_link"
+                        cls_msg.point_stride = 20
+                        cls_msg.fields.extend(point_fields)
+                        c_buf = bytearray(len(cls_pts) * 20)
+                        struct.pack_into(f"<{len(cls_pts)*5}f", c_buf, 0, *[val for pt in cls_pts for val in pt])
+                        cls_msg.data = bytes(c_buf)
 
-                    writer.write_message("/radar/clusters", cls_msg, log_time=utc_ns)
-                    count_msg("/radar/clusters")
+                        writer.write_message("/radar/clusters", cls_msg, log_time=utc_ns)
+                        count_msg("/radar/clusters")
 
-                # 6.2 3D Scene Update (EKF Tracks with ADAS Alert Highlighting)
-                # Use static entity ID so Foxglove replaces the previous frame's entity
-                # rather than rendering overlapping ghost tracks from consecutive frames.
-                tracks = r_frame["tracks"]
-                can_out = r_frame.get("can_outputs")
-                fcw = can_out.get("fcw") if can_out else None
-                acc = can_out.get("acc") if can_out else None
+                    # 6.2 3D Scene Update (EKF Tracks with ADAS Alert Highlighting)
+                    # Use static entity ID so Foxglove replaces the previous frame's entity
+                    # rather than rendering overlapping ghost tracks from consecutive frames.
+                    tracks = r_frame["tracks"]
+                    can_out = r_frame.get("can_outputs")
+                    fcw = can_out.get("fcw") if can_out else None
+                    acc = can_out.get("acc") if can_out else None
 
-                fcw_stage = fcw.get("stage", 0) if fcw else 0
-                fcw_tid = fcw.get("track_id", 0) if fcw else 0
-                fcw_tx = fcw.get("target_x", 0.0) if fcw else 0.0
-                fcw_ty = fcw.get("target_y", 0.0) if fcw else 0.0
-                fcw_ttc = fcw.get("ttc_sec", 0.0) if fcw else 0.0
+                    fcw_stage = fcw.get("stage", 0) if fcw else 0
+                    fcw_tid = fcw.get("track_id", 0) if fcw else 0
+                    fcw_tx = fcw.get("target_x", 0.0) if fcw else 0.0
+                    fcw_ty = fcw.get("target_y", 0.0) if fcw else 0.0
+                    fcw_ttc = fcw.get("ttc_sec", 0.0) if fcw else 0.0
 
-                acc_poi = acc.get("poi_id", 0) if acc else 0
-                acc_tx = acc.get("target_x", 0.0) if acc else 0.0
-                acc_ty = acc.get("target_y", 0.0) if acc else 0.0
-                acc_tti = acc.get("tti_sec", 0.0) if acc else 0.0
+                    acc_poi = acc.get("poi_id", 0) if acc else 0
+                    acc_tx = acc.get("target_x", 0.0) if acc else 0.0
+                    acc_ty = acc.get("target_y", 0.0) if acc else 0.0
+                    acc_tti = acc.get("tti_sec", 0.0) if acc else 0.0
 
-                su_msg = SceneUpdate()
-                entity = su_msg.entities.add()
-                entity.id = "radar_tracks"
-                entity.frame_id = "base_link"
-                entity.timestamp.seconds = sec
-                entity.timestamp.nanos = nano
-                entity.lifetime.nanos = 150_000_000 # 150 ms fallback persistence
+                    su_msg = SceneUpdate()
+                    entity = su_msg.entities.add()
+                    entity.id = "radar_tracks"
+                    entity.frame_id = "base_link"
+                    entity.timestamp.seconds = sec
+                    entity.timestamp.nanos = nano
+                    entity.lifetime.nanos = 150_000_000 # 150 ms fallback persistence
 
-                # Multi-tiered FCW Target Matching
-                matched_fcw_idx = None
-                if fcw and fcw_stage > 0:
-                    # Tier 1: ID / Cluster / Slot / Modulo 256 match
-                    for idx, t in enumerate(tracks):
-                        if fcw_tid > 0 and (t["tid"] == fcw_tid or t.get("cid") == fcw_tid or (idx + 1) == fcw_tid or (t["tid"] % 256) == fcw_tid):
-                            matched_fcw_idx = idx
-                            break
-                    # Tier 2: Distance matching (Longitudinal distance within 4.0m or 2D Euclidean distance < 5.0m)
-                    if matched_fcw_idx is None and fcw_ty > 0.5:
+                    # Multi-tiered FCW Target Matching
+                    matched_fcw_idx = None
+                    if fcw and fcw_stage > 0:
+                        # Tier 1: ID / Cluster / Slot / Modulo 256 match
                         for idx, t in enumerate(tracks):
-                            if abs(t["x_fwd"] - fcw_ty) < 4.0 or math.hypot(t.get("x_sensor", -t["y_left"]) - fcw_tx, t.get("y_sensor", t["x_fwd"]) - fcw_ty) < 5.0:
+                            if fcw_tid > 0 and (t["tid"] == fcw_tid or t.get("cid") == fcw_tid or (idx + 1) == fcw_tid or (t["tid"] % 256) == fcw_tid):
                                 matched_fcw_idx = idx
                                 break
-                    # Tier 3: High-Risk Forward Corridor matching
-                    if matched_fcw_idx is None:
-                        candidates = [(idx, t) for idx, t in enumerate(tracks) if t["risk"] >= 2 and abs(t["y_left"]) <= 4.5 and t["x_fwd"] <= 50.0]
-                        if not candidates:
-                            candidates = [(idx, t) for idx, t in enumerate(tracks) if t["risk"] >= 1 and t["vx_fwd"] < -1.0 and abs(t["y_left"]) <= 4.5]
-                        if candidates:
-                            candidates.sort(key=lambda item: (-item[1]["risk"], item[1]["x_fwd"]))
-                            matched_fcw_idx = candidates[0][0]
+                        # Tier 2: Distance matching (Longitudinal distance within 4.0m or 2D Euclidean distance < 5.0m)
+                        if matched_fcw_idx is None and fcw_ty > 0.5:
+                            for idx, t in enumerate(tracks):
+                                if abs(t["x_fwd"] - fcw_ty) < 4.0 or math.hypot(t.get("x_sensor", -t["y_left"]) - fcw_tx, t.get("y_sensor", t["x_fwd"]) - fcw_ty) < 5.0:
+                                    matched_fcw_idx = idx
+                                    break
+                        # Tier 3: High-Risk Forward Corridor matching
+                        if matched_fcw_idx is None:
+                            candidates = [(idx, t) for idx, t in enumerate(tracks) if t["risk"] >= 2 and abs(t["y_left"]) <= 4.5 and t["x_fwd"] <= 50.0]
+                            if not candidates:
+                                candidates = [(idx, t) for idx, t in enumerate(tracks) if t["risk"] >= 1 and t["vx_fwd"] < -1.0 and abs(t["y_left"]) <= 4.5]
+                            if candidates:
+                                candidates.sort(key=lambda item: (-item[1]["risk"], item[1]["x_fwd"]))
+                                matched_fcw_idx = candidates[0][0]
 
-                # Multi-tiered ACC Target Matching
-                matched_acc_idx = None
-                if acc and (acc_poi > 0 or acc_ty > 0.5):
-                    for idx, t in enumerate(tracks):
-                        if acc_poi > 0 and (t["tid"] == acc_poi or t.get("cid") == acc_poi or (idx + 1) == acc_poi or (t["tid"] % 256) == acc_poi):
-                            matched_acc_idx = idx
-                            break
-                    if matched_acc_idx is None and acc_ty > 0.5:
+                    # Multi-tiered ACC Target Matching
+                    matched_acc_idx = None
+                    if acc and (acc_poi > 0 or acc_ty > 0.5):
                         for idx, t in enumerate(tracks):
-                            if abs(t["x_fwd"] - acc_ty) < 4.0 or math.hypot(t.get("x_sensor", -t["y_left"]) - acc_tx, t.get("y_sensor", t["x_fwd"]) - acc_ty) < 5.0:
+                            if acc_poi > 0 and (t["tid"] == acc_poi or t.get("cid") == acc_poi or (idx + 1) == acc_poi or (t["tid"] % 256) == acc_poi):
                                 matched_acc_idx = idx
                                 break
+                        if matched_acc_idx is None and acc_ty > 0.5:
+                            for idx, t in enumerate(tracks):
+                                if abs(t["x_fwd"] - acc_ty) < 4.0 or math.hypot(t.get("x_sensor", -t["y_left"]) - acc_tx, t.get("y_sensor", t["x_fwd"]) - acc_ty) < 5.0:
+                                    matched_acc_idx = idx
+                                    break
 
-                for idx, t in enumerate(tracks):
-                    is_fcw = (idx == matched_fcw_idx)
-                    is_acc = (idx == matched_acc_idx)
+                    for idx, t in enumerate(tracks):
+                        is_fcw = (idx == matched_fcw_idx)
+                        is_acc = (idx == matched_acc_idx)
 
-                    # Radar tracks in vehicle base_link frame (+X forward, +Y left)
-                    x_fwd = t["x_fwd"]
-                    y_left = t["y_left"]
-                    vx_fwd = t["vx_fwd"]
-                    vy_left = t["vy_left"]
+                        # Radar tracks in vehicle base_link frame (+X forward, +Y left)
+                        x_fwd = t["x_fwd"]
+                        y_left = t["y_left"]
+                        vx_fwd = t["vx_fwd"]
+                        vy_left = t["vy_left"]
 
-                    # 3D Bounding Box (Ground-Contact 3D Cuboid: bottom sits flush at Z=0.0)
-                    track_h = float(t.get("height", 1.5))
-                    cube = entity.cubes.add()
-                    cube.pose.position.x = x_fwd
-                    cube.pose.position.y = y_left
-                    cube.pose.position.z = track_h / 2.0
-                    
-                    # Radar frame: +Y forward, +X right (clockwise positive).
-                    # ROS base_link frame: +X forward, +Y left (counter-clockwise positive yaw).
-                    heading_rad = math.radians(-t["heading_deg"])
-                    qx, qy, qz, qw = euler_to_quaternion(0.0, 0.0, heading_rad)
-                    cube.pose.orientation.x = qx
-                    cube.pose.orientation.y = qy
-                    cube.pose.orientation.z = qz
-                    cube.pose.orientation.w = qw
+                        # 3D Bounding Box (Ground-Contact 3D Cuboid: bottom sits flush at Z=0.0)
+                        track_h = float(t.get("height", 1.5))
+                        cube = entity.cubes.add()
+                        cube.pose.position.x = x_fwd
+                        cube.pose.position.y = y_left
+                        cube.pose.position.z = track_h / 2.0
+                        
+                        # Radar frame: +Y forward, +X right (clockwise positive).
+                        # ROS base_link frame: +X forward, +Y left (counter-clockwise positive yaw).
+                        heading_rad = math.radians(-t["heading_deg"])
+                        qx, qy, qz, qw = euler_to_quaternion(0.0, 0.0, heading_rad)
+                        cube.pose.orientation.x = qx
+                        cube.pose.orientation.y = qy
+                        cube.pose.orientation.z = qz
+                        cube.pose.orientation.w = qw
 
-                    cube.size.x = t["length"]
-                    cube.size.y = t["width"]
-                    cube.size.z = track_h
+                        cube.size.x = t["length"]
+                        cube.size.y = t["width"]
+                        cube.size.z = track_h
 
-                    # Unified Color Palette matching RoadSense App (RadarBevPlot & ViewfinderRadarOverlay)
-                    if is_fcw and is_acc:
-                        # Combined FCW + ACC Target (Magenta / Purple)
-                        cube.color.r = 0.83; cube.color.g = 0.0; cube.color.b = 0.98; cube.color.a = 0.90
-                        arrow_r, arrow_g, arrow_b = 0.85, 0.10, 1.0
-                        label_prefix = f"[FCW S{fcw_stage}+ACC] "
-                        label_suffix = f" | TTC {fcw_ttc:.1f}s" if fcw_ttc > 0 else ""
-                        txt_r, txt_g, txt_b = 0.95, 0.40, 1.0
-                    elif is_fcw:
-                        # Vivid Crimson Red (FCW Alert Target)
-                        cube.color.r = 1.0; cube.color.g = 0.09; cube.color.b = 0.27; cube.color.a = 0.88
-                        arrow_r, arrow_g, arrow_b = 1.0, 0.12, 0.25
-                        label_prefix = f"[FCW S{fcw_stage}] "
-                        label_suffix = f" | TTC {fcw_ttc:.1f}s" if fcw_ttc > 0 else ""
-                        txt_r, txt_g, txt_b = 1.0, 0.35, 0.35
-                    elif is_acc:
-                        # Electric Cyan (ACC POI Lead Vehicle)
-                        cube.color.r = 0.0; cube.color.g = 0.90; cube.color.b = 1.0; cube.color.a = 0.85
-                        arrow_r, arrow_g, arrow_b = 0.0, 0.95, 1.0
-                        label_prefix = "[ACC LEAD] "
-                        label_suffix = ""
-                        txt_r, txt_g, txt_b = 0.35, 0.95, 1.0
+                        # Unified Color Palette matching RoadSense App (RadarBevPlot & ViewfinderRadarOverlay)
+                        if is_fcw and is_acc:
+                            # Combined FCW + ACC Target (Magenta / Purple)
+                            cube.color.r = 0.83; cube.color.g = 0.0; cube.color.b = 0.98; cube.color.a = 0.90
+                            arrow_r, arrow_g, arrow_b = 0.85, 0.10, 1.0
+                            label_prefix = f"[FCW S{fcw_stage}+ACC] "
+                            label_suffix = f" | TTC {fcw_ttc:.1f}s" if fcw_ttc > 0 else ""
+                            txt_r, txt_g, txt_b = 0.95, 0.40, 1.0
+                        elif is_fcw:
+                            # Vivid Crimson Red (FCW Alert Target)
+                            cube.color.r = 1.0; cube.color.g = 0.09; cube.color.b = 0.27; cube.color.a = 0.88
+                            arrow_r, arrow_g, arrow_b = 1.0, 0.12, 0.25
+                            label_prefix = f"[FCW S{fcw_stage}] "
+                            label_suffix = f" | TTC {fcw_ttc:.1f}s" if fcw_ttc > 0 else ""
+                            txt_r, txt_g, txt_b = 1.0, 0.35, 0.35
+                        elif is_acc:
+                            # Electric Cyan (ACC POI Lead Vehicle)
+                            cube.color.r = 0.0; cube.color.g = 0.90; cube.color.b = 1.0; cube.color.a = 0.85
+                            arrow_r, arrow_g, arrow_b = 0.0, 0.95, 1.0
+                            label_prefix = "[ACC LEAD] "
+                            label_suffix = ""
+                            txt_r, txt_g, txt_b = 0.35, 0.95, 1.0
+                        else:
+                            # Standard Active Track: Golden Yellow / Amber (Uniform across all non-ADAS tracks)
+                            cube.color.r = 1.0; cube.color.g = 0.75; cube.color.b = 0.0; cube.color.a = 0.75
+                            arrow_r, arrow_g, arrow_b = 1.0, 0.85, 0.10
+                            label_prefix = ""
+                            label_suffix = f" [RISK {t['risk']}]" if t["risk"] > 0 else ""
+                            txt_r, txt_g, txt_b = 1.0, 0.95, 0.70
+
+                        # Velocity Vector Arrow
+                        speed_mag = math.hypot(vx_fwd, vy_left)
+                        if speed_mag > 0.5:
+                            arrow = entity.arrows.add()
+                            arrow.pose.position.x = x_fwd
+                            arrow.pose.position.y = y_left
+                            arrow.pose.position.z = track_h / 2.0
+
+                            vel_yaw = math.atan2(vy_left, vx_fwd)
+                            aqx, aqy, aqz, aqw = euler_to_quaternion(0.0, 0.0, vel_yaw)
+                            arrow.pose.orientation.x = aqx
+                            arrow.pose.orientation.y = aqy
+                            arrow.pose.orientation.z = aqz
+                            arrow.pose.orientation.w = aqw
+
+                            arrow.shaft_length = min(speed_mag * 0.5, 5.0)
+                            arrow.shaft_diameter = 0.15 if (is_fcw or is_acc) else 0.12
+                            arrow.head_length = 0.40 if (is_fcw or is_acc) else 0.35
+                            arrow.head_diameter = 0.30 if (is_fcw or is_acc) else 0.25
+                            arrow.color.r = arrow_r; arrow.color.g = arrow_g; arrow.color.b = arrow_b; arrow.color.a = 0.95
+
+                        # Floating Label
+                        txt = entity.texts.add()
+                        txt.pose.position.x = x_fwd
+                        txt.pose.position.y = y_left
+                        txt.pose.position.z = track_h + (0.50 if (is_fcw or is_acc) else 0.35)
+                        txt.text = f"{label_prefix}ID #{t['tid']} | {vx_fwd:.1f} m/s | TTI {t['tti']:.1f}s{label_suffix}"
+                        txt.font_size = 0.50 if (is_fcw or is_acc) else 0.42
+                        txt.billboard = True
+                        txt.color.r = txt_r; txt.color.g = txt_g; txt.color.b = txt_b; txt.color.a = 1.0
+
+                    # 6.2.1 Fallback Dedicated FCW Target (if active FCW alert had no associated track in table)
+                    if fcw and fcw_stage > 0 and matched_fcw_idx is None and fcw_ty > 0.5:
+                        fx_fwd = fcw_ty
+                        fy_left = -fcw_tx
+                        fb_h = 1.5
+                        cube = entity.cubes.add()
+                        cube.pose.position.x = fx_fwd
+                        cube.pose.position.y = fy_left
+                        cube.pose.position.z = fb_h / 2.0
+                        cube.pose.orientation.w = 1.0
+                        cube.size.x = 2.5
+                        cube.size.y = 1.8
+                        cube.size.z = fb_h
+                        cube.color.r = 1.0; cube.color.g = 0.09; cube.color.b = 0.27; cube.color.a = 0.90
+
+                        txt = entity.texts.add()
+                        txt.pose.position.x = fx_fwd
+                        txt.pose.position.y = fy_left
+                        txt.pose.position.z = fb_h + 0.50
+                        ttc_str = f" | TTC {fcw_ttc:.1f}s" if fcw_ttc > 0 else ""
+                        txt.text = f"[FCW S{fcw_stage} HAZARD]{ttc_str}"
+                        txt.font_size = 0.55
+                        txt.billboard = True
+                        txt.color.r = 1.0; txt.color.g = 0.35; txt.color.b = 0.35; txt.color.a = 1.0
+
+                    writer.write_message("/radar/tracks", su_msg, log_time=utc_ns)
+                    count_msg("/radar/tracks")
+
+                    # 6.3 Vehicle Powertrain CAN Inputs (TLV 5)
+                    if r_frame["can_inputs"]:
+                        r_frame["can_inputs"]["radar_frame_id_rel"] = radar_count
+                        r_frame["can_inputs"]["radar_frame_id_abs"] = r_frame["hw_frame_num"]
+                        radar_speed_by_abs[r_frame["hw_frame_num"]] = r_frame["can_inputs"].get("speed_kmph", 0.0)
+                        writer._writer.add_message(
+                            channel_id=telemetry_chan_id,
+                            log_time=utc_ns,
+                            data=json.dumps(r_frame["can_inputs"]).encode("utf-8"),
+                            publish_time=utc_ns
+                        )
+                        count_msg("/vehicle/telemetry")
+
+                    # 6.4 Radar Tracker Diagnostics (TLV 4)
+                    if r_frame["diags"]:
+                        r_frame["diags"]["radar_frame_id_rel"] = radar_count
+                        r_frame["diags"]["radar_frame_id_abs"] = r_frame["hw_frame_num"]
+                        writer._writer.add_message(
+                            channel_id=diags_chan_id,
+                            log_time=utc_ns,
+                            data=json.dumps(r_frame["diags"]).encode("utf-8"),
+                            publish_time=utc_ns
+                        )
+                        count_msg("/radar/diagnostics")
+
+                    # 6.5 Vehicle Safety ADAS Outputs (TLV 6: FCW, BSD, ACC)
+                    if r_frame.get("can_outputs"):
+                        writer._writer.add_message(
+                            channel_id=adas_chan_id,
+                            log_time=utc_ns,
+                            data=json.dumps(r_frame["can_outputs"]).encode("utf-8"),
+                            publish_time=utc_ns
+                        )
+                        count_msg("/radar/adas")
+
+            # Ingest GNSS Fixes (Decouple satellite GPS from cellular/network triangulation)
+            if os.path.isfile(gnss_csv):
+                print(f"    - Ingesting GNSS Fixes: {gnss_csv}")
+                print(f"[PROGRESS] {json.dumps({'step': 'gnss', 'desc': 'Ingesting GNSS Satellite Fixes', 'pct': 26})}", flush=True)
+                all_gnss = list(parse_gnss_csv(gnss_csv))
+                has_satellite_gps = any(f["provider"] == "gps" for f in all_gnss)
+
+                for fix in all_gnss:
+                    utc_ns = fix["mono_ns"] + time_offset_ns
+                    loc_msg = LocationFix()
+                    loc_msg.timestamp.seconds = utc_ns // 1_000_000_000
+                    loc_msg.timestamp.nanos = utc_ns % 1_000_000_000
+                    loc_msg.frame_id = "wgs84"
+                    loc_msg.latitude = fix["lat"]
+                    loc_msg.longitude = fix["lon"]
+                    loc_msg.altitude = fix["alt"]
+                    # Foxglove LocationFix.heading is in RADIANS clockwise from North
+                    loc_msg.heading = math.radians(fix["bearing"])
+                    # Geographic ENU velocities: Vx = East speed, Vy = North speed
+                    loc_msg.velocity.x = fix["speed"] * math.sin(math.radians(fix["bearing"]))
+                    loc_msg.velocity.y = fix["speed"] * math.cos(math.radians(fix["bearing"]))
+                    loc_msg.velocity.z = 0.0
+
+                    is_network = (fix["provider"] == "network" and has_satellite_gps)
+                    if is_network:
+                        # Style cellular network triangulation with distinct Amber color (#FF9800)
+                        loc_msg.color.r = 1.0
+                        loc_msg.color.g = 0.6
+                        loc_msg.color.b = 0.0
+                        loc_msg.color.a = 0.8
+                        writer.write_message("/gnss/network", loc_msg, log_time=utc_ns)
+                        count_msg("/gnss/network")
                     else:
-                        # Standard Active Track: Golden Yellow / Amber (Uniform across all non-ADAS tracks)
-                        cube.color.r = 1.0; cube.color.g = 0.75; cube.color.b = 0.0; cube.color.a = 0.75
-                        arrow_r, arrow_g, arrow_b = 1.0, 0.85, 0.10
-                        label_prefix = ""
-                        label_suffix = f" [RISK {t['risk']}]" if t["risk"] > 0 else ""
-                        txt_r, txt_g, txt_b = 1.0, 0.95, 0.70
+                        writer.write_message("/gnss/fix", loc_msg, log_time=utc_ns)
+                        count_msg("/gnss/fix")
 
-                    # Velocity Vector Arrow
-                    speed_mag = math.hypot(vx_fwd, vy_left)
-                    if speed_mag > 0.5:
-                        arrow = entity.arrows.add()
-                        arrow.pose.position.x = x_fwd
-                        arrow.pose.position.y = y_left
-                        arrow.pose.position.z = track_h / 2.0
-
-                        vel_yaw = math.atan2(vy_left, vx_fwd)
-                        aqx, aqy, aqz, aqw = euler_to_quaternion(0.0, 0.0, vel_yaw)
-                        arrow.pose.orientation.x = aqx
-                        arrow.pose.orientation.y = aqy
-                        arrow.pose.orientation.z = aqz
-                        arrow.pose.orientation.w = aqw
-
-                        arrow.shaft_length = min(speed_mag * 0.5, 5.0)
-                        arrow.shaft_diameter = 0.15 if (is_fcw or is_acc) else 0.12
-                        arrow.head_length = 0.40 if (is_fcw or is_acc) else 0.35
-                        arrow.head_diameter = 0.30 if (is_fcw or is_acc) else 0.25
-                        arrow.color.r = arrow_r; arrow.color.g = arrow_g; arrow.color.b = arrow_b; arrow.color.a = 0.95
-
-                    # Floating Label
-                    txt = entity.texts.add()
-                    txt.pose.position.x = x_fwd
-                    txt.pose.position.y = y_left
-                    txt.pose.position.z = track_h + (0.50 if (is_fcw or is_acc) else 0.35)
-                    txt.text = f"{label_prefix}ID #{t['tid']} | {vx_fwd:.1f} m/s | TTI {t['tti']:.1f}s{label_suffix}"
-                    txt.font_size = 0.50 if (is_fcw or is_acc) else 0.42
-                    txt.billboard = True
-                    txt.color.r = txt_r; txt.color.g = txt_g; txt.color.b = txt_b; txt.color.a = 1.0
-
-                # 6.2.1 Fallback Dedicated FCW Target (if active FCW alert had no associated track in table)
-                if fcw and fcw_stage > 0 and matched_fcw_idx is None and fcw_ty > 0.5:
-                    fx_fwd = fcw_ty
-                    fy_left = -fcw_tx
-                    fb_h = 1.5
-                    cube = entity.cubes.add()
-                    cube.pose.position.x = fx_fwd
-                    cube.pose.position.y = fy_left
-                    cube.pose.position.z = fb_h / 2.0
-                    cube.pose.orientation.w = 1.0
-                    cube.size.x = 2.5
-                    cube.size.y = 1.8
-                    cube.size.z = fb_h
-                    cube.color.r = 1.0; cube.color.g = 0.09; cube.color.b = 0.27; cube.color.a = 0.90
-
-                    txt = entity.texts.add()
-                    txt.pose.position.x = fx_fwd
-                    txt.pose.position.y = fy_left
-                    txt.pose.position.z = fb_h + 0.50
-                    ttc_str = f" | TTC {fcw_ttc:.1f}s" if fcw_ttc > 0 else ""
-                    txt.text = f"[FCW S{fcw_stage} HAZARD]{ttc_str}"
-                    txt.font_size = 0.55
-                    txt.billboard = True
-                    txt.color.r = 1.0; txt.color.g = 0.35; txt.color.b = 0.35; txt.color.a = 1.0
-
-                writer.write_message("/radar/tracks", su_msg, log_time=utc_ns)
-                count_msg("/radar/tracks")
-
-                # 6.3 Vehicle Powertrain CAN Inputs (TLV 5)
-                if r_frame["can_inputs"]:
-                    r_frame["can_inputs"]["radar_frame_id_rel"] = radar_count
-                    r_frame["can_inputs"]["radar_frame_id_abs"] = r_frame["hw_frame_num"]
-                    radar_speed_by_abs[r_frame["hw_frame_num"]] = r_frame["can_inputs"].get("speed_kmph", 0.0)
-                    writer._writer.add_message(
-                        channel_id=telemetry_chan_id,
-                        log_time=utc_ns,
-                        data=json.dumps(r_frame["can_inputs"]).encode("utf-8"),
-                        publish_time=utc_ns
+            # Ingest IMU Telemetry (Full rate Protobuf on /imu/data & /imu/vehicle; 50 Hz PoseInFrame on /imu/pose)
+            if os.path.isfile(imu_csv):
+                print(f"    - Ingesting IMU Telemetry (Binary Protobuf): {imu_csv}")
+                print(f"[PROGRESS] {json.dumps({'step': 'imu', 'desc': 'Ingesting IMU Telemetry (Protobuf)', 'pct': 28})}", flush=True)
+                last_pose_utc_ns = 0
+                for imu_sample, imu_vehicle in parse_imu_csv(imu_csv, gnss_csv_path=gnss_csv, calib_params=calib_params):
+                    utc_ns = imu_sample["mono_ns"] + time_offset_ns
+                    writer.write_message(
+                        "/imu/data",
+                        _populate_imu_proto(imu_raw_cls, imu_sample),
+                        log_time=utc_ns
                     )
-                    count_msg("/vehicle/telemetry")
+                    count_msg("/imu/data")
 
-                # 6.4 Radar Tracker Diagnostics (TLV 4)
-                if r_frame["diags"]:
-                    r_frame["diags"]["radar_frame_id_rel"] = radar_count
-                    r_frame["diags"]["radar_frame_id_abs"] = r_frame["hw_frame_num"]
-                    writer._writer.add_message(
-                        channel_id=diags_chan_id,
-                        log_time=utc_ns,
-                        data=json.dumps(r_frame["diags"]).encode("utf-8"),
-                        publish_time=utc_ns
+                    writer.write_message(
+                        "/imu/vehicle",
+                        _populate_imu_proto(imu_veh_cls, imu_vehicle),
+                        log_time=utc_ns
                     )
-                    count_msg("/radar/diagnostics")
+                    count_msg("/imu/vehicle")
 
-                # 6.5 Vehicle Safety ADAS Outputs (TLV 6: FCW, BSD, ACC)
-                if r_frame.get("can_outputs"):
-                    writer._writer.add_message(
-                        channel_id=adas_chan_id,
-                        log_time=utc_ns,
-                        data=json.dumps(r_frame["can_outputs"]).encode("utf-8"),
-                        publish_time=utc_ns
-                    )
-                    count_msg("/radar/adas")
+                    # Orientation Pose in base_link capped at ~50 Hz (full 200 Hz quaternion preserved in /imu/vehicle)
+                    if last_pose_utc_ns == 0 or (utc_ns - last_pose_utc_ns) >= 19_000_000:
+                        last_pose_utc_ns = utc_ns
+                        pose_msg = PoseInFrame()
+                        pose_msg.timestamp.seconds = utc_ns // 1_000_000_000
+                        pose_msg.timestamp.nanos = utc_ns % 1_000_000_000
+                        pose_msg.frame_id = "base_link"
+                        pose_msg.pose.orientation.x = imu_vehicle["qx"]
+                        pose_msg.pose.orientation.y = imu_vehicle["qy"]
+                        pose_msg.pose.orientation.z = imu_vehicle["qz"]
+                        pose_msg.pose.orientation.w = imu_vehicle["qw"]
+                        writer.write_message("/imu/pose", pose_msg, log_time=utc_ns)
+                        count_msg("/imu/pose")
 
-        # Ingest GNSS Fixes (Decouple satellite GPS from cellular/network triangulation)
-        if os.path.isfile(gnss_csv):
-            print(f"    - Ingesting GNSS Fixes: {gnss_csv}")
-            print(f"[PROGRESS] {json.dumps({'step': 'gnss', 'desc': 'Ingesting GNSS Satellite Fixes', 'pct': 26})}", flush=True)
-            all_gnss = list(parse_gnss_csv(gnss_csv))
-            has_satellite_gps = any(f["provider"] == "gps" for f in all_gnss)
-
-            for fix in all_gnss:
-                utc_ns = fix["mono_ns"] + time_offset_ns
-                loc_msg = LocationFix()
-                loc_msg.timestamp.seconds = utc_ns // 1_000_000_000
-                loc_msg.timestamp.nanos = utc_ns % 1_000_000_000
-                loc_msg.frame_id = "wgs84"
-                loc_msg.latitude = fix["lat"]
-                loc_msg.longitude = fix["lon"]
-                loc_msg.altitude = fix["alt"]
-                # Foxglove LocationFix.heading is in RADIANS clockwise from North
-                loc_msg.heading = math.radians(fix["bearing"])
-                # Geographic ENU velocities: Vx = East speed, Vy = North speed
-                loc_msg.velocity.x = fix["speed"] * math.sin(math.radians(fix["bearing"]))
-                loc_msg.velocity.y = fix["speed"] * math.cos(math.radians(fix["bearing"]))
-                loc_msg.velocity.z = 0.0
-
-                is_network = (fix["provider"] == "network" and has_satellite_gps)
-                if is_network:
-                    # Style cellular network triangulation with distinct Amber color (#FF9800)
-                    loc_msg.color.r = 1.0
-                    loc_msg.color.g = 0.6
-                    loc_msg.color.b = 0.0
-                    loc_msg.color.a = 0.8
-                    writer.write_message("/gnss/network", loc_msg, log_time=utc_ns)
-                    count_msg("/gnss/network")
+            # Ingest Camera Video Bitstream (H.264 Annex B)
+            if include_video and os.path.isfile(video_mp4) and (sync_master is not None or os.path.isfile(frames_csv)):
+                if flip_video:
+                    print(f"    - Demuxing & Rotating (180° Inversion) H.264 Video Stream: {video_mp4}")
                 else:
-                    writer.write_message("/gnss/fix", loc_msg, log_time=utc_ns)
-                    count_msg("/gnss/fix")
+                    print(f"    - Demuxing H.264 Video Stream: {video_mp4}")
+                from foxglove_schemas_protobuf.CompressedVideo_pb2 import CompressedVideo
+                for v_frame in parse_camera_video_frames(video_mp4, frames_csv, sync_master=sync_master, flip_video=flip_video, hwaccel=hwaccel):
+                    utc_ns = v_frame["mono_ns"] + time_offset_ns
+                    vid_msg = CompressedVideo()
+                    vid_msg.timestamp.seconds = utc_ns // 1_000_000_000
+                    vid_msg.timestamp.nanos = utc_ns % 1_000_000_000
+                    vid_msg.frame_id = "camera_optical"
+                    vid_msg.data = v_frame["data"]
+                    vid_msg.format = "h264"
 
-        # Ingest IMU Telemetry (Full rate Protobuf on /imu/data & /imu/vehicle; 50 Hz PoseInFrame on /imu/pose)
-        if os.path.isfile(imu_csv):
-            print(f"    - Ingesting IMU Telemetry (Binary Protobuf): {imu_csv}")
-            print(f"[PROGRESS] {json.dumps({'step': 'imu', 'desc': 'Ingesting IMU Telemetry (Protobuf)', 'pct': 28})}", flush=True)
-            last_pose_utc_ns = 0
-            for imu_sample, imu_vehicle in parse_imu_csv(imu_csv, gnss_csv_path=gnss_csv, calib_params=calib_params):
-                utc_ns = imu_sample["mono_ns"] + time_offset_ns
-                writer.write_message(
-                    "/imu/data",
-                    _populate_imu_proto(imu_raw_cls, imu_sample),
-                    log_time=utc_ns
-                )
-                count_msg("/imu/data")
+                    writer.write_message("/camera/video", vid_msg, log_time=utc_ns)
+                    count_msg("/camera/video")
 
-                writer.write_message(
-                    "/imu/vehicle",
-                    _populate_imu_proto(imu_veh_cls, imu_vehicle),
-                    log_time=utc_ns
-                )
-                count_msg("/imu/vehicle")
+                    # Emit Live Ground-Truth Frame Sync Metadata for Foxglove Verification
+                    if sync_master:
+                        rel_id, matched_rad_abs, delta_ms = sync_master.match_camera_to_radar(v_frame["mono_ns"])
+                        speed_val = radar_speed_by_abs.get(matched_rad_abs, 0.0)
+                        sync_info = {
+                            "video_frame_index": v_frame["frame_idx"],
+                            "camera_hw_frame_number": v_frame.get("hw_seq_id", v_frame["frame_idx"]),
+                            "radar_frame_id_rel": rel_id,
+                            "radar_frame_id_abs": matched_rad_abs,
+                            "sync_delta_ms": round(delta_ms, 2),
+                            "speed_kmph": round(speed_val, 2)
+                        }
+                        writer._writer.add_message(
+                            channel_id=sync_chan_id,
+                            log_time=utc_ns,
+                            data=json.dumps(sync_info).encode("utf-8"),
+                            publish_time=utc_ns
+                        )
+                        count_msg("/sync/frame_info")
 
-                # Orientation Pose in base_link capped at ~50 Hz (full 200 Hz quaternion preserved in /imu/vehicle)
-                if last_pose_utc_ns == 0 or (utc_ns - last_pose_utc_ns) >= 19_000_000:
-                    last_pose_utc_ns = utc_ns
-                    pose_msg = PoseInFrame()
-                    pose_msg.timestamp.seconds = utc_ns // 1_000_000_000
-                    pose_msg.timestamp.nanos = utc_ns % 1_000_000_000
-                    pose_msg.frame_id = "base_link"
-                    pose_msg.pose.orientation.x = imu_vehicle["qx"]
-                    pose_msg.pose.orientation.y = imu_vehicle["qy"]
-                    pose_msg.pose.orientation.z = imu_vehicle["qz"]
-                    pose_msg.pose.orientation.w = imu_vehicle["qw"]
-                    writer.write_message("/imu/pose", pose_msg, log_time=utc_ns)
-                    count_msg("/imu/pose")
+            # Ingest Diagnostic Logs
+            if os.path.isfile(session_log):
+                print(f"    - Ingesting Diagnostic Flight Recorder Logs: {session_log}")
+                for log_entry in parse_flight_recorder_logs(session_log, start_wall_ms, start_iso_str):
+                    log_msg = Log()
+                    log_msg.timestamp.seconds = log_entry["utc_ns"] // 1_000_000_000
+                    log_msg.timestamp.nanos = log_entry["utc_ns"] % 1_000_000_000
+                    log_msg.level = log_entry["level"]
+                    log_msg.name = log_entry["tag"]
+                    log_msg.message = log_entry["message"]
 
-        # Ingest Camera Video Bitstream (H.264 Annex B)
-        if include_video and os.path.isfile(video_mp4) and (sync_master is not None or os.path.isfile(frames_csv)):
-            if flip_video:
-                print(f"    - Demuxing & Rotating (180° Inversion) H.264 Video Stream: {video_mp4}")
-            else:
-                print(f"    - Demuxing H.264 Video Stream: {video_mp4}")
-            from foxglove_schemas_protobuf.CompressedVideo_pb2 import CompressedVideo
-            for v_frame in parse_camera_video_frames(video_mp4, frames_csv, sync_master=sync_master, flip_video=flip_video, hwaccel=hwaccel):
-                utc_ns = v_frame["mono_ns"] + time_offset_ns
-                vid_msg = CompressedVideo()
-                vid_msg.timestamp.seconds = utc_ns // 1_000_000_000
-                vid_msg.timestamp.nanos = utc_ns % 1_000_000_000
-                vid_msg.frame_id = "camera_optical"
-                vid_msg.data = v_frame["data"]
-                vid_msg.format = "h264"
+                    writer.write_message("/diagnostics/logs", log_msg, log_time=log_entry["utc_ns"])
+                    count_msg("/diagnostics/logs")
 
-                writer.write_message("/camera/video", vid_msg, log_time=utc_ns)
-                count_msg("/camera/video")
-
-                # Emit Live Ground-Truth Frame Sync Metadata for Foxglove Verification
-                if sync_master:
-                    rel_id, matched_rad_abs, delta_ms = sync_master.match_camera_to_radar(v_frame["mono_ns"])
-                    speed_val = radar_speed_by_abs.get(matched_rad_abs, 0.0)
-                    sync_info = {
-                        "video_frame_index": v_frame["frame_idx"],
-                        "camera_hw_frame_number": v_frame.get("hw_seq_id", v_frame["frame_idx"]),
-                        "radar_frame_id_rel": rel_id,
-                        "radar_frame_id_abs": matched_rad_abs,
-                        "sync_delta_ms": round(delta_ms, 2),
-                        "speed_kmph": round(speed_val, 2)
-                    }
-                    writer._writer.add_message(
-                        channel_id=sync_chan_id,
-                        log_time=utc_ns,
-                        data=json.dumps(sync_info).encode("utf-8"),
-                        publish_time=utc_ns
-                    )
-                    count_msg("/sync/frame_info")
-
-        # Ingest Diagnostic Logs
-        if os.path.isfile(session_log):
-            print(f"    - Ingesting Diagnostic Flight Recorder Logs: {session_log}")
-            for log_entry in parse_flight_recorder_logs(session_log, start_wall_ms, start_iso_str):
-                log_msg = Log()
-                log_msg.timestamp.seconds = log_entry["utc_ns"] // 1_000_000_000
-                log_msg.timestamp.nanos = log_entry["utc_ns"] % 1_000_000_000
-                log_msg.level = log_entry["level"]
-                log_msg.name = log_entry["tag"]
-                log_msg.message = log_entry["message"]
-
-                writer.write_message("/diagnostics/logs", log_msg, log_time=log_entry["utc_ns"])
-                count_msg("/diagnostics/logs")
-
-        # 6.5. Ingest Vision Perception Tracks & Telemetry Sub-Topics (if available)
-        v_candidates = []
-        if vision_json:
-            v_candidates.append(vision_json)
-        v_candidates.extend([
-            os.path.join(REPO_ROOT, "tools", "vision", "output", "json", f"{session_name}_vision_tracks.json"),
-            os.path.join(session_dir, "baseline_yolo_tracking.json"),
-            os.path.join(session_dir, "vision_tracks.json"),
-        ])
-        resolved_vision_json = next((vc for vc in v_candidates if os.path.isfile(vc)), None)
-        if resolved_vision_json:
-            print(f"    - Ingesting Vision Tracks & Telemetry Topics: {resolved_vision_json}")
-            try:
-                from tools.vision.mcap.mcap_scene_writer import (
-                    McapSceneWriter,
-                    TrajectoryTracker,
-                    VISION_DIAGNOSTICS_JSON_SCHEMA,
-                )
-
-                v_diag_schema = writer._writer.register_schema(
-                    name="roadsense.VisionDiagnostics",
-                    encoding="jsonschema",
-                    data=json.dumps(VISION_DIAGNOSTICS_JSON_SCHEMA).encode("utf-8")
-                )
-                v_diag_chan = writer._writer.register_channel(
-                    schema_id=v_diag_schema,
-                    topic="/vision/diagnostics",
-                    message_encoding="json"
-                )
-
-                with open(resolved_vision_json, "r", encoding="utf-8") as vf:
-                    v_data = json.load(vf)
-                v_frames = v_data.get("frames", [])
-                v_extrinsics = v_data.get("camera_extrinsics", {})
-                # If flip_video is False, video in MCAP has raw sensor orientation (e.g. mp4_rot = 180).
-                # Foxglove camera_view applies "rotation": 180, so annotations must map to raw coordinates.
-                # If flip_video is True, video in MCAP was flipped upright, so effective annotation rotation is 0.
-                effective_annot_rot = 0 if flip_video else mp4_rot
-                img_w = int(v_data.get("image_width", 0)) or int(v_extrinsics.get("cx", 640) * 2) or 1280
-                img_h = int(v_data.get("image_height", 0)) or int(v_extrinsics.get("cy", 360) * 2) or 720
-                v_traj_tracker = TrajectoryTracker(max_age_seconds=15.0, min_interval_seconds=0.10)
-
-                for v_idx, v_f in enumerate(v_frames):
-                    if "timestamp_utc_ns" in v_f and v_f["timestamp_utc_ns"] > 1e16:
-                        v_utc = int(v_f["timestamp_utc_ns"])
-                    elif "timestamp_ns" in v_f and v_f["timestamp_ns"] > 1e16:
-                        v_utc = int(v_f["timestamp_ns"])
-                    else:
-                        v_utc = int(v_f.get("timestamp_ns", 0)) + time_offset_ns
-
-                    v_tracks = v_f.get("tracks", [])
-                    v_traj_history = v_traj_tracker.update(v_utc, v_tracks)
-
-                    # 1. 3D Scene Update
-                    su_m = McapSceneWriter.create_scene_update(v_utc, v_tracks)
-                    writer.write_message("/vision/geo_tracks", su_m, log_time=v_utc)
-                    count_msg("/vision/geo_tracks")
-
-                    # 2. 2D Image Annotations
-                    ia_m = McapSceneWriter.create_image_annotations(
-                        timestamp_ns=v_utc,
-                        tracks=v_tracks,
-                        image_width=img_w,
-                        image_height=img_h,
-                        video_rotation_deg=effective_annot_rot,
-                    )
-                    writer.write_message("/vision/2d_boxes", ia_m, log_time=v_utc)
-                    count_msg("/vision/2d_boxes")
-
-                    # 3. 3D Trajectory History
-                    tu_m = McapSceneWriter.create_trajectories_update(v_utc, v_traj_history)
-                    writer.write_message("/vision/trajectories", tu_m, log_time=v_utc)
-                    count_msg("/vision/trajectories")
-
-                    # 4. Camera Frustum (every 10 frames)
-                    if v_idx % 10 == 0:
-                        fu_m = McapSceneWriter.create_camera_frustum_update(v_utc)
-                        writer.write_message("/vision/camera_frustum", fu_m, log_time=v_utc)
-                        count_msg("/vision/camera_frustum")
-
-                    # 5. Diagnostics & State Matrix Telemetry
-                    v_spd = float(v_f.get("ego_speed_mps", 0.0))
-                    v_yr = float(v_f.get("ego_yaw_rate_radps", 0.0))
-                    diag_payload = McapSceneWriter.create_diagnostics_message(
-                        timestamp_ns=v_utc,
-                        frame_idx=v_f.get("frame_index", v_idx),
-                        tracks=v_tracks,
-                        ego_speed_mps=v_spd,
-                        ego_yaw_rate_can_radps=v_yr,
-                        ego_yaw_rate_smoothed_radps=-v_yr,
-                        turning_model_active=abs(v_yr) > 0.015,
-                        deadband_scale=1.0,
-                    )
-                    writer._writer.add_message(
-                        channel_id=v_diag_chan,
-                        log_time=v_utc,
-                        data=json.dumps(diag_payload).encode("utf-8"),
-                        publish_time=v_utc
-                    )
-                    count_msg("/vision/diagnostics")
-            except Exception as e:
-                print(f"[-] Vision tracks ingestion error ({e}). Skipping vision topics.")
-
-        # 6.6. Ingest CANedge2 MDF4 Telemetry Topics (Modular tools/CAN_Processing/)
-        can_dir = os.path.join(session_dir, "can")
-        if not skip_can and (can_bundle is not None or os.path.isdir(can_dir)):
-            try:
-                from tools.CAN_Processing.pipeline import prepare_can_bundle, write_can_bundle_to_mcap
-
-                active_can_bundle = can_bundle
-                if active_can_bundle is None:
-                    print(f"    - Processing CANedge2 MF4 Logs (30-60s rolling align): {can_dir}")
-                    active_can_bundle = prepare_can_bundle(
-                        session_dir=session_dir,
-                        time_offset_ns=time_offset_ns,
-                        config_path=can_config,
-                        can_mode=can_mode,
-                        strict_can=strict_can,
+            # 6.5. Ingest Vision Perception Tracks & Telemetry Sub-Topics (if available)
+            v_candidates = []
+            if vision_json:
+                v_candidates.append(vision_json)
+            v_candidates.extend([
+                os.path.join(REPO_ROOT, "tools", "vision", "output", "json", f"{session_name}_vision_tracks.json"),
+                os.path.join(session_dir, "baseline_yolo_tracking.json"),
+                os.path.join(session_dir, "vision_tracks.json"),
+            ])
+            resolved_vision_json = next((vc for vc in v_candidates if os.path.isfile(vc)), None)
+            if resolved_vision_json:
+                print(f"    - Ingesting Vision Tracks & Telemetry Topics: {resolved_vision_json}")
+                try:
+                    from tools.vision.mcap.mcap_scene_writer import (
+                        McapSceneWriter,
+                        TrajectoryTracker,
+                        VISION_DIAGNOSTICS_JSON_SCHEMA,
                     )
 
-                comp = active_can_bundle.completeness
-                align = active_can_bundle.alignment
-                print(
-                    f"      [CAN] Tier={align.primary_tier} | Chunks={comp.chunk_count} "
-                    f"| Coverage={comp.coverage_pct:.1f}% ({comp.status}) "
-                    f"| Offset={align.global_median_offset_sec:+.3f}s | Drift={align.estimated_drift_ppm:+.1f}ppm"
-                )
-                for w in comp.warnings:
-                    print(f"      [WARN] CAN Audit: {w}")
+                    v_diag_schema = writer._writer.register_schema(
+                        name="roadsense.VisionDiagnostics",
+                        encoding="jsonschema",
+                        data=json.dumps(VISION_DIAGNOSTICS_JSON_SCHEMA).encode("utf-8")
+                    )
+                    v_diag_chan = writer._writer.register_channel(
+                        schema_id=v_diag_schema,
+                        topic="/vision/diagnostics",
+                        message_encoding="json"
+                    )
 
-                written_can = write_can_bundle_to_mcap(
-                    writer=writer,
-                    bundle=active_can_bundle,
-                    count_msg=count_msg,
-                    start_wall_ms=start_wall_ms,
-                )
-                print(f"      [+] Ingested {written_can:,} CAN Protobuf messages into MCAP.")
-            except Exception as e:
-                if strict_can:
-                    raise
-                print(f"    [!] CAN ingestion skipped/warned ({e}).")
+                    with open(resolved_vision_json, "r", encoding="utf-8") as vf:
+                        v_data = json.load(vf)
+                    v_frames = v_data.get("frames", [])
+                    v_extrinsics = v_data.get("camera_extrinsics", {})
+                    # If flip_video is False, video in MCAP has raw sensor orientation (e.g. mp4_rot = 180).
+                    # Foxglove camera_view applies "rotation": 180, so annotations must map to raw coordinates.
+                    # If flip_video is True, video in MCAP was flipped upright, so effective annotation rotation is 0.
+                    effective_annot_rot = 0 if flip_video else mp4_rot
+                    img_w = int(v_data.get("image_width", 0)) or int(v_extrinsics.get("cx", 640) * 2) or 1280
+                    img_h = int(v_data.get("image_height", 0)) or int(v_extrinsics.get("cy", 360) * 2) or 720
+                    v_traj_tracker = TrajectoryTracker(max_age_seconds=15.0, min_interval_seconds=0.10)
 
-        # 7. Add Native MCAP Attachments
-        if os.path.isfile(meta_path):
-            with open(meta_path, "rb") as mf:
-                writer._writer.add_attachment(
-                    create_time=start_wall_ms * 1_000_000,
-                    log_time=start_wall_ms * 1_000_000,
-                    name="session_metadata.json",
-                    media_type="application/json",
-                    data=mf.read()
-                )
-            print("    - Embedded attachment: session_metadata.json")
+                    for v_idx, v_f in enumerate(v_frames):
+                        if "timestamp_utc_ns" in v_f and v_f["timestamp_utc_ns"] > 1e16:
+                            v_utc = int(v_f["timestamp_utc_ns"])
+                        elif "timestamp_ns" in v_f and v_f["timestamp_ns"] > 1e16:
+                            v_utc = int(v_f["timestamp_ns"])
+                        else:
+                            v_utc = int(v_f.get("timestamp_ns", 0)) + time_offset_ns
 
-        if calib_file and os.path.isfile(calib_file):
-            with open(calib_file, "rb") as cf:
-                writer._writer.add_attachment(
-                    create_time=start_wall_ms * 1_000_000,
-                    log_time=start_wall_ms * 1_000_000,
-                    name="radar_camera_calib.json",
-                    media_type="application/json",
-                    data=cf.read()
-                )
-            print("    - Embedded attachment: radar_camera_calib.json")
+                        v_tracks = v_f.get("tracks", [])
+                        v_traj_history = v_traj_tracker.update(v_utc, v_tracks)
 
-        # Embed RoadSense Cockpit Layout (for 1-click layout export/loading in Foxglove)
-        layout_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "foxglove_layouts", "RoadSense_Cockpit_Layout.json")
-        if os.path.isfile(layout_file):
-            with open(layout_file, "rb") as lf:
-                layout_data = lf.read()
-                writer._writer.add_attachment(
-                    create_time=start_wall_ms * 1_000_000,
-                    log_time=start_wall_ms * 1_000_000,
-                    name="RoadSense_Cockpit_Layout.json",
-                    media_type="application/json",
-                    data=layout_data
-                )
-                writer._writer.add_attachment(
-                    create_time=start_wall_ms * 1_000_000,
-                    log_time=start_wall_ms * 1_000_000,
-                    name="foxglove.layout",
-                    media_type="application/json",
-                    data=layout_data
-                )
-            print("    - Embedded attachment: RoadSense_Cockpit_Layout.json")
+                        # 1. 3D Scene Update
+                        su_m = McapSceneWriter.create_scene_update(v_utc, v_tracks)
+                        writer.write_message("/vision/geo_tracks", su_m, log_time=v_utc)
+                        count_msg("/vision/geo_tracks")
 
-        # 8. Flush Summary Indexes & Close
-        print("[+] Finalizing chunk indexes, summary statistics, and footer...")
-        print(f"[PROGRESS] {json.dumps({'step': 'finalize', 'desc': 'Finalizing Chunk Indexes & Compressing...', 'pct': 97})}", flush=True)
-        writer.finish()
+                        # 2. 2D Image Annotations
+                        ia_m = McapSceneWriter.create_image_annotations(
+                            timestamp_ns=v_utc,
+                            tracks=v_tracks,
+                            image_width=img_w,
+                            image_height=img_h,
+                            video_rotation_deg=effective_annot_rot,
+                        )
+                        writer.write_message("/vision/2d_boxes", ia_m, log_time=v_utc)
+                        count_msg("/vision/2d_boxes")
+
+                        # 3. 3D Trajectory History
+                        tu_m = McapSceneWriter.create_trajectories_update(v_utc, v_traj_history)
+                        writer.write_message("/vision/trajectories", tu_m, log_time=v_utc)
+                        count_msg("/vision/trajectories")
+
+                        # 4. Camera Frustum (every 10 frames)
+                        if v_idx % 10 == 0:
+                            fu_m = McapSceneWriter.create_camera_frustum_update(v_utc)
+                            writer.write_message("/vision/camera_frustum", fu_m, log_time=v_utc)
+                            count_msg("/vision/camera_frustum")
+
+                        # 5. Diagnostics & State Matrix Telemetry
+                        v_spd = float(v_f.get("ego_speed_mps", 0.0))
+                        v_yr = float(v_f.get("ego_yaw_rate_radps", 0.0))
+                        diag_payload = McapSceneWriter.create_diagnostics_message(
+                            timestamp_ns=v_utc,
+                            frame_idx=v_f.get("frame_index", v_idx),
+                            tracks=v_tracks,
+                            ego_speed_mps=v_spd,
+                            ego_yaw_rate_can_radps=v_yr,
+                            ego_yaw_rate_smoothed_radps=-v_yr,
+                            turning_model_active=abs(v_yr) > 0.015,
+                            deadband_scale=1.0,
+                        )
+                        writer._writer.add_message(
+                            channel_id=v_diag_chan,
+                            log_time=v_utc,
+                            data=json.dumps(diag_payload).encode("utf-8"),
+                            publish_time=v_utc
+                        )
+                        count_msg("/vision/diagnostics")
+                except Exception as e:
+                    print(f"[-] Vision tracks ingestion error ({e}). Skipping vision topics.")
+
+            # 6.6. Ingest CANedge2 MDF4 Telemetry Topics (Modular tools/CAN_Processing/)
+            can_dir = os.path.join(session_dir, "can")
+            if not skip_can and (can_bundle is not None or os.path.isdir(can_dir)):
+                try:
+                    from tools.CAN_Processing.pipeline import prepare_can_bundle, write_can_bundle_to_mcap
+
+                    active_can_bundle = can_bundle
+                    if active_can_bundle is None:
+                        print(f"    - Processing CANedge2 MF4 Logs (30-60s rolling align): {can_dir}")
+                        active_can_bundle = prepare_can_bundle(
+                            session_dir=session_dir,
+                            time_offset_ns=time_offset_ns,
+                            config_path=can_config,
+                            can_mode=can_mode,
+                            strict_can=strict_can,
+                        )
+
+                    comp = active_can_bundle.completeness
+                    align = active_can_bundle.alignment
+                    print(
+                        f"      [CAN] Tier={align.primary_tier} | Chunks={comp.chunk_count} "
+                        f"| Coverage={comp.coverage_pct:.1f}% ({comp.status}) "
+                        f"| Offset={align.global_median_offset_sec:+.3f}s | Drift={align.estimated_drift_ppm:+.1f}ppm"
+                    )
+                    for w in comp.warnings:
+                        print(f"      [WARN] CAN Audit: {w}")
+
+                    written_can = write_can_bundle_to_mcap(
+                        writer=writer,
+                        bundle=active_can_bundle,
+                        count_msg=count_msg,
+                        start_wall_ms=start_wall_ms,
+                    )
+                    print(f"      [+] Ingested {written_can:,} CAN Protobuf messages into MCAP.")
+                except Exception as e:
+                    if strict_can:
+                        raise
+                    print(f"    [!] CAN ingestion skipped/warned ({e}).")
+
+            # 7. Add Native MCAP Attachments
+            if os.path.isfile(meta_path):
+                with open(meta_path, "rb") as mf:
+                    writer._writer.add_attachment(
+                        create_time=start_wall_ms * 1_000_000,
+                        log_time=start_wall_ms * 1_000_000,
+                        name="session_metadata.json",
+                        media_type="application/json",
+                        data=mf.read()
+                    )
+                print("    - Embedded attachment: session_metadata.json")
+
+            if calib_file and os.path.isfile(calib_file):
+                with open(calib_file, "rb") as cf:
+                    writer._writer.add_attachment(
+                        create_time=start_wall_ms * 1_000_000,
+                        log_time=start_wall_ms * 1_000_000,
+                        name="radar_camera_calib.json",
+                        media_type="application/json",
+                        data=cf.read()
+                    )
+                print("    - Embedded attachment: radar_camera_calib.json")
+
+            # Embed RoadSense Cockpit Layout (for 1-click layout export/loading in Foxglove)
+            layout_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "foxglove_layouts", "RoadSense_Cockpit_Layout.json")
+            if os.path.isfile(layout_file):
+                with open(layout_file, "rb") as lf:
+                    layout_data = lf.read()
+                    writer._writer.add_attachment(
+                        create_time=start_wall_ms * 1_000_000,
+                        log_time=start_wall_ms * 1_000_000,
+                        name="RoadSense_Cockpit_Layout.json",
+                        media_type="application/json",
+                        data=layout_data
+                    )
+                    writer._writer.add_attachment(
+                        create_time=start_wall_ms * 1_000_000,
+                        log_time=start_wall_ms * 1_000_000,
+                        name="foxglove.layout",
+                        media_type="application/json",
+                        data=layout_data
+                    )
+                print("    - Embedded attachment: RoadSense_Cockpit_Layout.json")
+
+            # 8. Flush Summary Indexes & Close
+            print("[+] Finalizing chunk indexes, summary statistics, and footer...")
+            print(f"[PROGRESS] {json.dumps({'step': 'finalize', 'desc': 'Finalizing Chunk Indexes & Compressing...', 'pct': 97})}", flush=True)
+            writer.finish()
     except Exception:
         if os.path.exists(temp_output):
             try:

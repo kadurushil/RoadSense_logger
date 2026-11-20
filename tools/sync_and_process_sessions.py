@@ -1541,6 +1541,7 @@ def process_session(session_dir, force=False, export_mcap=False, flip_video=Fals
             print(f"    [!] Error generating MCAP: {e}")
             if strict_can:
                 raise
+            return False
     else:
         print(f"[PROGRESS] {json.dumps({'step': 'done', 'desc': f'[{session_name}] Visualizer processing complete', 'pct': 100, 'overall_pct': 100})}", flush=True)
 
