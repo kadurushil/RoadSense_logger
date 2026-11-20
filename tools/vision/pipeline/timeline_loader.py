@@ -9,7 +9,7 @@ Ensures microsecond-accurate alignment with /camera/video and /radar/tracks in M
 import csv
 import json
 import os
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 
 
 class TimelineLoader:
@@ -92,6 +92,33 @@ class TimelineLoader:
             "mono_ns": mono_timestamps,
             "time_offset_ns": offset_ns,
         }
+
+    @classmethod
+    def extrapolate_frame_timestamps(
+        cls,
+        frame_idx: int,
+        utc_timestamps_ns: List[int],
+        mono_timestamps_ns: List[int],
+        fps: float = 30.0,
+    ) -> Tuple[int, int]:
+        """
+        Resolve (utc_ns, mono_ns) for a decoded MP4 frame index.
+        Extrapolates linearly from the last known session frame when the MP4 contains
+        trailing frames beyond session_timeline.csv instead of falling back to wall-clock time.time().
+        """
+        if frame_idx < len(utc_timestamps_ns):
+            utc_ns = utc_timestamps_ns[frame_idx]
+            mono_ns = mono_timestamps_ns[frame_idx] if frame_idx < len(mono_timestamps_ns) else 0
+            return utc_ns, mono_ns
+
+        step_ns = int(round(1_000_000_000.0 / max(fps, 1.0)))
+        if utc_timestamps_ns:
+            extra = frame_idx - len(utc_timestamps_ns) + 1
+            utc_ns = utc_timestamps_ns[-1] + extra * step_ns
+            mono_ns = (mono_timestamps_ns[-1] + extra * step_ns) if mono_timestamps_ns else 0
+            return utc_ns, mono_ns
+
+        return frame_idx * step_ns, 0
 
     @classmethod
     def load_camera_timestamps_ns(

@@ -16,7 +16,7 @@ import json
 import os
 import sys
 import time
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 # Ensure UTF-8 console output on Windows to prevent Â° and â€¢ glyph corruption
 if sys.platform == "win32":
@@ -192,8 +192,9 @@ class PerceptionRunner:
                 frame = OrientationHandler.apply_rotation(frame, rotation_deg)
 
             # Nanosecond timestamps (UTC wall clock matching MCAP, plus monotonic for hardware diagnostics)
-            utc_ns = utc_timestamps_ns[frame_idx] if frame_idx < len(utc_timestamps_ns) else int(time.time() * 1e9)
-            mono_ns = mono_timestamps_ns[frame_idx] if frame_idx < len(mono_timestamps_ns) else 0
+            utc_ns, mono_ns = TimelineLoader.extrapolate_frame_timestamps(
+                frame_idx, utc_timestamps_ns, mono_timestamps_ns, fps=fps
+            )
 
             # Query CAN host vehicle ground speed and chassis yaw rate for ego-motion compensation
             ego_speed_mps, ego_yaw_rate_radps = self.ego_provider.get_ego_motion(utc_ns)
@@ -478,21 +479,20 @@ class PerceptionRunner:
             f_in = raw_frames[frame_idx]
 
             # Prioritize nanosecond timestamps already recorded in source frame
+            fallback_utc, fallback_mono = TimelineLoader.extrapolate_frame_timestamps(
+                frame_idx, utc_timestamps_ns, mono_timestamps_ns, fps=30.0
+            )
             if "timestamp_utc_ns" in f_in and f_in["timestamp_utc_ns"]:
                 utc_ns = int(f_in["timestamp_utc_ns"])
             elif "timestamp_ns" in f_in and f_in["timestamp_ns"]:
                 utc_ns = int(f_in["timestamp_ns"])
-            elif frame_idx < len(utc_timestamps_ns):
-                utc_ns = utc_timestamps_ns[frame_idx]
             else:
-                utc_ns = int(time.time() * 1e9)
+                utc_ns = fallback_utc
 
             if "timestamp_mono_ns" in f_in and f_in["timestamp_mono_ns"]:
                 mono_ns = int(f_in["timestamp_mono_ns"])
-            elif frame_idx < len(mono_timestamps_ns):
-                mono_ns = mono_timestamps_ns[frame_idx]
             else:
-                mono_ns = 0
+                mono_ns = fallback_mono
 
             # Query CAN host vehicle ground speed and chassis yaw rate for ego-motion compensation
             ego_speed_mps, ego_yaw_rate_radps = self.ego_provider.get_ego_motion(utc_ns)
