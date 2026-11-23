@@ -16,9 +16,9 @@
 The application operates as an autonomous multi-sensor logger synchronizing five distinct streams:
 1. **Automotive Radar:** TI AWR1843BOOST 77 GHz mmWave radar streaming raw point clouds, clusters, and hardware EKF target tracks over high-speed USB serial at **3,125,000 baud** (3.125 Mbps).
 2. **Camera Video:** Synchronized video capture (1080p/720p H.264 MP4) via Camera2 with nanosecond frame capture timestamps indexed in `session_timeline.csv` (`CAMERA`/`FRAME`; legacy `camera_frames.csv` omitted in Phase 3+).
-3. **GNSS / GPS:** Real-time vehicular trajectory, heading, ground speed, and NMEA fixes via Android Location Services (`gnss_track.csv`).
+3. **GNSS / GPS:** Real-time vehicular trajectory, heading, ground speed, live pre-fix satellite status (`used/inView`), and NMEA fixes via Android Location Services (`gnss_fixes.csv`).
 4. **Automotive CAN Bus:** CSS Electronics **CANedge2** dual-channel CAN/CAN-FD logger logging cyclic 1-minute (60s) split MF4 (MDF4) files, synchronized via local Wi-Fi AP using an autonomous 2-folder staging pool and post-recording finalizer.
-5. **Inertial Measurement Unit (IMU):** High-rate STMicroelectronics LSM6DSL 6-DOF IMU (Accelerometer & Gyroscope) at 100 Hz, Samsung Linear Acceleration (without $g$), and Game Rotation Vector (magnetic-immune 6-DOF orientation) acquired via a dedicated background `HandlerThread`.
+5. **Inertial Measurement Unit (IMU):** High-rate STMicroelectronics LSM6DSL 6-DOF IMU (Accelerometer & Gyroscope at **200 Hz**), Samsung Linear Acceleration (without $g$ at 100 Hz), and Game Rotation Vector (magnetic-immune 6-DOF orientation at 100 Hz) acquired via a dedicated background `HandlerThread`.
 
 ---
 
@@ -61,7 +61,8 @@ As of September 29, 2026, the following major architectural milestones have been
 | **Immersive Fullscreen SBS & BEV Presets** | **Production Ready** (50/50 `SurfaceView` + chromeless BEV, `±60°` FOV scale, `15/30/60/100/150m`) | `FullscreenSbsPreview.kt`, `RadarBevPlot.kt`, `AppPreferences.kt` |
 | **16:9 ISP-Cropped Stream Intrinsics & MCAP Video Fallback** | **Production Ready** (`cy=360` at 720p on `LENS_INTRINSIC_CALIBRATION` HALs; `/camera/video` without `camera_frames.csv`) | `CameraIntrinsicsProvider.kt`, `tools/convert_session_to_mcap.py` |
 | **CANedge2 Phase 2 Time Alignment & Live Verifier** | **Production Ready** (`tolerance=3` / `time.cloudflare.com`, `currInFolder.last()` rollover offset, Option A offline grace, 12h 0-CAN bench guard) | `CanedgeSyncPlanner.kt`, `CanedgeIngestionManager.kt`, `scripts/verify_canedge_live.py` |
-| **Modular CAN `.MF4` → MCAP Ingestion (`CAN_Processing`)** | **Production Ready** (30–60 s rolling Tier 1 `FrameNumber_Act` ↔ UART alignment `-451 ppm` drift fix, completeness audit, Dynamic Protobuf `/can/*` topics) | `tools/CAN_Processing/*.py`, `tools/sync_and_process_sessions.py`, `tools/convert_session_to_mcap.py` |
+| **Modular CAN `.MF4` → MCAP Ingestion (`CAN_Processing`)** | **Production Ready** (30–60 s rolling Tier 1 `FrameNumber_Act` ↔ UART alignment, **Tier 2 IMU Gyro FFT alignment**, `10 s` MCAP window clamp, Dynamic Protobuf `/can/*` topics) | `tools/CAN_Processing/*.py`, `tools/sync_and_process_sessions.py`, `tools/convert_session_to_mcap.py` |
+| **Unified Traffic-Light HUD & Camera Warm-Pause** | **Production Ready** (`SensorReadinessEvaluator`, width-adaptive Canvas pills, `CALIBRATING` RTC gate, A-GPS XTRA, `200 Hz` IMU primary Hz, Yellow `STBY` preview) | `SensorReadinessEvaluator.kt`, `LiveMetricsBar.kt`, `GnssLocationManager.kt`, `ImuManager.kt`, `CameraEngine.kt` |
 | **Vision-vs-Radar Benchmark & Pitch Regression Suite** | **Production Ready** (`contact_patch` + `nearest` defaults, `<= 50 m` tunable forward scope, zero lateral filtering, clutter-immune `DynamicPitchSolver`, ANSI + SSE UI) | `tools/vision/eval/*.py`, `tools/vision/geometry/dynamic_pitch_solver.py`, `tools/web_dashboard/index.html` |
 
 ---
@@ -97,7 +98,7 @@ context/
 
 ## 4. Current Repository State & Build Commands
 
-* **Branch:** `feature/3125000-baud`
+* **Branch:** `validation`
 * **Clean Build APK Target:** `app\build\outputs\apk\debug\app-debug.apk`
 
 ### ⚠️ Crucial Local Environment Quirk:

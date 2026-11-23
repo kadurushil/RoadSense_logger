@@ -3,7 +3,7 @@
 > **Document Name:** `gemini.md`  
 > **Purpose:** Authoritative reference for autonomous AI coding agents and developers working in this local environment. Contains all machine-specific configurations, known local environment quirks, build workarounds, and hardware guidelines.  
 > **Workspace Path:** `C:\Users\rakadu1.AHEAD\AndroidStudioProjects\RoadSense`  
-> **Last Updated:** 2026-09-22  
+> **Last Updated:** 2026-11-23  
 
 ---
 
@@ -114,7 +114,7 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
 * **USB Permission:** Android requires explicit runtime USB permission dialog consent handled via `UsbManager`.
 
 ### 5.2 Camera2 Subsystem & Viewfinder Quirks
-* **HAL Surface Allocation Limits:** Many midrange Android chipsets limit concurrent Camera2 HAL output streams. Autonomous Road AE samples downsampled $32 \times 24$ bitmaps directly from the active `TextureView` on `Dispatchers.Default` rather than allocating an extra hardware stream.
+* **Persistent `SurfaceView` & HAL Limits:** Camera preview uses a single persistent `AutoFitSurfaceView` (`PersistentCameraViewportHost.kt`) on a hardware HWC plane (`0 ms` GPU copy), calling `setPreviewPaused(true)` when off-tab (`Yellow STBY`). (`CameraEngine.startLuminanceAnalyzer()` is disabled as a no-op with `RoadAeMode.FULL_MATRIX` to prevent GPU readback stalls.)
 * **Surface Re-attachment:** Always use `CameraEngine.isSurfaceAttached(st)` before re-instantiating or detaching preview surfaces to prevent false "PAUSED" states on fullscreen or card transitions.
 * **Resolution Changes:** Surface buffer resizing must be sequenced with a 150 ms delayed HAL reopen to prevent buffer starvation crashes.
 * **Interaction Stability:** Cockpit `HorizontalPager` has `userScrollEnabled = false` to prevent accidental tab navigation during touch dragging or calibration reticle interaction.
@@ -135,7 +135,7 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
 
 ### 5.5 PC Toolchain, Web Dashboard & Foxglove MCAP Pipeline
 * **Local Web Dashboard Server:** Zero-dependency Python server running on `http://localhost:8088` (`tools/roadsense_web_server.py`) with Server-Sent Events (SSE) progress streaming, ADB device health monitoring, and dark-mode web cockpit (`tools/web_dashboard/index.html`).
-* **Conda Environment:** `roadsense-mcap` (Python 3.12) with Zstandard and Protobuf support.
+* **Conda Environments:** `roadsense-mcap` (Python 3.12 with Zstandard, Protobuf & `asammdf` for MCAP/`CAN_Processing`) and `cv313` (Python 3.11 with PyTorch/CUDA & Ultralytics YOLO26 for `tools/vision/`).
 * **Zero-Cost Video Demuxing (Default):** Demuxes H.264 bitstream directly into MCAP at **>11,500 FPS** in **~3.4 seconds** with **0% GPU load**. Reads the MP4 `tkhd` matrix in $O(1)$ time and automatically folds $180^\circ$ into the `camera_optical` `/tf` frame roll so 3D world projections render upright.
 * **Hardware NVENC Transcoding (`--flip-video`):** Hardware `h264_cuvid` decoding + `h264_nvenc` encoding (~650 FPS) with CPU fallback. Enforces strict 1-second closed GOPs (`-g 30`, `-forced-idr 1`) and in-band SPS/PPS headers (`repeat-headers=1`) to eliminate seeking freeze bugs (Bug #14).
 * **Foxglove Ghost Track Fix (Bug #13):** Uses static entity ID `"radar_tracks"` in `foxglove.SceneUpdate` to atomically update 3D tracks per frame.
@@ -169,18 +169,20 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
            │    └── radar_frames.bin
            ├── camera/
            │    ├── camera_video.mp4
-           │    └── camera_frames.csv
+           │    └── camera_frames.csv          <-- Legacy only (omitted in Phase 3+; indexed in session_timeline.csv)
            ├── gnss/
-           │    └── gnss_track.csv
+           │    └── gnss_fixes.csv
            ├── imu/
-           │    └── imu_frames.csv             <-- 100 Hz LSM6DSL Accel/Gyro, Linear Accel & Orientation
+           │    └── imu_frames.csv             <-- 200 Hz LSM6DSL Accel/Gyro, 100 Hz Linear Accel & Orientation
+           ├── sync/
+           │    └── sync_keyframes.csv
            └── can/
                 ├── 00000033_00000001.MF4
                 └── 00000034_00000001.MF4
 
 Downstream PC Archive: logs/session_YYYYMMDD_HHMMSS/
  ├── session_YYYYMMDD_HHMMSS.mcap      <-- Unified Foxglove MCAP single-container archive
- │    ├── Channels: /radar/points, /radar/tracks, /camera/video, /camera/calib, /gnss/fix, /imu/*, /tf
+ │    ├── Channels: /radar/points, /radar/tracks, /camera/video, /camera/calib, /gnss/fix, /imu/*, /can/*, /tf
  │    └── Attachments: session_metadata.json, radar_camera_calib.json, RoadSense_Cockpit_Layout.json
  ├── track_history.json                <-- Legacy web visualizer radar perception & trajectories
  └── frame_mapping.json                <-- Legacy radar-to-camera temporal sync index

@@ -1,6 +1,6 @@
 # RoadSense Implementation Plans & Walkthroughs Index
 
-> **Total Documents:** 147 files (`01_`–`104_` chronological pairs across 8 subsystem folders)  
+> **Total Documents:** 163 indexed docs (`01_`–`107_` across 8 subsystem folders + 7 assets)  
 > **Last Reorganized:** 2026-11-23
 
 ## 1. Subsystem Folders (Quick Navigation)
@@ -11,8 +11,8 @@
 | [`02_CAMERA_AND_CALIBRATION/`](02_CAMERA_AND_CALIBRATION/) | 18 | Camera2 preview/latency, Road AE, 6-DOF spatial calibration, optical pitch, horizon alignment |
 | [`03_IMU_AND_KINEMATICS/`](03_IMU_AND_KINEMATICS/) | 26 | LSM6DSL 100-200 Hz acquisition, IMU jitter, 3D attitude viz, yaw/vehicle frame transforms, kinematics |
 | [`04_GNSS_AND_SYNC/`](04_GNSS_AND_SYNC/) | 14 | GNSS dual-stream separation, cross-sensor timing audit, HTML audit reports, precision logging |
-| [`05_MCAP_AND_TOOLING/`](05_MCAP_AND_TOOLING/) | 26 | Foxglove MCAP pipeline, zero-cost upright video, web dashboard, ADB sync, Python diagnostics |
-| [`06_UI_AND_PERFORMANCE/`](06_UI_AND_PERFORMANCE/) | 11 | Compose root isolation, 60 Hz jitter elimination, UI stutter eradication, Phase 1-6 perf plans |
+| [`05_MCAP_AND_TOOLING/`](05_MCAP_AND_TOOLING/) | 34 | Foxglove MCAP pipeline, CAN_Processing, Tier-2 IMU gyro sync, Readiness HUD, web dashboard |
+| [`06_UI_AND_PERFORMANCE/`](06_UI_AND_PERFORMANCE/) | 16 | Compose root isolation, 60 Hz jitter elimination, UI stutter eradication, SurfaceView overhaul |
 | [`07_PERCEPTION_AND_VALIDATION/`](07_PERCEPTION_AND_VALIDATION/) | 9 | ADAS tracking/FCW/BSD master roadmap, CV perception fusion, benchmark methodology & pitch solver |
 | [`08_HANDOVER_AND_DOCS/`](08_HANDOVER_AND_DOCS/) | 18 | Executive handover, documentation sync, Week 2/3 presentations, codebase cleanup, capabilities |
 
@@ -168,7 +168,16 @@
 
 | 100 | 2026-11-16 | `06_UI_AND_PERFORMANCE` | [`100_high_performance_ui_and_threading_overhaul_plan.md`](06_UI_AND_PERFORMANCE/100_high_performance_ui_and_threading_overhaul_plan.md) | `26cd3dc` |
 | 101 | 2026-11-17 | `06_UI_AND_PERFORMANCE` | [`101_surfaceview_and_overlay_dedup_plan.md`](06_UI_AND_PERFORMANCE/101_surfaceview_and_overlay_dedup_plan.md) | `0c5e146` |
+| 102 | 2026-11-17 | `06_UI_AND_PERFORMANCE` | [`102_performance_overhaul_documentation_plan.md`](06_UI_AND_PERFORMANCE/102_performance_overhaul_documentation_plan.md) | `963a6b4` |
 | 102 | 2026-11-17 | `06_UI_AND_PERFORMANCE` | [`102_ui_surfaceview_and_vsync_overhaul_walkthrough.md`](06_UI_AND_PERFORMANCE/102_ui_surfaceview_and_vsync_overhaul_walkthrough.md) | `b866676` |
 | 103 | 2026-11-17 | `06_UI_AND_PERFORMANCE` | [`103_immersive_sbs_bev_scaling_and_intrinsics_fix_walkthrough.md`](06_UI_AND_PERFORMANCE/103_immersive_sbs_bev_scaling_and_intrinsics_fix_walkthrough.md) | `0d9840e` |
+| 104 | 2026-11-19 | `05_MCAP_AND_TOOLING` | [`104_plan_can_mf4_processing_and_mcap_ingestion.md`](05_MCAP_AND_TOOLING/104_plan_can_mf4_processing_and_mcap_ingestion.md) | `329429c` |
+| 104 | 2026-11-19 | `05_MCAP_AND_TOOLING` | [`104_walkthrough_canedge2_sync_phase1.md`](05_MCAP_AND_TOOLING/104_walkthrough_canedge2_sync_phase1.md) | `329429c` |
+| 104 | 2026-11-19 | `05_MCAP_AND_TOOLING` | [`104_walkthrough_canedge2_phase2_vehicle_test.md`](05_MCAP_AND_TOOLING/104_walkthrough_canedge2_phase2_vehicle_test.md) | `329429c` |
+| 105 | 2026-11-19 | `05_MCAP_AND_TOOLING` | [`105_plan_phase3_can_processing_and_mcap_ingestion.md`](05_MCAP_AND_TOOLING/105_plan_phase3_can_processing_and_mcap_ingestion.md) | `4ab1f15` |
+| 105 | 2026-11-19 | `05_MCAP_AND_TOOLING` | [`105_walkthrough_phase3_can_processing_and_mcap.md`](05_MCAP_AND_TOOLING/105_walkthrough_phase3_can_processing_and_mcap.md) | `89714fa` |
+| 106 | 2026-11-20 | `05_MCAP_AND_TOOLING` | [`106_plan_sensor_readiness_hud_and_imu_gnss_audit.md`](05_MCAP_AND_TOOLING/106_plan_sensor_readiness_hud_and_imu_gnss_audit.md) | `a151e2f` |
+| 106 | 2026-11-20 | `05_MCAP_AND_TOOLING` | [`106_walkthrough_sensor_readiness_hud.md`](05_MCAP_AND_TOOLING/106_walkthrough_sensor_readiness_hud.md) | `11fbff7` |
+| 107 | 2026-11-20 | `05_MCAP_AND_TOOLING` | [`107_plan_tier2_imu_gyro_sync_integration.md`](05_MCAP_AND_TOOLING/107_plan_tier2_imu_gyro_sync_integration.md) | `d2265c8` |
 | 104 | 2026-11-23 | `07_PERCEPTION_AND_VALIDATION` | [`104_vision_radar_benchmark_methodology_fix_plan.md`](07_PERCEPTION_AND_VALIDATION/104_vision_radar_benchmark_methodology_fix_plan.md) | `fd5a687` |
 | 104 | 2026-11-23 | `07_PERCEPTION_AND_VALIDATION` | [`104_vision_radar_benchmark_methodology_fix_walkthrough.md`](07_PERCEPTION_AND_VALIDATION/104_vision_radar_benchmark_methodology_fix_walkthrough.md) | `fd5a687` |

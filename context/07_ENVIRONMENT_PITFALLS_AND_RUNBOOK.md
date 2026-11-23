@@ -16,8 +16,10 @@
 
 ```powershell
 $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-windows\android-studio\jbr"
-./gradlew testDebugUnitTest
+./gradlew testDebugUnitTest --no-daemon
 ```
+
+> **Note (`jlink.exe` Daemon Quirk):** If a background Gradle daemon was spawned by JetBrains' `IntelliJServer/servers/kotlin-server/*/jbr` (which lacks `jlink.exe`), `:app:compileDebugJavaWithJavac` will fail in `JdkImageTransform`. Passing `--no-daemon` guarantees Gradle uses Android Studio's full JBR.
 
 ---
 
@@ -43,8 +45,7 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
 * **Android USB Permissions:** Android requires explicit runtime user consent to access USB devices. `RadarSerialService` manages the `UsbManager.requestPermission` flow.
 
 ### 3.3 Camera2 HAL Streams & Hardware OIS Constraints
-* **HAL Surface Allocation Limits:** Many midrange Android chipsets (e.g. Exynos 9611 on Samsung M21) limit concurrent Camera2 HAL output streams. Attempting to attach an `ImageReader` YUV stream concurrently with Preview (`TextureView`) and Recording (`MediaRecorder`) surfaces can fail with `onConfigureFailed` or silent buffer drops.
-  * *Solution:* In-app luminance analysis extracts downsampled 32x24 bitmaps directly from the active `TextureView` on `Dispatchers.Default` (takes ~30 µs) rather than allocating a 3rd hardware HAL stream.
+* **HAL Surface Allocation Limits:** Many midrange Android chipsets (e.g. Exynos 9611 on Samsung M21) limit concurrent Camera2 HAL output streams. RoadSense uses a single persistent `AutoFitSurfaceView` (`PersistentCameraViewportHost.kt`) on a `SurfaceFlinger` HWC plane (0 ms HWUI copy). (`CameraEngine.startLuminanceAnalyzer()` is currently disabled as a no-op with `RoadAeMode.FULL_MATRIX` to avoid `14–22 ms` GPU readback stalls.)
 * **Hardware Optical Image Stabilization (OIS):** Query `LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION` before presenting OIS controls. Devices without physical OIS voice-coil actuators will fail silently or log warnings if `LENS_OPTICAL_STABILIZATION_MODE_ON` is requested. UI should hide or grey out OIS toggles on unsupported hardware.
 
 ---
@@ -105,4 +106,8 @@ python tools/convert_session_to_mcap.py logs/session_YYYYMMDD_HHMMSS
 
 # Physical video re-encoding (rotates video frames 180° via NVENC / libx264)
 python tools/convert_session_to_mcap.py logs/session_YYYYMMDD_HHMMSS --flip-video
+
+# Activate the 3D Vision Conda environment & run Vision-vs-Radar benchmark + pitch solver
+conda activate cv313
+python tools/vision/eval/evaluate_vision_vs_radar.py logs/session_YYYYMMDD_HHMMSS
 ```

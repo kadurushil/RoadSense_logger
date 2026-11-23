@@ -35,7 +35,7 @@ The CANedge2 web interface runs on an embedded ESP32 microcontroller with single
 
 ```mermaid
 graph TD
-    CE[CANedge2 Device<br>Cyclic 10s MF4 Chunks] -->|Idle Wi-Fi Pull<br>Sequential GET| Pool[Phone Staging Pool<br>canedge_pool/ 300 MB cap]
+    CE[CANedge2 Device<br>Cyclic 60s MF4 Chunks] -->|Idle Wi-Fi Pull<br>Sequential GET| Pool[Phone Staging Pool<br>canedge_pool/ 300 MB cap]
     
     DriveStart[User Starts Recording Drive] -->|Preempt & Defer Sync| Priority[100% CPU to Radar & Camera<br>Zero CAN In-Drive Traffic]
     
@@ -151,3 +151,6 @@ To maintain a single continuous CAN timeline without abrupt mid-drive UTC step j
 * **Rollover Offset Source:** CANedge2 exposes each 60 s chunk in `/api/LOG/` upon closing with `lastWrittenEpochSec` equal to that chunk's close timestamp. [`CanedgeSyncPlanner.measureClockOffsetFromLiveTransition()`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/canedge/ingestion/CanedgeSyncPlanner.kt) measures `midWallMs - currInFolder.last().lastWrittenMs` against the newly closed chunk (avoiding false `+60 s` shifts against `prevLast`).
 * **Option A Offline Calibration Closure:** When a recording stops with no verified clock offset (`measuredClockOffsetMs == null` and no `< 24 h` persisted measurement) and remote CAN chunks exist within `MAX_REASONABLE_OFFSET_MS` (`±12 h`), [`CanedgeSyncPlanner.planSessionChunks()`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/app/src/main/java/com/bajajauto/roadsense/canedge/ingestion/CanedgeSyncPlanner.kt) defers chunk selection up to `UNVERIFIED_OFFSET_CALIBRATION_GRACE_MS` (`75 s`) in `WAITING_FINAL_CHUNK` so the first post-drive rollover calibrates the true offset before staging. Stale/0-CAN bench runs (`> 12 h` old) bypass this grace window and settle in `~8 s`.
 * **PC Live Desk & Vehicle Verifier:** `scripts/verify_canedge_live.py` audits `/device.json`, `config-01.09.json` `"rtc"`, `time.cloudflare.com` NTP UTC vs ADB clock vs `.MF4` `HDBLOCK` timestamps, and phone `canedge_pool/` completeness.
+
+### 8.3 `CanedgeHudPhase.CALIBRATING` Readiness Gate (`SensorReadinessEvaluator`)
+* Connecting to CANedge2 transitions through `CanedgeHudPhase.CALIBRATING` (`CAL`, Yellow) until `hasVerifiedClockOffset(nowMs)` confirms a measured RTC offset within 24 hours (or first 60 s chunk rollover completes), preventing false Green `OK` readiness prior to clock verification.

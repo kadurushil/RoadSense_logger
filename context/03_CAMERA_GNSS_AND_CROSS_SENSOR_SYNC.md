@@ -18,7 +18,7 @@ Multimodal sensor alignment (Radar + Video + GNSS + CAN) requires a **strictly m
 sequenceDiagram
     participant S as Session Manager
     participant R as Radar (20 Hz)
-    participant C as CameraX (30 fps)
+    participant C as Camera2 (30 fps)
     participant G as GNSS (1 Hz)
     participant T as session_timeline.csv
 
@@ -36,8 +36,8 @@ sequenceDiagram
 
 ## 2. Camera Pipeline & Frame Capture Index
 
-### 2.1 CameraX Video Recording
-* **Implementation:** `CameraCaptureManager.kt` using Jetpack CameraX `VideoCapture` and `Recorder`.
+### 2.1 Camera2 + MediaRecorder Video Recording
+* **Implementation:** `CameraEngine.kt` + `CameraSessionRecorder.kt` using Android `Camera2` HAL and `MediaRecorder` over a single persistent `AutoFitSurfaceView` (`PersistentCameraViewportHost.kt`).
 * **Video Encoding:** Hardware-accelerated H.264 (AVC) in MP4 container at 1080p (1920x1080) or 720p (1280x720) at 30 fps.
 * **Output File:** `session_YYYYMMDD_HHMMSS/camera/camera_video.mp4`.
 
@@ -106,12 +106,14 @@ RoadSense originally designed **Approach 3: Autonomous Dual-Zone Photometric Ana
 
 ## 3. GNSS Subsystem & Track Logging
 
-### 3.1 Dual-Source Positioning Engine
-* **High-Accuracy Fused Location:** `FusedLocationProviderClient` with `PRIORITY_HIGH_ACCURACY` (GPS + GLONASS + Galileo + BeiDou + Wi-Fi/Cell RTT).
+### 3.1 Dual-Source Positioning, Pre-Fix SVs & A-GPS Injection (`GnssLocationManager.kt`)
+* **Primary Satellite & Fused Engines:** `LocationManager` (`GPS_PROVIDER`) + `FusedLocationProviderClient` with `PRIORITY_HIGH_ACCURACY` (GPS + GLONASS + Galileo + BeiDou + Wi-Fi/Cell RTT).
+* **Live Pre-Fix Satellite Stream & XTRA A-GPS:** Registers `GnssStatus.Callback` to stream live `used / inView` satellite counts into `LiveMetricsSnapshot` before a fix locks, and invokes best-effort `force_time_injection` / `force_xtra_injection` (`ACCESS_LOCATION_EXTRA_COMMANDS`) on startup/manual refresh to speed cold TTFF on offline devices.
+* **True Lock Readiness Gate (`hasTrueSatelliteLock`):** Requires `GPS_PROVIDER` lock with `satellitesUsed >= 4` and live fix rate so coarse `NETWORK_PROVIDER` fixes show Yellow (`NET`) rather than Green (`OK`).
 * **Raw NMEA Stream:** `OnNmeaMessageListener` capturing raw `$GNGGA`, `$GNRMC`, and `$GNVTG` sentences for post-processing carrier-phase validation.
 
-### 3.2 GNSS Track File (`gnss_track.csv`)
-Saved inside `session_YYYYMMDD_HHMMSS/gnss/gnss_track.csv`:
+### 3.2 GNSS Track File (`gnss_fixes.csv`)
+Saved inside `session_YYYYMMDD_HHMMSS/gnss/gnss_fixes.csv` (older archives used `gnss_track.csv`):
 ```csv
 elapsedRealtimeNs,wallTimeMs,latitude,longitude,altitude,speedMps,bearingDeg,accuracyM
 128459290000000,1789105441090,18.5204312,73.8567431,560.4,11.25,88.4,1.8

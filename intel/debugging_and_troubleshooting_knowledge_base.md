@@ -1917,10 +1917,12 @@ fun testRotatingPhoneToLeftRotatesHorizonLineToRightForPhysicalSync() {
 
 ---
 
-### Additional Engineering Rules (37–39)
+### Additional Engineering Rules (37–41)
 37. **Constrain 2D BEV metric scale by both height and `±60°` FOV half-width, while extending range arcs through `(usableHeight / scale)`:** Preventing horizontal clipping on tall SBS panes keeps range contours readable while utilizing vertical headroom.
 38. **Keep PC converters (`convert_session_to_mcap.py`) decoupled from deprecated `camera_frames.csv` when `MasterTimelineSynchronizer` is active:** Always treat legacy CSVs as fallbacks rather than hard gates for `/camera/video`.
 39. **Apply identical 4:3-to-16:9 ISP crop offsets (`cropX`, `cropY`) to both UI viewport intrinsics and saved Foxglove stream intrinsics:** Any device exposing `LENS_INTRINSIC_CALIBRATION` in active-array coordinates will otherwise report `cy = 480` (4:3) on 720p (`360`) 16:9 streams.
+40. **Compute heterogeneous IMU sensor rates from the primary hardware driver (`TYPE_ACCELEROMETER`), never by dividing combined multi-sensor callbacks:** Dividing combined callbacks across 200 Hz accel/gyro and 100 Hz linear-accel/rotation streams reports `150 Hz` instead of the true `200 Hz` primary rate (`a151e2f`).
+41. **Benchmark Vision-vs-Radar using `contact_patch` + mutual-NN Huber/bias pitch regression (never raw match-count maximization):** Matching `position_3d` box centers injects `+length/2` bias against radar bumper reflections, 1-to-1 `lapjv` drops valid close neighbors, and naive match-count pitch optimization collapses far targets onto dense `0–10 m` radar clutter (`fd5a687`).
 
 
 

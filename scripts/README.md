@@ -1,4 +1,4 @@
-﻿# RoadSense Offline Telemetry & Sensor Diagnostics Suite
+# RoadSense Offline Telemetry & Sensor Diagnostics Suite
 
 > **Location:** `scripts/`  
 > **Target Environment:** Python 3.8+ (Standard Library only — zero external pip dependencies required)  
@@ -182,3 +182,21 @@ python scripts/search_flight_recorder.py --session session_20260911_141256
 # Search with a custom result limit
 python scripts/search_flight_recorder.py --query "CameraEngine" --max 50
 ```
+
+---
+
+## 8. Extended Diagnostic, Verification & Profiling Tools (25 Scripts Total)
+
+In addition to the 7 core tools above, `scripts/` includes specialized batch audit, CANedge2 live verification, display-pacer, and Perfetto trace analyzers:
+
+| Script | Purpose |
+| :--- | :--- |
+| **`batch_audit_and_health_check.py`** | Runs `session_health_check.py` + `cross_sensor_sync_engine.py` across all sessions in `logs/` |
+| **`cross_sensor_sync_engine.py` / `master_timeline_synchronizer.py`** | Core library & timeline alignment engine shared by audit and MCAP converters |
+| **`verify_canedge_live.py` / `verify_canedge_logcat.py`** | Audits live CANedge2 Wi-Fi HTTP endpoints, NTP UTC vs `.MF4` `HDBLOCK`, and 7-point logcat readiness |
+| **`verify_raw_data_parity.py`** | Verifies byte/sample parity of recorded sensor streams |
+| **`analyze_display_pacer_log.py` / `analyze_interframe_timing.py`** | Audits `RadarDisplayPacer` VSync jitter, USB arrival intervals, and frame spacing |
+| **`record_perfetto_trace.py` / `pull_and_analyze_trace.py` / `analyze_perfetto_trace.py` / `analyze_ui_scroll_trace.py`** | Captures and analyzes Perfetto kernel/UI scheduler traces |
+| **`compare_sessions.py` / `compare_radar_perfetto_traces.py`** | Side-by-side timing & scheduler comparisons across sessions |
+| **`test_online_discipliner.py`** | Verifies hardware radar cycle-counter clock disciplining |
+| **`build_presentation_diagrams.py` / `generate_ipm_geometry_diagram.py` / `update_app_icon.py`** | Presentation diagram builders and app launcher icon generator |

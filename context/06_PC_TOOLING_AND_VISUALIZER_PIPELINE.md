@@ -22,7 +22,7 @@ graph TD
     
     PythonScript --> UnpackRadar[Unpack radar_frames.bin<br>Points & EKF Tracks]
     PythonScript --> UnpackVideo[MasterTimelineSynchronizer<br>session_timeline.csv & MP4 PTS]
-    PythonScript --> UnpackGNSS[Parse gnss_track.csv<br>Lat/Lon/Speed]
+    PythonScript --> UnpackGNSS[Parse gnss_fixes.csv<br>Lat/Lon/Speed]
     
     UnpackRadar --> TrackHistory[track_history.json<br>Perception & Trajectories]
     UnpackVideo --> FrameMapping[frame_mapping.json<br>Cross-Sensor Sync Index]
@@ -116,17 +116,20 @@ Contains synchronized radar perception data per frame:
 
 ## 4. Standalone Multi-Sensor Diagnostic & Validation Suite (`scripts/`)
 
-Located in the root `scripts/` folder (with comprehensive documentation in `scripts/README.md`), this suite of 7 standalone Python tools enables rapid post-session triage without launching full visualizer pipelines:
+Located in the root `scripts/` folder (with documentation in `scripts/README.md`), this suite has grown to **25** standalone Python tools enabling rapid post-session triage, live CANedge verification, and Perfetto/display-pacer profiling without launching full visualizer pipelines. Core triage tools:
 
 | Script | Purpose | Key Checks / Metrics |
 |---|---|---|
-| `session_health_check.py` | **Master Triage** | Validates presence, non-zero size, and integrity across all 4 sensor directories (`radar/`, `camera/`, `gnss/`, `can/`) |
+| `session_health_check.py` | **Master Triage** | Validates presence, non-zero size, and integrity across all sensor directories (`radar/`, `camera/`, `gnss/`, `imu/`, `can/`) |
+| `batch_audit_and_health_check.py` | **Batch Master Suite** | Runs health check + cross-sensor sync audit across all sessions with scorecard JSON & HTML output |
 | `validate_radar_stream.py` | **Radar Verification** | Validates TI mmWave magic word (`0x0201040306050807`), decodes TLVs, verifies point counts & FPS |
 | `validate_camera_video.py` | **Camera Verification** | Validates MP4 video stream readability, resolution, frame rate, duration, and monotonic PTS alignment |
-| `validate_gnss_fixes.py` | **GNSS Verification** | Verifies NMEA/CSV latitude, longitude, fix accuracy (HDOP), speed (m/s), and satellite lock count |
+| `validate_gnss_fixes.py` | **GNSS Verification** | Verifies CSV latitude, longitude, fix accuracy (CEP 50/95), speed (m/s), and satellite lock count |
 | `validate_canedge_staging.py`| **CANedge Verification** | Inspects MF4 (MDF4) chunks in `can/`, verifies physical recording timestamps vs session timeline |
-| `audit_cross_sensor_sync.py`| **Sync Drift Audit** | Parses `session_timeline.csv`, computes cross-sensor latency deltas and inter-sensor time drift |
+| `verify_canedge_live.py` / `verify_canedge_logcat.py` | **CANedge2 Live & Logcat Audit** | Audits `/device.json`, `config-01.09.json`, `time.cloudflare.com` UTC vs `.MF4` `HDBLOCK`, and 7-point logcat checks |
+| `audit_cross_sensor_sync.py`| **Sync Drift Audit** | Parses `session_timeline.csv`, computes cross-sensor latency deltas, inter-sensor drift, and interactive HTML plots |
 | `search_flight_recorder.py` | **Flight Recorder Search** | Regex search across `app_system.log` and `session_debug.log` for errors, warnings, drops, and reconnects |
+| `analyze_display_pacer_log.py` / `analyze_perfetto_trace.py` | **Pacer & Perfetto Profiling** | Audits `RadarDisplayPacer` VSync intervals, USB arrival jitter, and Perfetto kernel scheduler traces |
 
 ### Quick Invocation Example:
 ```powershell
@@ -226,3 +229,26 @@ Alternatively, start the server directly in PowerShell:
 ```powershell
 python tools/roadsense_web_server.py
 ```
+
+---
+
+## 7. Modular CAN `.MF4` → MCAP Ingestion (`tools/CAN_Processing/`)
+
+`tools/CAN_Processing/` decodes CANedge2 MDF4 chunks against `VCU.dbc` (`asammdf`) and publishes dynamic Protobuf `/can/*` channels into Foxglove MCAP:
+* **Non-Destructive Loader (`mf4_loader.py`):** Loads continuous `.MF4` chunks, detects sequence continuity gaps, and decodes vehicle bus signals (`can_mcap_config.json`).
+* **3-Tier Rolling Time Alignment (`time_aligner.py`, `imu_aligner.py`):**
+  * **Tier 1 (`TIER1_RADAR_FRAME_ID`):** Rolling 45 s / 30 s window correlation between CAN `RADAR_Debug_Info.FrameNumber_Act` and `radar_frames.bin` to compensate `-451 ppm` RTC drift.
+  * **Tier 2 (`TIER2_IMU_GYRO`):** Dual-anchor FFT cross-correlation (`np.fft.rfft`) between `TEL_IMU_Z_Axis_Raw` / `VCU_IMU_Processed_Angular_Msg` and gravity-projected phone gyro (`imu_frames.csv`) for sessions without Radar.
+  * **Tier 3 (`TIER3_METADATA`):** Fallback static `clockOffsetMs` alignment.
+* **Drive-Window Completeness & Clamping (`completeness_auditor.py`, `pipeline.py`):** Audits drive coverage, clamps MCAP CAN messages to `[session_start - 10s, session_stop + 10s]`, and emits dynamic Protobuf schemas (`proto_builder.py`).
+
+---
+
+## 8. 3D Geometric Vision & Pitch-Regression Benchmark Suite (`tools/vision/`)
+
+Executed in the **`cv313`** Miniconda environment (PyTorch + CUDA + Ultralytics YOLO26 + ByteTrack), `tools/vision/` provides offline 3D perception and radar correlation benchmarking (also exposed under the Web Dashboard **`👁️ 3D Vision`** tab):
+* **Geometric 3D Tracking (`pipeline/perception_runner.py`):** Projects 2D bounding box tire-contact patches onto the road plane ($Z=0$), sizes 3D cuboids (`geometry/box_dimensions.py`), compensates ego motion from CAN speed/IMU yaw, and outputs nanosecond-stamped `tools/vision/output/json/<session>_vision_tracks.json`.
+* **Non-Destructive MCAP Enrichment (`mcap/inject_vision_tracks.py`):** Merges `/vision/geo_tracks`, `/vision/2d_boxes`, `/vision/trajectories`, `/vision/camera_frustum`, and `/vision/diagnostics` into `tools/vision/output/mcap/<session>_with_vision.mcap` without modifying `logs/`.
+* **Benchmarking & Pitch Back-Calculation (`eval/evaluate_vision_vs_radar.py`, `geometry/dynamic_pitch_solver.py`):**
+  * Uses front `contact_patch` anchors and `nearest`-radius existence matching (`3.5 m` default gate) across `0–50 m` forward (`--max-range`, zero lateral filtering, all classes), preserving legacy JSON report keys while adding extended range bins (`0_15m`..`75m_plus`), `by_class`, signed longitudinal bias, and deduplicated `Radar → Vision` precision.
+  * Runs clutter-immune mutual-NN Huber + bias pitch regression (`DynamicPitchSolver`) to report pitch error $\Delta\theta$ and re-benchmarks the entire session at the solved ideal pitch $\theta^*$, streaming continuous `[PROGRESS]` SSE updates and semantic ANSI coloring.

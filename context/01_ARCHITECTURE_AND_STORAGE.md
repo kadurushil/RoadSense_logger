@@ -16,8 +16,8 @@ graph TD
     
     VM --> SM[SessionManager<br>Master Lifecycle & Timeline]
     VM --> RSS[RadarSerialService<br>3.125 MBaud USB UART]
-    VM --> CM[CameraCaptureManager<br>Camera2 Video Encoder]
-    VM --> GM[GnssManager<br>FusedLocation & NMEA]
+    VM --> CM[CameraEngine<br>Camera2 + MediaRecorder]
+    VM --> GM[GnssLocationManager<br>GPS + Pre-Fix SVs & NMEA]
     VM --> CIM[CanedgeIngestionManager<br>Staging Pool & Smart Pruner]
     VM --> SPE[SpatialProjectionEngine<br>6-DOF Extrinsics & Pinhole Projections]
     VM --> CSM[CalibrationStorageManager<br>Profiles & Persistence]
@@ -36,14 +36,14 @@ graph TD
 
 | Subsystem / Layer | Key Kotlin Classes | Primary Responsibility |
 |---|---|---|
-| **UI Cockpit** | `ui/MainActivity.kt`<br>`ui/RadarViewModel.kt`<br>`ui/screens/*.kt`<br>`ui/components/*.kt` | Multi-tab `KeepAliveTabSlot` Compose UI with 7 cockpit tabs: Radar, GNSS, IMU, Camera, CANedge, SBS (Side-by-Side dual feed), and Storage (Session Deck). Features dedicated Fullscreen Camera Viewfinder, Immersive Fullscreen SBS (`FullscreenSbsPreview.kt`), Calibration Studio, Quick Nudge Bar, and `Choreographer` VSync `RadarDisplayPacer`. Exposes single source of truth via `StateFlow`. |
+| **UI Cockpit & Readiness HUD** | `ui/MainActivity.kt`<br>`ui/RadarViewModel.kt`<br>`ui/SensorReadinessEvaluator.kt`<br>`ui/components/LiveMetricsBar.kt`<br>`ui/screens/*.kt` | Multi-tab `KeepAliveTabSlot` Compose UI with 7 cockpit tabs: Radar, GNSS, IMU, Camera, CANedge, SBS, and Storage. Features `LiveMetricsCanvasHud` traffic-light readiness pills, dedicated Fullscreen Camera Viewfinder, Immersive Fullscreen SBS (`FullscreenSbsPreview.kt`), Calibration Studio, Quick Nudge Bar, and `Choreographer` VSync `RadarDisplayPacer`. |
 | **Session Control** | `recording/SessionManager.kt`<br>`recording/SessionInfo.kt`<br>`recording/SessionTimelineWriter.kt` | Manages active recording sessions, folder initialization, metadata generation, and nanosecond monotonic timestamp events. |
 | **Radar Ingestion** | `radar/service/RadarSerialService.kt`<br>`radar/parser/RadarPacketParser.kt`<br>`radar/model/RadarFrame.kt` | Custom USB FTDI/CDC serial driver operating at 3.125 Mbps. Rings buffers and decodes TLV binary frames into point clouds and clusters. |
-| **IMU & Vehicle Dynamics** | `imu/ImuManager.kt`<br>`imu/ImuSample.kt`<br>`imu/ImuSamplingBenchmark.kt`<br>`ui/screens/ImuDashboardCard.kt` | High-rate 100 Hz STMicroelectronics LSM6DSL 6-DOF IMU, Linear Acceleration without $g$, and Game Rotation Vector. Acquired via dedicated background `HandlerThread` with live empirical rate and timing jitter profiling. |
-| **Camera Capture** | `camera/CameraEngine.kt`<br>`camera/AutoFitSurfaceView.kt`<br>`camera/CameraSessionRecorder.kt`<br>`ui/components/PersistentCameraViewportHost.kt` | Camera2 video recording, smart infinity focus lock, tap-to-focus/AE lock, timeline-indexed frame logging (`session_timeline.csv`), and single persistent `SurfaceView` lifecycle across tabs/fullscreen. |
-| **Sensor Fusion & Spatial Calibration** | `fusion/engine/SpatialProjectionEngine.kt`<br>`fusion/engine/CameraIntrinsicsProvider.kt`<br>`fusion/model/CalibrationParameters.kt`<br>`fusion/storage/CalibrationStorageManager.kt`<br>`ui/components/ViewfinderRadarOverlay.kt` | 6-DOF extrinsic rigid transform ($[\mathbf{R} \mid \mathbf{T}]$), Camera2 intrinsic matrix ($K$), real-time closed-form touch reverse solver, ground plane contact footprint projection, hybrid RViz-style radar lollipops, concentric range arcs, and Painter's algorithm depth-sorting. |
-| **GNSS Tracking** | `gnss/GnssManager.kt`<br>`ui/screens/GnssDashboardCard.kt` | FusedLocationProviderClient + NMEA sentence parsing. Generates synchronized `gnss_track.csv`. |
-| **CANedge2 Sync** | `canedge/ingestion/CanedgeIngestionManager.kt`<br>`canedge/repository/CanedgeRepository.kt`<br>`canedge/network/CanedgeHttpClient.kt` | ESP32 REST client, persistent staging pool (`canedge_pool/`), deferred drive sync, smart auto-pruning engine, and OneDrive-style unified file explorer. |
+| **IMU & Vehicle Dynamics** | `imu/ImuManager.kt`<br>`imu/ImuSample.kt`<br>`imu/ImuSamplingBenchmark.kt`<br>`ui/screens/ImuDashboardCard.kt` | High-rate **200 Hz** STMicroelectronics LSM6DSL 6-DOF Accel/Gyro, 100 Hz Linear Acceleration without $g$, and 100 Hz Game Rotation Vector. Acquired via dedicated background `HandlerThread` with primary-driver Hz reporting and empirical jitter profiling. |
+| **Camera Capture** | `camera/CameraEngine.kt`<br>`camera/AutoFitSurfaceView.kt`<br>`camera/CameraSessionRecorder.kt`<br>`ui/components/PersistentCameraViewportHost.kt` | Camera2 + `MediaRecorder` video capture, smart infinity focus lock, tap-to-focus/AE lock, Yellow `STBY` warm-pause when off-tab, timeline-indexed frame logging (`session_timeline.csv`), and single persistent `SurfaceView` lifecycle across tabs/fullscreen. |
+| **Sensor Fusion & Spatial Calibration** | `fusion/engine/SpatialProjectionEngine.kt`<br>`fusion/engine/CameraIntrinsicsProvider.kt`<br>`fusion/model/CalibrationParameters.kt`<br>`fusion/storage/CalibrationStorageManager.kt`<br>`ui/components/ViewfinderRadarOverlay.kt` | 6-DOF extrinsic rigid transform ($[\mathbf{R} \mid \mathbf{T}]$), Camera2 intrinsic matrix ($K$ with 16:9 ISP crop), real-time closed-form touch reverse solver, ground plane contact footprint projection, hybrid RViz-style radar lollipops, concentric range arcs, and Painter's algorithm depth-sorting. |
+| **GNSS Tracking** | `gnss/GnssLocationManager.kt`<br>`ui/screens/GnssDashboardCard.kt` | Android `LocationManager` (`GPS_PROVIDER`) + `FusedLocationProviderClient` + NMEA sentence parsing, live pre-fix satellite status (`used/inView`), A-GPS XTRA/time injection, and `hasTrueSatelliteLock` gate. Generates synchronized `gnss_fixes.csv`. |
+| **CANedge2 Sync** | `canedge/ingestion/CanedgeIngestionManager.kt`<br>`canedge/ingestion/CanedgeSyncPlanner.kt`<br>`canedge/repository/CanedgeRepository.kt`<br>`canedge/network/CanedgeHttpClient.kt` | ESP32 REST client, persistent staging pool (`canedge_pool/`), deferred drive sync, `CALIBRATING` RTC offset gate, live rollover clock measurement, smart auto-pruning engine, and unified file explorer. |
 | **Diagnostics** | `logging/AppLogger.kt` | Continuous app-wide flight recorder (`app_system.log`) and active session flight recorder (`session_debug.log`). |
 
 ---
@@ -85,27 +85,35 @@ All persistent logs, calibration profiles, and active sessions are stored inside
            │    └── camera_video.mp4               <-- Recorded H.264 video file (frame timestamps indexed in session_timeline.csv)
            │
            ├── gnss/
-           │    └── gnss_track.csv                 <-- Lat, lon, alt, speed, bearing, accuracy
-            │
-            ├── imu/
-            │    └── imu_frames.csv                 <-- 100 Hz LSM6DSL Accel/Gyro, Linear Accel & Orientation
+           │    └── gnss_fixes.csv                 <-- Lat, lon, alt, speed, bearing, accuracy
+           │
+           ├── imu/
+           │    └── imu_frames.csv                 <-- 200 Hz LSM6DSL Accel/Gyro, 100 Hz Linear Accel & Orientation
+           │
+           ├── sync/
+           │    └── sync_keyframes.csv             <-- Keyframe monotonic alignment markers
            │
            └── can/
                 ├── 00000041_00000051.MF4          <-- CANedge chunks assigned to this drive session
                 └── 00000041_00000052.MF4
 ```
 
-### 3.2 Downstream PC Analysis Storage Layout (`logs/`)
-When extracted via ADB and processed via the PC Toolchain (`sync_and_process_sessions.py` or `convert_session_to_mcap.py`):
+### 3.2 Downstream PC Analysis Storage Layout (`logs/` & `tools/vision/output/`)
+When extracted via ADB and processed via the PC Toolchain (`sync_and_process_sessions.py`, `convert_session_to_mcap.py`, `tools/CAN_Processing/`, and `tools/vision/`):
 ```text
 logs/
  └── session_YYYYMMDD_HHMMSS/
       ├── session_YYYYMMDD_HHMMSS.mcap      <-- Unified Foxglove MCAP single-container archive
-      │    ├── Channels: /radar/points, /radar/tracks, /camera/video, /camera/calib, /gnss/fix, /imu/*, /tf
+      │    ├── Channels: /radar/points, /radar/tracks, /camera/video, /camera/calib, /gnss/fix, /imu/*, /can/*, /tf
       │    └── Attachments: session_metadata.json, radar_camera_calib.json, RoadSense_Cockpit_Layout.json
       ├── track_history.json                <-- Legacy web visualizer radar perception & trajectories
       ├── frame_mapping.json                <-- Legacy radar-to-camera temporal sync index
-      └── [original pulled sensor subfolders: radar/, camera/, gnss/, imu/, can/]
+      └── [original pulled sensor subfolders: radar/, camera/, gnss/, imu/, sync/, can/]
+
+tools/vision/output/
+ ├── json/<session>_vision_tracks.json      <-- 3D geometric vision detections & contact_patch tracks
+ ├── mcap/<session>_with_vision.mcap        <-- Enriched MCAP injecting /vision/* topics
+ └── reports/<session>_benchmark_report.json <-- Dual-pass Vision-vs-Radar & pitch regression report
 ```
 
 ---
@@ -171,7 +179,7 @@ elapsedRealtimeNs,sensor,event,sequenceId,relativePath,summary
 128459201400000,SESSION,START,0,session_metadata.json,Session initialized: session_20260911_111401
 128459235000000,RADAR,FRAME,1,radar/radar_frames.bin,points=32;clusters=4;tracks=2
 128459240000000,CAMERA,FRAME,1,camera/camera_video.mp4,ptsUs=1000;width=1920;height=1080
-128459290000000,GNSS,FIX,1,gnss/gnss_track.csv,lat=18.5204;lon=73.8567;speed=11.2;bearing=88.4
+128459290000000,GNSS,FIX,1,gnss/gnss_fixes.csv,lat=18.5204;lon=73.8567;speed=11.2;bearing=88.4
 128469201400000,CAN,MF4_FILE,1,can/00000041_00000051.MF4,size=2415800;remotePath=/00000041/00000051.MF4
 128673201400000,SESSION,STOP,0,session_metadata.json,Session finished: totalFrames=2140;totalFixes=214
 ```
