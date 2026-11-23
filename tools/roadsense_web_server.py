@@ -135,14 +135,19 @@ class ProcessSupervisor:
                 creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
 
             try:
+                proc_env = os.environ.copy()
+                proc_env["PYTHONIOENCODING"] = "utf-8"
                 self.active_proc = subprocess.Popen(
                     cmd,
                     cwd=REPO_DIR,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     bufsize=1,
                     universal_newlines=True,
+                    env=proc_env,
                     creationflags=creation_flags
                 )
             except Exception as e:

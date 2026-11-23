@@ -953,7 +953,7 @@
             </span>
           </div>
           <p style="font-size: 11.5px; color: var(--text-muted); margin-bottom: 12px;">
-            Spatio-temporal Hungarian bipartite matching (lapjv) evaluating 3D vision tracking against mmWave radar ground truth.
+            Spatio-temporal evaluation comparing 3D vision tracks against mmWave radar tracks across all lateral positions, plus session-wide pitch back-calculation.
           </p>
 
           <div class="form-group">
@@ -963,12 +963,47 @@
             </select>
           </div>
 
-          <div class="form-group">
-            <label>Distance Gating Cutoff</label>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <input type="number" id="visionEvalGateM" value="3.5" min="1.0" max="20.0" step="0.5" style="width: 80px;">
-              <span style="font-size: 11.5px; color: var(--text-muted);">meters (Default: 3.5m matching window)</span>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+            <div class="form-group">
+              <label>Distance Gating Cutoff</label>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <input type="number" id="visionEvalGateM" value="3.5" min="1.0" max="20.0" step="0.5" style="width: 75px;">
+                <span style="font-size: 11px; color: var(--text-muted);">m (Default: 3.5m)</span>
+              </div>
             </div>
+
+            <div class="form-group">
+              <label>Max Forward Range</label>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <input type="number" id="visionEvalMaxRangeM" value="50" min="0" max="150" step="10" style="width: 75px;">
+                <span style="font-size: 11px; color: var(--text-muted);">m (0 = All ranges)</span>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Vision 3D Anchor</label>
+              <select id="visionEvalAnchor">
+                <option value="contact_patch" selected>Contact Patch (Default)</option>
+                <option value="center">3D Box Center</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Matching Mode</label>
+              <select id="visionEvalAssocMode">
+                <option value="nearest" selected>Nearest Radius (Default)</option>
+                <option value="bipartite">1-to-1 Hungarian (lapjv)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="checkbox-row" style="margin-top: 4px; margin-bottom: 10px; flex-wrap: wrap; gap: 14px;">
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+              <input type="checkbox" id="visionEvalSolvePitch" checked> Back-Calculate Ideal Pitch & Re-Benchmark
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer;">
+              <input type="checkbox" id="visionEvalExcludePerson"> Exclude Pedestrians (Vehicles Only)
+            </label>
           </div>
 
           <div class="action-row">
@@ -1933,9 +1968,30 @@
         return;
       }
       const gateM = document.getElementById('visionEvalGateM').value;
+      const maxRangeM = document.getElementById('visionEvalMaxRangeM').value;
+      const anchor = document.getElementById('visionEvalAnchor').value;
+      const assocMode = document.getElementById('visionEvalAssocMode').value;
+      const solvePitch = document.getElementById('visionEvalSolvePitch').checked;
+      const excludePerson = document.getElementById('visionEvalExcludePerson').checked;
+
       const args = [`logs/${sess}`];
       if (gateM && parseFloat(gateM) !== 3.5) {
         args.push('-g', gateM);
+      }
+      if (maxRangeM !== '' && parseFloat(maxRangeM) !== 50) {
+        args.push('--max-range', maxRangeM);
+      }
+      if (anchor && anchor !== 'contact_patch') {
+        args.push('--anchor', anchor);
+      }
+      if (assocMode && assocMode !== 'nearest') {
+        args.push('--assoc-mode', assocMode);
+      }
+      if (!solvePitch) {
+        args.push('--no-solve-pitch');
+      }
+      if (excludePerson) {
+        args.push('--exclude-classes', 'person');
       }
 
       executeCommand('tools/vision/eval/evaluate_vision_vs_radar.py', args);
