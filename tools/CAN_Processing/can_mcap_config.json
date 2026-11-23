@@ -12,6 +12,7 @@
     "BMS_Sox",
     "VCU_IMU_Processed_Accel_Msg",
     "VCU_IMU_Processed_Angular_Msg",
+    "TEL_IMU_Z_Axis_Raw",
     "FCW_Warning_Info",
     "RADAR_BSD_Info",
     "ACC_Params_Info",
@@ -24,6 +25,11 @@
     "step_sec": 30.0,
     "min_tier1_pairs_per_window": 10,
     "tier2_min_speed_kmph": 3.0,
-    "max_jump_warn_ms": 250.0
+    "tier2_window_sec": 240.0,
+    "tier2_step_sec": 90.0,
+    "tier2_max_search_lag_s": 120.0,
+    "max_jump_warn_ms": 250.0,
+    "mcap_max_lead_sec": 10.0,
+    "mcap_max_tail_sec": 10.0
   }
 }

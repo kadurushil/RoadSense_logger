@@ -35,7 +35,7 @@ class WindowAnchor:
 
 @dataclass
 class CanAlignmentResult:
-    primary_tier: str  # "TIER1_RADAR_FRAME_ID" | "TIER3_METADATA" | "NONE"
+    primary_tier: str  # "TIER1_RADAR_FRAME_ID" | "TIER2_IMU_GYRO" | "TIER3_METADATA" | "NONE"
     window_sec: float
     step_sec: float
     anchor_t_raw_sec: np.ndarray
@@ -297,10 +297,15 @@ def align_can_timeline(
     window_sec: float = 45.0,
     step_sec: float = 30.0,
     min_tier1_pairs_per_window: int = 10,
+    enable_tier2: bool = True,
+    tier2_window_sec: float = 240.0,
+    tier2_step_sec: float = 90.0,
+    tier2_max_search_lag_s: float = 120.0,
 ) -> CanAlignmentResult:
     """
     Compute rolling 30-60s alignment from raw CAN time onto RoadSense primary UTC nanoseconds.
     Tier 1: Hardware Frame-ID Lock (CAN RADAR_Debug_Info.FrameNumber_Act <-> UART hw_frame_num).
+    Tier 2: Passive Phone-vs-CAN Gyro-Yaw Cross-Correlation (when Radar is absent).
     Tier 3: session_metadata.json can.clockOffsetMs fallback (or 0.0s when NTP-synced).
     """
     meta = session_meta if session_meta is not None else _read_session_metadata(load_result.session_dir)
@@ -372,6 +377,21 @@ def align_can_timeline(
                     slope, _ = np.polyfit(anchor_t, anchor_off, 1)
                     res.estimated_drift_ppm = float(slope * 1e6)
                 return res
+
+    # Tier 2 Fallback: Passive IMU Gyro-Yaw Cross-Correlation (no Radar required)
+    if enable_tier2:
+        from .imu_aligner import align_can_with_imu_tier2
+
+        tier2_res = align_can_with_imu_tier2(
+            load_result=load_result,
+            session_meta=meta,
+            time_offset_ns=time_offset_ns,
+            max_search_lag_s=tier2_max_search_lag_s,
+            window_sec=tier2_window_sec,
+            step_sec=tier2_step_sec,
+        )
+        if tier2_res is not None:
+            return tier2_res
 
     # Tier 3 Fallback: session_metadata.json can.clockOffsetMs (or 0.0s if calibrated)
     meta_off_ms = float((meta.get("can") or {}).get("clockOffsetMs", 0.0) or 0.0)

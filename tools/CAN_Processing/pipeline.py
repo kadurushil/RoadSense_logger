@@ -20,6 +20,9 @@ from .proto_builder import _sanitize_proto_ident, build_can_protobuf_classes
 from .time_aligner import CanAlignmentResult, align_can_timeline
 
 
+_UNSET: Any = object()
+
+
 @dataclass
 class CanSessionBundle:
     session_dir: str
@@ -28,6 +31,8 @@ class CanSessionBundle:
     completeness: CompletenessReport
     aligned_utc_ns_by_msg: Dict[str, np.ndarray]
     audit_dict: Dict[str, Any]
+    mcap_max_lead_sec: Optional[float] = 10.0
+    mcap_max_tail_sec: Optional[float] = 10.0
 
 
 def prepare_can_bundle(
@@ -48,6 +53,13 @@ def prepare_can_bundle(
     window_sec = float(align_cfg.get("window_sec", 45.0))
     step_sec = float(align_cfg.get("step_sec", 30.0))
     min_pairs = int(align_cfg.get("min_tier1_pairs_per_window", 10))
+    tier2_window_sec = float(align_cfg.get("tier2_window_sec", 240.0))
+    tier2_step_sec = float(align_cfg.get("tier2_step_sec", 90.0))
+    tier2_max_lag_s = float(align_cfg.get("tier2_max_search_lag_s", 120.0))
+    raw_lead = align_cfg.get("mcap_max_lead_sec", 10.0)
+    raw_tail = align_cfg.get("mcap_max_tail_sec", 10.0)
+    mcap_max_lead_sec = None if raw_lead is None else float(raw_lead)
+    mcap_max_tail_sec = None if raw_tail is None else float(raw_tail)
 
     sess_path = Path(session_dir)
     meta = _read_session_metadata(sess_path)
@@ -60,6 +72,9 @@ def prepare_can_bundle(
         window_sec=window_sec,
         step_sec=step_sec,
         min_tier1_pairs_per_window=min_pairs,
+        tier2_window_sec=tier2_window_sec,
+        tier2_step_sec=tier2_step_sec,
+        tier2_max_search_lag_s=tier2_max_lag_s,
     )
 
     aligned_utc_ns_by_msg: Dict[str, np.ndarray] = {}
@@ -112,7 +127,38 @@ def prepare_can_bundle(
         completeness=completeness,
         aligned_utc_ns_by_msg=aligned_utc_ns_by_msg,
         audit_dict=audit_dict,
+        mcap_max_lead_sec=mcap_max_lead_sec,
+        mcap_max_tail_sec=mcap_max_tail_sec,
     )
+
+
+def _compute_mcap_clip_bounds_ns(
+    bundle: CanSessionBundle,
+    start_wall_ms: Optional[int],
+    max_lead_sec: Optional[float],
+    max_tail_sec: Optional[float],
+) -> Tuple[Optional[int], Optional[int]]:
+    """Compute [min_ns, max_ns] UTC bounds around the active drive for MCAP emission."""
+    comp = bundle.completeness
+    drive_start_s: Optional[float] = (
+        float(comp.drive_start_utc_sec)
+        if comp.drive_start_utc_sec and comp.drive_start_utc_sec > 0.0
+        else (float(start_wall_ms) / 1000.0 if start_wall_ms else None)
+    )
+    drive_stop_s: Optional[float] = (
+        float(comp.drive_stop_utc_sec)
+        if comp.drive_stop_utc_sec and comp.drive_stop_utc_sec > 0.0
+        else None
+    )
+
+    min_allowed_ns: Optional[int] = None
+    max_allowed_ns: Optional[int] = None
+    if drive_start_s is not None and max_lead_sec is not None:
+        min_allowed_ns = int(round((drive_start_s - max(0.0, float(max_lead_sec))) * 1_000_000_000.0))
+    if drive_stop_s is not None and max_tail_sec is not None:
+        if drive_start_s is None or drive_stop_s >= drive_start_s:
+            max_allowed_ns = int(round((drive_stop_s + max(0.0, float(max_tail_sec))) * 1_000_000_000.0))
+    return min_allowed_ns, max_allowed_ns
 
 
 def write_can_bundle_to_mcap(
@@ -121,11 +167,14 @@ def write_can_bundle_to_mcap(
     count_msg: Optional[Callable[[str], None]] = None,
     start_wall_ms: Optional[int] = None,
     bucket_sec: float = 5.0,
+    max_lead_sec: Any = _UNSET,
+    max_tail_sec: Any = _UNSET,
 ) -> int:
     """
     Write aligned `/can/<MessageName>` topics and `/can/sync_audit` into an open
     `mcap_protobuf.writer.Writer` in 5-second time-interleaved buckets for fast seeking,
-    plus embed `can_sync_audit.json` as an MCAP attachment.
+    bounded by default to at most 10 s pre-roll / post-roll around the phone session
+    so Foxglove playback does not stall waiting for other sensors.
     """
     load_res = bundle.load_result
     comp = bundle.completeness
@@ -144,10 +193,18 @@ def write_can_bundle_to_mcap(
 
     cls_map, audit_cls = build_can_protobuf_classes(load_res.messages)
 
+    eff_lead = bundle.mcap_max_lead_sec if max_lead_sec is _UNSET else max_lead_sec
+    eff_tail = bundle.mcap_max_tail_sec if max_tail_sec is _UNSET else max_tail_sec
+    min_allowed_ns, max_allowed_ns = _compute_mcap_clip_bounds_ns(
+        bundle, start_wall_ms=start_wall_ms, max_lead_sec=eff_lead, max_tail_sec=eff_tail
+    )
+
     # Precompute clean field lists and Python lists once per topic
     prepared_topics: List[Tuple[str, str, Any, np.ndarray, np.ndarray, List[Tuple[str, List[Any]]]]] = []
     global_min_ns: Optional[int] = None
     global_max_ns: Optional[int] = None
+    trimmed_pre_count = 0
+    trimmed_post_count = 0
 
     for msg_name in sorted(load_res.messages.keys()):
         decoded = load_res.messages[msg_name]
@@ -163,6 +220,21 @@ def write_can_bundle_to_mcap(
             utc_ns_arr = utc_ns_arr[sort_order]
             raw_can_arr = raw_can_arr[sort_order]
             signals_to_emit = {k: v[sort_order] for k, v in signals_to_emit.items()}
+
+        # Trim excessive CAN lead/tail outside [drive_start - eff_lead, drive_stop + eff_tail]
+        if min_allowed_ns is not None or max_allowed_ns is not None:
+            lo = int(np.searchsorted(utc_ns_arr, min_allowed_ns, side="left")) if min_allowed_ns is not None else 0
+            hi = int(np.searchsorted(utc_ns_arr, max_allowed_ns, side="right")) if max_allowed_ns is not None else len(utc_ns_arr)
+            if lo > 0:
+                trimmed_pre_count += lo
+            if hi < len(utc_ns_arr):
+                trimmed_post_count += len(utc_ns_arr) - hi
+            if hi <= lo:
+                continue
+            if lo > 0 or hi < len(utc_ns_arr):
+                utc_ns_arr = utc_ns_arr[lo:hi]
+                raw_can_arr = raw_can_arr[lo:hi]
+                signals_to_emit = {k: v[lo:hi] for k, v in signals_to_emit.items()}
 
         raw_ns_arr = np.round(raw_can_arr * 1_000_000_000.0).astype(np.int64)
         off_ms_arr = (utc_ns_arr - raw_ns_arr) / 1_000_000.0
@@ -227,6 +299,14 @@ def write_can_bundle_to_mcap(
     if count_msg is not None:
         count_msg("/can/sync_audit")
     total_written += 1
+
+    if trimmed_pre_count > 0 or trimmed_post_count > 0:
+        lead_lbl = f"-{float(eff_lead):.1f}s" if eff_lead is not None else "-inf"
+        tail_lbl = f"+{float(eff_tail):.1f}s" if eff_tail is not None else "+inf"
+        print(
+            f"      [+] Clipped CAN MCAP window to [{lead_lbl}, {tail_lbl}] around drive "
+            f"(dropped {trimmed_pre_count:,} pre-roll, {trimmed_post_count:,} post-roll msgs)."
+        )
 
     writer._writer.add_attachment(
         create_time=audit_wall_ns,

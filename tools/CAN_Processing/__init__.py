@@ -25,6 +25,7 @@ def load_can_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     return cfg
 
 
+from .imu_aligner import align_can_with_imu_tier2
 from .pipeline import CanSessionBundle, prepare_can_bundle, write_can_bundle_to_mcap
 
 __all__ = [
@@ -33,4 +34,5 @@ __all__ = [
     "CanSessionBundle",
     "prepare_can_bundle",
     "write_can_bundle_to_mcap",
+    "align_can_with_imu_tier2",
 ]
