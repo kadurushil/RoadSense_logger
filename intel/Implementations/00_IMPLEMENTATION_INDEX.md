@@ -1,7 +1,7 @@
 # RoadSense Implementation Plans & Walkthroughs Index
 
-> **Total Documents:** 145 files (`01_`?`99_` chronological pairs across 8 subsystem folders)  
-> **Last Reorganized:** 2026-11-17
+> **Total Documents:** 147 files (`01_`–`104_` chronological pairs across 8 subsystem folders)  
+> **Last Reorganized:** 2026-11-23
 
 ## 1. Subsystem Folders (Quick Navigation)
 
@@ -13,7 +13,7 @@
 | [`04_GNSS_AND_SYNC/`](04_GNSS_AND_SYNC/) | 14 | GNSS dual-stream separation, cross-sensor timing audit, HTML audit reports, precision logging |
 | [`05_MCAP_AND_TOOLING/`](05_MCAP_AND_TOOLING/) | 26 | Foxglove MCAP pipeline, zero-cost upright video, web dashboard, ADB sync, Python diagnostics |
 | [`06_UI_AND_PERFORMANCE/`](06_UI_AND_PERFORMANCE/) | 11 | Compose root isolation, 60 Hz jitter elimination, UI stutter eradication, Phase 1-6 perf plans |
-| [`07_PERCEPTION_AND_VALIDATION/`](07_PERCEPTION_AND_VALIDATION/) | 7 | ADAS tracking/FCW/BSD master roadmap, CV perception fusion, real-world validation |
+| [`07_PERCEPTION_AND_VALIDATION/`](07_PERCEPTION_AND_VALIDATION/) | 9 | ADAS tracking/FCW/BSD master roadmap, CV perception fusion, benchmark methodology & pitch solver |
 | [`08_HANDOVER_AND_DOCS/`](08_HANDOVER_AND_DOCS/) | 18 | Executive handover, documentation sync, Week 2/3 presentations, codebase cleanup, capabilities |
 
 ## 2. Complete Chronological Master Index (`2026-09-22` ? `2026-11-16`)
@@ -170,3 +170,5 @@
 | 101 | 2026-11-17 | `06_UI_AND_PERFORMANCE` | [`101_surfaceview_and_overlay_dedup_plan.md`](06_UI_AND_PERFORMANCE/101_surfaceview_and_overlay_dedup_plan.md) | `0c5e146` |
 | 102 | 2026-11-17 | `06_UI_AND_PERFORMANCE` | [`102_ui_surfaceview_and_vsync_overhaul_walkthrough.md`](06_UI_AND_PERFORMANCE/102_ui_surfaceview_and_vsync_overhaul_walkthrough.md) | `b866676` |
 | 103 | 2026-11-17 | `06_UI_AND_PERFORMANCE` | [`103_immersive_sbs_bev_scaling_and_intrinsics_fix_walkthrough.md`](06_UI_AND_PERFORMANCE/103_immersive_sbs_bev_scaling_and_intrinsics_fix_walkthrough.md) | `0d9840e` |
+| 104 | 2026-11-23 | `07_PERCEPTION_AND_VALIDATION` | [`104_vision_radar_benchmark_methodology_fix_plan.md`](07_PERCEPTION_AND_VALIDATION/104_vision_radar_benchmark_methodology_fix_plan.md) | `fd5a687` |
+| 104 | 2026-11-23 | `07_PERCEPTION_AND_VALIDATION` | [`104_vision_radar_benchmark_methodology_fix_walkthrough.md`](07_PERCEPTION_AND_VALIDATION/104_vision_radar_benchmark_methodology_fix_walkthrough.md) | `fd5a687` |

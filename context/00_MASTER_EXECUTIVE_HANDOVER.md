@@ -5,7 +5,7 @@
 > **Audience:** Autonomous AI Coding Agents & Incoming Core Engineers  
 > **Workspace Path:** `C:\Users\rakadu1.AHEAD\AndroidStudioProjects\RoadSense`  
 > **Active Branch:** `validation`  
-> **Last Handover Date:** November 17, 2026  
+> **Last Handover Date:** November 23, 2026  
 
 ---
 
@@ -62,6 +62,7 @@ As of September 29, 2026, the following major architectural milestones have been
 | **16:9 ISP-Cropped Stream Intrinsics & MCAP Video Fallback** | **Production Ready** (`cy=360` at 720p on `LENS_INTRINSIC_CALIBRATION` HALs; `/camera/video` without `camera_frames.csv`) | `CameraIntrinsicsProvider.kt`, `tools/convert_session_to_mcap.py` |
 | **CANedge2 Phase 2 Time Alignment & Live Verifier** | **Production Ready** (`tolerance=3` / `time.cloudflare.com`, `currInFolder.last()` rollover offset, Option A offline grace, 12h 0-CAN bench guard) | `CanedgeSyncPlanner.kt`, `CanedgeIngestionManager.kt`, `scripts/verify_canedge_live.py` |
 | **Modular CAN `.MF4` → MCAP Ingestion (`CAN_Processing`)** | **Production Ready** (30–60 s rolling Tier 1 `FrameNumber_Act` ↔ UART alignment `-451 ppm` drift fix, completeness audit, Dynamic Protobuf `/can/*` topics) | `tools/CAN_Processing/*.py`, `tools/sync_and_process_sessions.py`, `tools/convert_session_to_mcap.py` |
+| **Vision-vs-Radar Benchmark & Pitch Regression Suite** | **Production Ready** (`contact_patch` + `nearest` defaults, `<= 50 m` tunable forward scope, zero lateral filtering, clutter-immune `DynamicPitchSolver`, ANSI + SSE UI) | `tools/vision/eval/*.py`, `tools/vision/geometry/dynamic_pitch_solver.py`, `tools/web_dashboard/index.html` |
 
 ---
 

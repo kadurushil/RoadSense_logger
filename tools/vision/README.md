@@ -15,7 +15,8 @@ tools/vision/
  ├── geometry/                            # Pure mathematical ground-plane projections & extrinsics
  │    ├── camera_extrinsics.py            # Loads radar_camera_calib.json, RDF <-> ISO frame conversions
  │    ├── ground_plane_projector.py       # Closed-form ray-to-ground intersection (v_bottom -> Y_v, X_v)
- │    └── box_dimensions.py               # Optical extent & class-prior 3D bounding geometry
+ │    ├── box_dimensions.py               # Optical extent & class-prior 3D bounding geometry
+ │    └── dynamic_pitch_solver.py         # Session-wide Huber + bias pitch back-calculation & re-projection
  ├── detector/                            # Modular detection & ByteTrack tracking
  │    ├── yolo_detector.py                # Ultralytics YOLO26 inference & class filtering
  │    └── track_manager.py                # ByteTrack tracking state & lifetime management
@@ -26,10 +27,13 @@ tools/vision/
  ├── mcap/                                # Non-destructive MCAP topic injection
  │    ├── mcap_scene_writer.py            # Serializes 3D vision cuboids to foxglove.SceneUpdate
  │    └── inject_vision_tracks.py         # Injects /vision/geo_tracks without modifying logs/
- ├── eval/                                # Programmatic validation against radar ground truth
- │    ├── spatial_associator.py           # Spatio-temporal Hungarian track matching with distance gating
- │    ├── error_metrics.py                # MAE, RMSE, lateral error, and range-binned breakdown
- │    └── evaluate_vision_vs_radar.py     # End-to-end benchmark CLI & diagnostic report generator
+ ├── eval/                                # Programmatic validation against radar tracks
+ │    ├── spatial_associator.py           # Contact-patch / 3D-center & nearest-radius / Hungarian matching
+ │    ├── error_metrics.py                # Per-bin match rates, MAE/RMSE, signed bias, class & Radar->Vision stats
+ │    └── evaluate_vision_vs_radar.py     # Dual-pass benchmark CLI, SSE progress, ANSI colors & pitch regression
+ ├── tests/                               # Automated unit test suite
+ │    ├── test_perception_timestamps.py   # Trailing MP4 timestamp extrapolation regression tests
+ │    └── test_vision_eval.py             # Evaluation anchor, matching, scoping & pitch-solver tests
  ├── models/                              # Neural network weights (yolo26n.pt)
  ├── checkpoints/                         # Windows directory junction to Video Depth Anything checkpoints
  ├── output/                              # Git-ignored output directory (json/, mcap/, reports/)
@@ -78,9 +82,10 @@ The entire suite executes inside the dedicated Miniconda environment **`cv313`**
 * **Topic Styling ([`inject_vision_tracks.py`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/vision/mcap/inject_vision_tracks.py)):** Encodes 3D vision detections into `foxglove.SceneUpdate` messages under topic `/vision/geo_tracks`. Renders cuboids and labels in **Electric Magenta** (`rgba: 0.85, 0.10, 0.95, 0.75`) to provide clear visual separation from radar tracks in Foxglove Studio.
 * **Output Destination:** Writes out an enriched `session_with_vision.mcap` to `tools/vision/output/mcap/`.
 
-### 5. Automated Radar-vs-Vision Benchmarking Engine
-* **Matching Algorithm ([`spatial_associator.py`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/vision/eval/spatial_associator.py)):** Synchronizes vision and radar frames within $\pm 50\text{ ms}$, builds a 2D ground Euclidean distance cost matrix, and performs optimal bipartite matching via `lap.lapjv` with a $3.5\text{ m}$ gating cutoff.
-* **Statistical Metrics ([`error_metrics.py`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/vision/eval/error_metrics.py)):** Computes Mean Absolute Error (MAE), Root Mean Square Error (RMSE), and range-binned breakdowns (Near: $0\text{--}15\text{m}$, Mid: $15\text{--}30\text{m}$, Far: $>30\text{m}$), exporting detailed JSON reports and printing terminal summaries.
+### 5. Automated Radar-vs-Vision Benchmarking Engine & Pitch Back-Calculation
+* **Matching Algorithm ([`spatial_associator.py`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/vision/eval/spatial_associator.py)):** Synchronizes vision and radar frames within $\pm 50\text{ ms}$, defaults to the **front tire `contact_patch`** anchor (eliminating $+L/2$ interior box center bias, with `position_3d` selectable) and **nearest-radius existence matching** within a $3.5\text{ m}$ gate (`lap.lapjv` 1-to-1 Hungarian bipartite matching selectable via `--assoc-mode bipartite`), and tracks unmatched reasons plus reverse `Radar → Vision` hits.
+* **Statistical Metrics ([`error_metrics.py`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/vision/eval/error_metrics.py)):** Preserves all legacy JSON report keys while scoping top-level metrics to `(0, max_range_m]` ($50.0\text{ m}$ default, zero lateral filtering, all classes included). Reports true per-bin match rates across extended range bands ($0\text{--}15\text{m}$, $15\text{--}30\text{m}$, $30\text{--}50\text{m}$, $50\text{--}75\text{m}$, $>75\text{m}$), per-class breakdowns, signed longitudinal bias, unmatched diagnostics, and deduplicated `Radar → Vision` precision.
+* **Session-Wide Pitch Regression ([`dynamic_pitch_solver.py`](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/vision/geometry/dynamic_pitch_solver.py)):** Re-projects saved `bbox_2d` coordinates across candidate pitch angles using clutter-immune mutual-NN Huber + longitudinal bias minimization, reports the pitch error $\Delta\theta$, and runs a full second benchmark pass at the solved ideal pitch $\theta^*$.
 
 ---
 
@@ -126,14 +131,18 @@ python tools\vision\mcap\inject_vision_tracks.py logs\session_20261006_095609 --
 
 ---
 
-### Phase 3: Benchmark Against Radar Ground Truth
-Runs automated spatio-temporal association and statistical accuracy evaluation:
+### Phase 3: Benchmark Against Radar Tracks & Pitch Regression
+Runs automated spatio-temporal association, extended multi-range statistical evaluation, and session-wide pitch back-calculation (tunable via CLI or the Web Dashboard Vision tab):
 
 ```powershell
-python tools\vision\eval\evaluate_vision_vs_radar.py logs\session_20261006_095609
+# Default: 0-50m forward (all lateral, all classes), contact_patch, nearest-radius @ 3.5m + ideal pitch re-benchmark
+python tools\vision\eval\evaluate_vision_vs_radar.py logs\session_20261120_112453
+
+# Tunable options: custom gate, max range (0=all), 3D center anchor, bipartite mode, exclude pedestrians, or skip pitch solver
+python tools\vision\eval\evaluate_vision_vs_radar.py logs\session_20261120_112453 -g 5.0 --max-range 50 --anchor center --assoc-mode bipartite --exclude-classes person --no-solve-pitch
 ```
-* **Output:** `tools\vision\output\reports\session_20261006_095609_benchmark_report.json`
-* **Terminal Summary:** Displays match rate, longitudinal forward MAE/RMSE ($\Delta Y$), lateral MAE/RMSE ($\Delta X$), and accuracy breakdown across near ($0\text{--}15\text{m}$), mid ($15\text{--}30\text{m}$), and far ($>30\text{m}$) ranges.
+* **Output:** `tools\vision\output\reports\<session>_benchmark_report.json`
+* **Terminal & Dashboard Summary:** Displays semantic ANSI-colored match rates, MAE/RMSE/signed bias across $0\text{--}15\text{m}$, $15\text{--}30\text{m}$, $30\text{--}50\text{m}$, $50\text{--}75\text{m}$, $>75\text{m}$, per-class tables, `Radar → Vision` precision, and configured vs. back-calculated ideal pitch re-benchmarking with continuous SSE progress streaming.
 
 ---
 

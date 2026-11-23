@@ -22,14 +22,16 @@ Implemented the approved benchmarking methodology overhaul across `tools/vision/
 * Uses mutual nearest-neighbor pairs (`r_fwd >= 4.0 m`) with a Huber-loss spatial residual + longitudinal bias objective and Golden-section refinement to recover the ideal pitch angle $\theta^*$ across all classes without collapsing into near-range radar clutter.
 * Implemented `DynamicPitchSolver.reproject_vision_frames()` for fast full-session re-projection at $\theta^*$.
 
-### 4. Benchmark Runner & Ideal-Pitch Pass ([evaluate_vision_vs_radar.py](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/vision/eval/evaluate_vision_vs_radar.py))
+### 4. Benchmark Runner, Ideal-Pitch Pass, SSE Progress & ANSI Color Highlighting ([evaluate_vision_vs_radar.py](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/vision/eval/evaluate_vision_vs_radar.py))
 * Fixed `load_radar_tracks_from_mcap()` via `parse_radar_label()` to parse hardware track IDs (`ID #<tid>`) and forward velocities (`vx_fwd_mps`) from `/radar/tracks` labels instead of using `idx + 1`.
 * Deduplicated `Radar → Vision` hit counts across unique synchronized radar frames so 30 FPS camera vs 22 FPS radar frame pairing does not double-count radar tracks.
 * Added tunable CLI flags (`-g/--gate_m`, `--max-range`, `--anchor`, `--assoc-mode`, `--exclude-classes`, `--min-conf`, `--solve-pitch`/`--no-solve-pitch`) and automated Pass 2 ideal-pitch re-benchmarking (`summary.pitch_calibration_analysis`, `summary.ideal_pitch_benchmark`).
 * Added continuous `[PROGRESS]` SSE streaming across all phases (`load_mcap` `2%–10%`, `load_vision` `12%`, Pass 1 `15%–40%`, `pitch_solve` coarse/fine iterations `40%–78%`, re-projection `79%`, Pass 2 `82%–97%`, report write `98%`, `done` `100%`) with live `current/total`, `fps`, and `eta_s`.
+* Added semantic ANSI color highlighting (`_color_rate`, `_color_mae`, `_color_bias`, `_color_pitch_err`) matching `session_health_check.py`, `verify_conversion_parity.py`, and the Web Dashboard `ansiToHtml()` palette.
 
-### 5. Web Dashboard Controls ([index.html](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/web_dashboard/index.html))
+### 5. Web Dashboard Controls & UTF-8 Server Subprocess Decoding ([index.html](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/web_dashboard/index.html), [roadsense_web_server.py](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/roadsense_web_server.py))
 * Updated the Vision Benchmark card and `runVisionBenchmark()` with tunable controls for Distance Gating Cutoff (`3.5 m` default), Max Forward Range (`50 m` default, `0` = All), Vision 3D Anchor (`Contact Patch` / `3D Box Center`), Matching Mode (`Nearest Radius` / `1-to-1 Hungarian`), Exclude Pedestrians, and Back-Calculate Ideal Pitch.
+* Fixed `cp1252` mojibake (`â€¢`, `Â°`) in `roadsense_web_server.py` `start_process()` by adding `encoding="utf-8", errors="replace"` and `PYTHONIOENCODING="utf-8"` to `subprocess.Popen`.
 
 ### 6. Automated Unit Tests ([test_vision_eval.py](file:///c:/Users/rakadu1.AHEAD/AndroidStudioProjects/RoadSense/tools/vision/tests/test_vision_eval.py))
 * Added 6 unit tests covering contact-patch vs. center anchoring, nearest-radius vs. bipartite matching, zero lateral filtering + `50 m` scope + `>50 m` bins, backward-compatible JSON summary keys, radar label ID/speed parsing, and synthetic pitch error recovery in the presence of near-range clutter.
