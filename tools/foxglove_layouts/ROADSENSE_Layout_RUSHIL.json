@@ -1,0 +1,1406 @@
+{
+  "configById": {
+    "StateTransitions!36bs6e": {
+      "paths": [
+        {
+          "value": "/events.event_type",
+          "timestampMethod": "receiveTime",
+          "customStates": {
+            "type": "discrete",
+            "states": [
+              {
+                "value": "EVENT",
+                "color": "#38BDF8",
+                "label": "EVENT"
+              },
+              {
+                "value": "CUT_IN",
+                "color": "#F59E0B",
+                "label": "CUT-IN"
+              },
+              {
+                "value": "BRAKE",
+                "color": "#EF4444",
+                "label": "BRAKE"
+              },
+              {
+                "value": "FALSE_ALARM",
+                "color": "#A855F7",
+                "label": "FALSE ALARM"
+              },
+              {
+                "value": "BUMP",
+                "color": "#10B981",
+                "label": "BUMP"
+              }
+            ]
+          },
+          "id": "e8c6a009-9ee7-4884-b79c-eb9f248d5193",
+          "label": "USER EVENTS",
+          "displayMode": "step"
+        },
+        {
+          "value": "/radar/adas.fcw.stage",
+          "timestampMethod": "receiveTime",
+          "customStates": {
+            "type": "discrete",
+            "states": [
+              {
+                "value": "0",
+                "color": "#334155",
+                "label": "SAFE (0)"
+              },
+              {
+                "value": "1",
+                "color": "#F59E0B",
+                "label": "FCW S1"
+              },
+              {
+                "value": "2",
+                "color": "#EF4444",
+                "label": "FCW S2"
+              },
+              {
+                "value": "3",
+                "color": "#DC2626",
+                "label": "FCW S3"
+              }
+            ]
+          },
+          "id": "37d0c452-28c0-4aa7-8816-8110d1e08ab7",
+          "label": "FCW Stage",
+          "displayMode": "step"
+        }
+      ],
+      "isSynced": true,
+      "showLegend": false,
+      "legendDisplay": "left",
+      "xAxisDisplayMethod": "absolute",
+      "timeWindowMode": "sliding",
+      "xAxisRange": 90,
+      "playbackBarPosition": "center",
+      "xAxisLabel": ""
+    },
+    "Plot!289vtsa": {
+      "paths": [
+        {
+          "value": "/vehicle/telemetry.speed_kmph",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#5cd6a9",
+          "id": "a2dab6de-3db2-4514-b289-0f5dfdac0706",
+          "showLine": true,
+          "lineInterpolation": "linear",
+          "lineSize": 2,
+          "label": "Speed"
+        },
+        {
+          "value": "/can/VCU_CruiseControl_Analysis.ETS_VCU_CC_Armed_Flag_B.@mul(1)",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#5cd6a9",
+          "id": "d0ac83c1-786a-4442-adf4-66bba8685540",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/can/VCU_Vehicle_Info2.ETS_VCU_AccelPedal_Act_perc.@mul(.01)",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#f5774d",
+          "id": "6687ace6-3ad0-4439-82a4-562bfd8e6b7c",
+          "label": "Acc_Pedal",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "lineSize": 0.4
+        },
+        {
+          "value": "/radar/adas.fcw.stage",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#ff0000",
+          "id": "5473322e-c4c5-45f5-8683-223dfdfc1908",
+          "showLine": true,
+          "label": "FCW STAGE",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "lineSize": 0.6,
+          "lineInterpolation": "step"
+        },
+        {
+          "value": "/can/MCU_Power_Info.ETS_MCU_DCCurrent_Act_A.@div(200)",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#306bff",
+          "id": "00512427-b7c5-44bf-a01f-da652d2e2a64",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "BMS Load %",
+          "lineSize": 1
+        },
+        {
+          "value": "/vision/diagnostics.track_count",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#4e98e2",
+          "id": "927d993a-1d17-4fef-bb1b-2d136e44e4b5",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/vehicle/telemetry.accel_x_mps2",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#f7df71",
+          "id": "138c3825-fe53-4b9e-b1d8-43394a6f2371",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/radar/diagnostics.ego_yaw_rate",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#cad660",
+          "id": "2052b007-7bc9-43d9-a282-9b7ea9ee55f6",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "lineSize": 0.6
+        },
+        {
+          "value": "/vehicle/telemetry.pitch_rate_radps.@negative",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#61cbff",
+          "id": "f805e8a1-d65e-4a8c-9bc9-4b47ab6ce2f2",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/imu/data.angular_velocity.y",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#4e98e2",
+          "id": "44d9db0d-aac7-477a-a1e6-4380739b7c3b",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "Pitch rate (phone)"
+        },
+        {
+          "value": "/imu/data.angular_velocity.x.@negative",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#f5774d",
+          "id": "50d80479-466e-46a8-a7a7-aae73aec5290",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "Yaw rate (Phone)"
+        },
+        {
+          "value": "/imu/data.angular_velocity.y",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#a395e2",
+          "id": "0a0a9e1b-314d-422b-9626-816ead3d57f4"
+        },
+        {
+          "value": "/radar/adas.fcw.ttc_sec",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#4e98e2",
+          "id": "efe72373-7d39-484d-a388-7c73a7a705e6"
+        },
+        {
+          "value": "/gnss/fix.heading",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#4eba78",
+          "id": "58c6279f-1e4b-47e3-a051-a79d6d9ef088"
+        },
+        {
+          "value": "/vehicle/telemetry.shaft_torque_nm",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#ff00fc",
+          "id": "b9e80216-463c-44b1-a67e-032544e52dd1",
+          "label": "Shaft_Torque"
+        },
+        {
+          "value": "/vehicle/telemetry.gear",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#f7df71",
+          "id": "b1b4d572-2729-4191-90f1-3029d8d1b98e",
+          "label": "GEAR"
+        },
+        {
+          "timestampMethod": "receiveTime",
+          "value": "/vehicle/telemetry.accel_avg_mps2",
+          "enabled": false,
+          "color": "#635cd6",
+          "id": "b1be8d35-218c-4e37-9a84-daa24d765563",
+          "label": "AVG ACCEL"
+        },
+        {
+          "value": "/can/MCU_Status_Info.ETS_MOT_StatorTemp_Act_degC",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#cad660",
+          "id": "749152e6-dc9d-400e-96ce-96d5c64046fa"
+        },
+        {
+          "value": "/radar/adas.acc.fsm_state",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#61cbff",
+          "id": "f7a15eca-440b-4307-a3da-be531d958d8d"
+        },
+        {
+          "value": "/gnss/fix.velocity.x",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#a395e2",
+          "id": "c1b9b2d1-0c86-483e-84e5-5d0388ebd0b5"
+        }
+      ],
+      "showLegend": false,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": true,
+      "timeWindowMode": "sliding",
+      "playbackBarPosition": "center",
+      "xAxisDisplayMethod": "relative",
+      "showYAxisLabels": true,
+      "showYAxisGridLines": true,
+      "secondaryAxes": [
+        {
+          "id": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "Acceleration (m/s2)",
+          "max": 10
+        }
+      ],
+      "yAxisLabel": "Speed (Km/h)",
+      "showXAxisLabels": true,
+      "floatingLegendPosition": "top-right",
+      "followingViewWidth": 90,
+      "minYValue": -15
+    },
+    "Plot!12zrmjc": {
+      "paths": [
+        {
+          "value": "/can/VCU_CruiseControl_Analysis.ETS_VCU_CC_RLS_Trq_Nm",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#61cbff",
+          "id": "ddfdbf64-8aa3-4367-ba6e-922d9ab3cadf",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/can/VCU_Vehicle_Info2.ETS_VCU_AccelPedal_Act_perc.@mul(1)",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#4e98e2",
+          "id": "76f2fcf0-039c-4258-86c0-0e6b4268324a",
+          "lineSize": 0.6,
+          "lineInterpolation": "linear",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "Acc_Pedal"
+        },
+        {
+          "value": "/can/VCU_Vehicle_Info2.ETS_VCU_BrakePedal_Act_perc.@mul(1)",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#ff0000",
+          "id": "818be502-c792-4d7a-acf2-6ac0e46bfcf5",
+          "showLine": true,
+          "lineSize": 0.6,
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "Brake_Pedal"
+        },
+        {
+          "value": "/vehicle/telemetry.shaft_torque_nm",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#f7df71",
+          "id": "b9e80216-463c-44b1-a67e-032544e52dd1",
+          "label": "Shaft_Torque",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "lineSize": 0.6
+        },
+        {
+          "value": "/vehicle/telemetry.gear",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#f7df71",
+          "id": "b1b4d572-2729-4191-90f1-3029d8d1b98e",
+          "label": "GEAR",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/gnss/fix.latitude",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#5cd6a9",
+          "id": "bb68c80e-26f4-40f9-a7ad-97a4bee48742",
+          "arrayExpansion": "byIndex",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/vision/diagnostics.track_count",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#4e98e2",
+          "id": "927d993a-1d17-4fef-bb1b-2d136e44e4b5",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/vehicle/telemetry.accel_x_mps2",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#f7df71",
+          "id": "138c3825-fe53-4b9e-b1d8-43394a6f2371",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/radar/diagnostics.ego_yaw_rate",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#cad660",
+          "id": "2052b007-7bc9-43d9-a282-9b7ea9ee55f6",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "lineSize": 0.6
+        },
+        {
+          "value": "/vehicle/telemetry.pitch_rate_radps.@negative",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#61cbff",
+          "id": "f805e8a1-d65e-4a8c-9bc9-4b47ab6ce2f2",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/imu/data.angular_velocity.y",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#4e98e2",
+          "id": "44d9db0d-aac7-477a-a1e6-4380739b7c3b",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "Pitch rate (phone)"
+        },
+        {
+          "value": "/imu/data.angular_velocity.x.@negative",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#f5774d",
+          "id": "50d80479-466e-46a8-a7a7-aae73aec5290",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "Yaw rate (Phone)"
+        },
+        {
+          "value": "/imu/data.angular_velocity.y",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#a395e2",
+          "id": "0a0a9e1b-314d-422b-9626-816ead3d57f4"
+        },
+        {
+          "value": "/radar/adas.fcw.ttc_sec",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#4e98e2",
+          "id": "efe72373-7d39-484d-a388-7c73a7a705e6"
+        },
+        {
+          "value": "/gnss/fix.heading",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#4eba78",
+          "id": "58c6279f-1e4b-47e3-a051-a79d6d9ef088"
+        },
+        {
+          "timestampMethod": "receiveTime",
+          "value": "/vehicle/telemetry.accel_avg_mps2",
+          "enabled": false,
+          "color": "#635cd6",
+          "id": "b1be8d35-218c-4e37-9a84-daa24d765563",
+          "label": "AVG ACCEL"
+        },
+        {
+          "value": "/radar/adas.fcw.stage",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#ff0000",
+          "id": "5473322e-c4c5-45f5-8683-223dfdfc1908",
+          "showLine": true,
+          "label": "FCW STAGE"
+        },
+        {
+          "value": "/can/MCU_Status_Info.ETS_MOT_StatorTemp_Act_degC",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#cad660",
+          "id": "749152e6-dc9d-400e-96ce-96d5c64046fa"
+        },
+        {
+          "value": "/radar/adas.acc.fsm_state",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#61cbff",
+          "id": "f7a15eca-440b-4307-a3da-be531d958d8d"
+        },
+        {
+          "value": "/gnss/fix.velocity.x",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#a395e2",
+          "id": "c1b9b2d1-0c86-483e-84e5-5d0388ebd0b5"
+        },
+        {
+          "value": "/vehicle/telemetry.speed_kmph",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#5cd6a9",
+          "id": "a2dab6de-3db2-4514-b289-0f5dfdac0706",
+          "showLine": true,
+          "lineInterpolation": "linear",
+          "lineSize": 2,
+          "label": "radar_rx_CAN_speed"
+        },
+        {
+          "value": "/can/VCU_Vehicle_Info1.ETS_VCU_VehSpeed_Act_kmph",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#5cd6a9",
+          "id": "434df62c-5ae0-499b-9a65-1f3607b08da0",
+          "label": "VCU_Real_Speed",
+          "showLine": true,
+          "lineSize": 3
+        },
+        {
+          "value": "/can/VCU_IMU_Processed_Accel_Msg.ETS_VCU_imuProc_xaccel",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#f5774d",
+          "id": "197d5928-aa4b-4146-aaf2-5d9256836ba9"
+        },
+        {
+          "value": "/can/VCU_IMU_Processed_Angular_Msg.ETS_VCU_imuProc_rollCF",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#f7df71",
+          "id": "ce0dc111-756b-4ff7-a03c-cc3a06627599"
+        }
+      ],
+      "showLegend": false,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": true,
+      "timeWindowMode": "sliding",
+      "playbackBarPosition": "center",
+      "xAxisDisplayMethod": "relative",
+      "showYAxisLabels": true,
+      "showYAxisGridLines": true,
+      "secondaryAxes": [
+        {
+          "id": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "Shaft Torque (Nm)",
+          "max": 120,
+          "min": -40
+        }
+      ],
+      "yAxisLabel": "Speed (Km/h)",
+      "showXAxisLabels": true,
+      "floatingLegendPosition": "top-right",
+      "followingViewWidth": 90,
+      "minYValue": -10,
+      "maxYValue": 55,
+      "foxglovePanelTitle": "Speed / Torque"
+    },
+    "Plot!24ouilc": {
+      "paths": [
+        {
+          "value": "/can/VCU_Vehicle_Info2.ETS_VCU_AccelPedal_Act_perc.@mul(1)",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#4e98e2",
+          "id": "76f2fcf0-039c-4258-86c0-0e6b4268324a",
+          "lineSize": 0.6,
+          "lineInterpolation": "linear",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "Acc_Pedal"
+        },
+        {
+          "value": "/can/VCU_Vehicle_Info2.ETS_VCU_BrakePedal_Act_perc.@mul(1)",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#ff0000",
+          "id": "818be502-c792-4d7a-acf2-6ac0e46bfcf5",
+          "showLine": true,
+          "lineSize": 0.6,
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "Brake_Pedal"
+        },
+        {
+          "value": "/vehicle/telemetry.shaft_torque_nm",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#f7df71",
+          "id": "b9e80216-463c-44b1-a67e-032544e52dd1",
+          "label": "Shaft_Torque",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "lineSize": 0.6
+        },
+        {
+          "value": "/can/VCU_CruiseControl_Analysis.ETS_VCU_CC_MotTrq_Cmd_Nm",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#ffffff",
+          "id": "3ee1d4ac-86e2-48d9-ad7f-d24c982301d2",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "VCU_CMD_TRQ"
+        },
+        {
+          "value": "/can/VCU_CruiseControl_Analysis.ETS_VCU_CC_RLS_Trq_Nm",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#00ff0c",
+          "id": "88d37de9-52fd-4755-a685-48b08ef944dc",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "RLS_TRQ"
+        },
+        {
+          "value": "/vehicle/telemetry.gear",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#f7df71",
+          "id": "b1b4d572-2729-4191-90f1-3029d8d1b98e",
+          "label": "GEAR",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/gnss/fix.latitude",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#5cd6a9",
+          "id": "bb68c80e-26f4-40f9-a7ad-97a4bee48742",
+          "arrayExpansion": "byIndex",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/vision/diagnostics.track_count",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#4e98e2",
+          "id": "927d993a-1d17-4fef-bb1b-2d136e44e4b5",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/vehicle/telemetry.accel_x_mps2",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#f7df71",
+          "id": "138c3825-fe53-4b9e-b1d8-43394a6f2371",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/radar/diagnostics.ego_yaw_rate",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#cad660",
+          "id": "2052b007-7bc9-43d9-a282-9b7ea9ee55f6",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "lineSize": 0.6
+        },
+        {
+          "value": "/vehicle/telemetry.pitch_rate_radps.@negative",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#61cbff",
+          "id": "f805e8a1-d65e-4a8c-9bc9-4b47ab6ce2f2",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e"
+        },
+        {
+          "value": "/imu/data.angular_velocity.y",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#4e98e2",
+          "id": "44d9db0d-aac7-477a-a1e6-4380739b7c3b",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "Pitch rate (phone)"
+        },
+        {
+          "value": "/imu/data.angular_velocity.x.@negative",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#f5774d",
+          "id": "50d80479-466e-46a8-a7a7-aae73aec5290",
+          "yAxisId": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "Yaw rate (Phone)"
+        },
+        {
+          "value": "/imu/data.angular_velocity.y",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#a395e2",
+          "id": "0a0a9e1b-314d-422b-9626-816ead3d57f4"
+        },
+        {
+          "value": "/radar/adas.fcw.ttc_sec",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#4e98e2",
+          "id": "efe72373-7d39-484d-a388-7c73a7a705e6"
+        },
+        {
+          "value": "/gnss/fix.heading",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#4eba78",
+          "id": "58c6279f-1e4b-47e3-a051-a79d6d9ef088"
+        },
+        {
+          "timestampMethod": "receiveTime",
+          "value": "/vehicle/telemetry.accel_avg_mps2",
+          "enabled": false,
+          "color": "#635cd6",
+          "id": "b1be8d35-218c-4e37-9a84-daa24d765563",
+          "label": "AVG ACCEL"
+        },
+        {
+          "value": "/radar/adas.fcw.stage",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#ff0000",
+          "id": "5473322e-c4c5-45f5-8683-223dfdfc1908",
+          "showLine": true,
+          "label": "FCW STAGE"
+        },
+        {
+          "value": "/can/MCU_Status_Info.ETS_MOT_StatorTemp_Act_degC",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#cad660",
+          "id": "749152e6-dc9d-400e-96ce-96d5c64046fa"
+        },
+        {
+          "value": "/radar/adas.acc.fsm_state",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#61cbff",
+          "id": "f7a15eca-440b-4307-a3da-be531d958d8d"
+        },
+        {
+          "value": "/gnss/fix.velocity.x",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#a395e2",
+          "id": "c1b9b2d1-0c86-483e-84e5-5d0388ebd0b5"
+        },
+        {
+          "value": "/vehicle/telemetry.speed_kmph",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#5cd6a9",
+          "id": "a2dab6de-3db2-4514-b289-0f5dfdac0706",
+          "showLine": true,
+          "lineInterpolation": "linear",
+          "lineSize": 2,
+          "label": "radar_rx_CAN_speed"
+        },
+        {
+          "value": "/can/VCU_Vehicle_Info1.ETS_VCU_VehSpeed_Act_kmph",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#5cd6a9",
+          "id": "434df62c-5ae0-499b-9a65-1f3607b08da0",
+          "label": "VCU_Real_Speed",
+          "showLine": true
+        },
+        {
+          "value": "/can/VCU_IMU_Processed_Accel_Msg.ETS_VCU_imuProc_xaccel",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#f5774d",
+          "id": "197d5928-aa4b-4146-aaf2-5d9256836ba9"
+        },
+        {
+          "value": "/can/VCU_IMU_Processed_Angular_Msg.ETS_VCU_imuProc_rollCF",
+          "enabled": false,
+          "timestampMethod": "receiveTime",
+          "color": "#f7df71",
+          "id": "ce0dc111-756b-4ff7-a03c-cc3a06627599"
+        },
+        {
+          "value": "/can/MCU_Speed_Info.ETS_MOT_MotorRPM_Act_rpm.@div(60)",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#c661ff",
+          "id": "6d774e53-cf61-489b-8751-48caf495a018",
+          "label": "Motor_RPS"
+        }
+      ],
+      "showLegend": false,
+      "legendDisplay": "top",
+      "showPlotValuesInLegend": true,
+      "timeWindowMode": "sliding",
+      "playbackBarPosition": "center",
+      "xAxisDisplayMethod": "relative",
+      "showYAxisLabels": true,
+      "showYAxisGridLines": true,
+      "secondaryAxes": [
+        {
+          "id": "eda7fdd4-6d43-42dc-be0e-cc7639708f5e",
+          "label": "Pedal(%) / Shaft_Torque"
+        }
+      ],
+      "yAxisLabel": "Speed (Km/h)",
+      "showXAxisLabels": true,
+      "floatingLegendPosition": "top-right",
+      "followingViewWidth": 30,
+      "minYValue": -52.3925,
+      "maxYValue": 90,
+      "foxglovePanelTitle": "Pedals"
+    },
+    "Plot!1b6gg7f": {
+      "paths": [
+        {
+          "timestampMethod": "receiveTime",
+          "value": "/can/VCU_IMU_Processed_Angular_Msg.ETS_VCU_imuProc_yawRate",
+          "enabled": true,
+          "color": "#4e98e2",
+          "id": "5dc526e3-36ed-4dc9-9df5-2a59f62808d1"
+        },
+        {
+          "value": "/imu/vehicle.angular_velocity.z.@negative",
+          "enabled": true,
+          "timestampMethod": "receiveTime",
+          "color": "#5cd6a9",
+          "id": "75b048c8-dee9-4e07-a3bb-13f407704c3d"
+        }
+      ],
+      "showLegend": false,
+      "secondaryAxes": [
+        {
+          "id": "35e48c71-1ed3-4a7b-b757-df842dc8d5be"
+        }
+      ],
+      "timeWindowMode": "sliding",
+      "playbackBarPosition": "right"
+    },
+    "3D!18i6zy7": {
+      "layers": {
+        "845139cb-26bc-40b3-8161-8ab60af4baf5": {
+          "visible": true,
+          "frameLocked": true,
+          "label": "Grid",
+          "instanceId": "845139cb-26bc-40b3-8161-8ab60af4baf5",
+          "layerId": "foxglove.Grid",
+          "lineWidth": 1,
+          "color": "#248eff",
+          "position": [
+            0,
+            0,
+            0
+          ],
+          "rotation": [
+            0,
+            0,
+            0
+          ],
+          "order": 1,
+          "drawBehind": false,
+          "size": 200,
+          "divisions": 40
+        },
+        "fa5b5fd2-9ab9-486d-a501-2bace0cebdec": {
+          "controlMode": "transforms",
+          "jointStatesTopic": "",
+          "displayMode": "visual",
+          "showAxis": false,
+          "showOutlines": true,
+          "opacity": 0.76,
+          "visible": true,
+          "instanceId": "fa5b5fd2-9ab9-486d-a501-2bace0cebdec",
+          "layerId": "foxglove.Urdf",
+          "label": "URDF",
+          "sourceType": "url",
+          "url": "https://storage.googleapis.com/assets.foxglove.dev/demo-datasets/kitti-360/urdf/kitti360.urdf",
+          "filePath": "C:\\Users\\rakadu1.AHEAD\\Downloads\\kitti360.urdf",
+          "parameter": "",
+          "topic": "",
+          "framePrefix": "",
+          "order": 2,
+          "links": {
+            "camera_00_frame": {
+              "visible": true
+            }
+          },
+          "axisScale": 2
+        }
+      },
+      "cameraState": {
+        "distance": 59.83379501384977,
+        "perspective": true,
+        "phi": 45.00000000000001,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          20,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 89.99999999999997,
+        "fovy": 45,
+        "near": 0.001,
+        "far": 500,
+        "logDepth": false
+      },
+      "followMode": "follow-heading",
+      "scene": {
+        "syncCamera": false,
+        "enableStats": true,
+        "transforms": {
+          "editable": false,
+          "showLabel": true,
+          "labelSize": 0.08,
+          "axisSize": 0.4,
+          "lineWidth": 1.5,
+          "enablePreloading": true
+        }
+      },
+      "transforms": {
+        "frame:radar_link": {
+          "visible": true
+        },
+        "frame:base_footprint": {
+          "visible": true
+        },
+        "frame:camera_optical": {
+          "visible": true
+        }
+      },
+      "topics": {
+        "/radar/points": {
+          "visible": true,
+          "colorField": "velocity",
+          "colorMode": "colormap",
+          "colorMap": "rainbow",
+          "pointSize": 5,
+          "explicitAlpha": 1
+        },
+        "/radar/tracks": {
+          "visible": true,
+          "showOutlines": false,
+          "computeVertexNormals": false,
+          "selectedIdVariable": ""
+        },
+        "/imu/pose": {
+          "visible": false,
+          "axisScale": 8,
+          "type": "axis",
+          "arrowScale": [
+            7.137,
+            2,
+            2
+          ],
+          "color": "#5a44ffff"
+        },
+        "/camera/video": {
+          "visible": true,
+          "frameLocked": true,
+          "cameraInfoTopic": "/camera/calib_tuned",
+          "planarProjectionFactor": 0,
+          "renderMode": "default",
+          "projectionFrameId": "base_link",
+          "color": "#ffffff",
+          "rectifyImage": true,
+          "pointSize": 1.5,
+          "syncModeEnabled": false,
+          "distanceType": "euclidean",
+          "distance": 60
+        },
+        "/vision/geo_tracks": {
+          "visible": true,
+          "computeVertexNormals": false,
+          "showOutlines": true
+        },
+        "/camera/calib": {
+          "visible": true
+        },
+        "/camera/calib_tuned": {
+          "visible": false,
+          "distance": 1
+        },
+        "/vision/trajectories": {
+          "visible": false,
+          "computeVertexNormals": false,
+          "showOutlines": false
+        },
+        "/radar/pointcloud": {
+          "visible": true,
+          "colorField": "velocity",
+          "colorMode": "colormap",
+          "colorMap": "rainbow",
+          "pointSize": 10,
+          "pointShape": "square",
+          "stixelsEnabled": false
+        },
+        "/radar/clusters": {
+          "visible": false,
+          "colorField": "z",
+          "colorMode": "colormap",
+          "colorMap": "turbo"
+        },
+        "/vision/camera_frustum": {
+          "visible": false,
+          "color": "#ffffffff",
+          "computeVertexNormals": false
+        }
+      },
+      "publish": {
+        "type": "point",
+        "poseTopic": "",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "synchronize": false,
+      "imageMode": {},
+      "fixedFrame": "base_link",
+      "followTf": "base_link"
+    },
+    "Tab!168pbdr": {
+      "activeTabIdx": 0,
+      "tabs": [
+        {
+          "title": "FCW STage",
+          "layout": {
+            "first": "StateTransitions!36bs6e",
+            "second": "Plot!289vtsa",
+            "direction": "column",
+            "splitPercentage": 42.32804232804233
+          }
+        },
+        {
+          "title": "Pedals",
+          "layout": {
+            "first": "Plot!12zrmjc",
+            "second": "Plot!24ouilc",
+            "direction": "column",
+            "splitPercentage": 44.97354497354497
+          }
+        },
+        {
+          "title": "CAN / Android IMU",
+          "layout": "Plot!1b6gg7f"
+        }
+      ]
+    },
+    "RawMessages!33kd1u8": {
+      "defaultExpanded": false,
+      "topicPath": "/sync/frame_info"
+    },
+    "gauge_utils.gauge_utils!23ysvz6": {
+      "data": {
+        "messagePath": "/vehicle/telemetry.speed_kmph",
+        "min": 0,
+        "max": 60
+      },
+      "view": {
+        "component": "timeSeriesChart"
+      },
+      "foxglovePanelTitle": "Speed Plot"
+    },
+    "Image!3mnp456": {
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 60,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {
+        "transforms": {
+          "editable": false
+        }
+      },
+      "transforms": {
+        "frame:camera_optical": {
+          "rpyCoefficient": [
+            10,
+            0,
+            0
+          ],
+          "visible": false
+        },
+        "frame:base_link": {
+          "visible": false
+        }
+      },
+      "topics": {
+        "/radar/tracks": {
+          "visible": true,
+          "showOutlines": true,
+          "computeVertexNormals": false
+        },
+        "/radar/points": {
+          "visible": false,
+          "colorField": "velocity",
+          "colorMode": "colormap",
+          "colorMap": "turbo",
+          "pointSize": 5.33
+        },
+        "/imu/pose": {
+          "visible": false,
+          "type": "arrow"
+        },
+        "/vision/geo_tracks": {
+          "visible": false,
+          "showOutlines": false
+        },
+        "/vision/trajectories": {
+          "visible": false
+        },
+        "/vision/camera_frustum": {
+          "visible": false
+        },
+        "/radar/clusters": {
+          "visible": false,
+          "colorField": "z",
+          "colorMode": "colormap",
+          "colorMap": "turbo"
+        }
+      },
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "synchronize": false,
+      "imageMode": {
+        "imageTopic": "/camera/video",
+        "overlayTopics": [],
+        "logDepth": false,
+        "rotation": 180,
+        "near": 0.001,
+        "far": 1000,
+        "annotations": {
+          "/vision/2d_boxes": {
+            "visible": true
+          }
+        },
+        "calibrationTopic": "/camera/calib_tuned"
+      },
+      "foxglovePanelTitle": "CAMERA FEED with Tracks Overlay"
+    },
+    "Image!jkmf1s": {
+      "cameraState": {
+        "distance": 20,
+        "perspective": true,
+        "phi": 60,
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "targetOffset": [
+          0,
+          0,
+          0
+        ],
+        "targetOrientation": [
+          0,
+          0,
+          0,
+          1
+        ],
+        "thetaOffset": 60,
+        "fovy": 45,
+        "near": 0.5,
+        "far": 5000
+      },
+      "followMode": "follow-pose",
+      "scene": {
+        "transforms": {
+          "editable": false
+        },
+        "enableStats": true,
+        "labelScaleFactor": 1
+      },
+      "transforms": {
+        "frame:camera_optical": {
+          "rpyCoefficient": [
+            10,
+            0,
+            0
+          ],
+          "visible": false
+        },
+        "frame:base_link": {
+          "visible": false
+        }
+      },
+      "topics": {
+        "/radar/tracks": {
+          "visible": false,
+          "showOutlines": true,
+          "computeVertexNormals": false
+        },
+        "/radar/points": {
+          "visible": false,
+          "colorField": "velocity",
+          "colorMode": "colormap",
+          "colorMap": "turbo",
+          "pointSize": 5.33
+        },
+        "/imu/pose": {
+          "visible": false,
+          "type": "arrow"
+        },
+        "/vision/geo_tracks": {
+          "visible": true,
+          "showOutlines": false
+        },
+        "/vision/trajectories": {
+          "visible": false
+        }
+      },
+      "layers": {},
+      "publish": {
+        "type": "point",
+        "poseTopic": "/move_base_simple/goal",
+        "pointTopic": "/clicked_point",
+        "poseEstimateTopic": "/initialpose",
+        "poseEstimateXDeviation": 0.5,
+        "poseEstimateYDeviation": 0.5,
+        "poseEstimateThetaDeviation": 0.26179939
+      },
+      "synchronize": false,
+      "imageMode": {
+        "imageTopic": "/camera/video",
+        "overlayTopics": [],
+        "logDepth": false,
+        "rotation": 180,
+        "near": 0.001,
+        "far": 1000,
+        "calibrationTopic": "/camera/calib",
+        "annotations": {
+          "/vision/2d_boxes": {
+            "visible": false
+          }
+        }
+      },
+      "foxglovePanelTitle": "Vision_Processing"
+    },
+    "flight-indicators.AttitudeIndicator!4gijdc8": {
+      "pitchPath": "/imu/vehicle.pitch_deg",
+      "rollPath": "/imu/vehicle.roll_deg",
+      "foxglovePanelTitle": "Orientation "
+    },
+    "gauge_utils.gauge_utils!btu9ek": {
+      "data": {
+        "messagePath": "/vehicle/telemetry.speed_kmph",
+        "min": 0,
+        "max": 50
+      },
+      "view": {
+        "component": "speedometer"
+      },
+      "foxglovePanelTitle": "Speed Km/h"
+    },
+    "Gauge!3k4nqjp": {
+      "path": "/vehicle/telemetry.shaft_torque_nm",
+      "style": "bar",
+      "minValue": -40,
+      "maxValue": 40,
+      "tickInterval": 0.1,
+      "showTicks": false,
+      "colorMap": "red-yellow-green",
+      "colorMode": "colormap",
+      "gradient": [
+        "#0000ff",
+        "#ff00ff"
+      ],
+      "reverse": true,
+      "reverseDirection": false,
+      "origin": 0,
+      "mirrorColorAtOrigin": true,
+      "foxglovePanelTitle": "Shaft_Torque"
+    },
+    "Gauge!3pfs3f1": {
+      "path": "/can/VCU_Vehicle_Info2.ETS_VCU_BrakePedal_Act_perc.@mul(1)",
+      "style": "bar",
+      "minValue": 0,
+      "maxValue": 55,
+      "tickInterval": 0.1,
+      "showTicks": false,
+      "colorMap": "red-yellow-green",
+      "colorMode": "colormap",
+      "gradient": [
+        "#0000ff",
+        "#ff00ff"
+      ],
+      "reverse": false,
+      "reverseDirection": true,
+      "origin": 0,
+      "mirrorColorAtOrigin": false,
+      "foxglovePanelTitle": "Brake_Pedal"
+    },
+    "Gauge!3fj5gqi": {
+      "path": "/can/VCU_Vehicle_Info2.ETS_VCU_AccelPedal_Act_perc.@mul(1)",
+      "style": "bar",
+      "minValue": 0,
+      "maxValue": 100,
+      "tickInterval": 0.1,
+      "showTicks": false,
+      "colorMap": "red-yellow-green",
+      "colorMode": "colormap",
+      "gradient": [
+        "#0000ff",
+        "#ff00ff"
+      ],
+      "reverse": true,
+      "reverseDirection": false,
+      "origin": 0,
+      "mirrorColorAtOrigin": false,
+      "foxglovePanelTitle": "Accel_Pedal"
+    },
+    "bar-display.Bar Display!3nn3iqn": {
+      "topicField": "/radar/adas.acc.fsm_state",
+      "minValue": 0,
+      "maxValue": 4,
+      "barColor": "#ff0000",
+      "orientation": "horizontal",
+      "fillBehavior": "clamp",
+      "negateValue": false,
+      "foxglovePanelTitle": "FCW Stage"
+    },
+    "map!3r0lzhp": {
+      "zoomLevel": 18,
+      "customTileUrl": "",
+      "disabledTopics": [],
+      "followTopic": "/gnss/fix",
+      "followFrame": "wgs84",
+      "layer": "map",
+      "topicColors": {
+        "/gnss/fix": "#4e98e2"
+      },
+      "maxNativeZoom": 18,
+      "topicConfig": {
+        "/gnss/fix": {
+          "historyMode": "all",
+          "pointSize": 5,
+          "pointDisplayMode": "arrowhead",
+          "timeWindowSeconds": 15,
+          "order": 0
+        },
+        "/gnss/network": {
+          "historyMode": "all",
+          "pointSize": 6,
+          "pointDisplayMode": "diamond",
+          "timeWindowSeconds": 30,
+          "order": 1
+        }
+      },
+      "layers": [
+        {
+          "type": "satellite",
+          "enabled": true,
+          "opacity": 0.4
+        }
+      ]
+    }
+  },
+  "globalVariables": {
+    "globalVariable": 0
+  },
+  "userNodes": {
+    "044b3dc5-3ec7-413a-ae0f-6ecf138e22ba": {
+      "name": "Calibration_Tuning",
+      "sourceCode": "import { Input } from \"./types.ts\";\nimport { CameraCalibration } from \"@foxglove/schemas\";\n\n// 1. Listen to video frames so calibration updates continuously at 30 Hz\nexport const inputs = [\"/camera/video\"];\nexport const output = \"/camera/calib_tuned\";\n\n// ============================================================\n// 🎯 REAL-TIME TUNING CONTROLS (Tweak these numbers live!)\n// ============================================================\n// Positive pitch tilts the horizon / projects down\n// Negative pitch projects up\nconst PITCH_OFFSET_DEG = -1.7; // e.g. try +0.5, -0.5, +1.2\n\n// Positive yaw shifts right, negative yaw shifts left\nconst YAW_OFFSET_DEG = 0; // e.g. try +0.2, -0.2\n// ============================================================\n\nexport default function script(\n  event: Input<\"/camera/video\">,\n): CameraCalibration {\n  const fx = 948.8;\n  const fy = 948.8;\n  const baseCx = 640.0;\n  const baseCy = 360.0;\n\n  // Convert angular offsets to radians\n  const pitchRad = (PITCH_OFFSET_DEG * Math.PI) / 180.0;\n  const yawRad = (YAW_OFFSET_DEG * Math.PI) / 180.0;\n\n  // Real-time projection shift\n  const cx = baseCx - fx * Math.tan(yawRad);\n  const cy = baseCy + fy * Math.tan(pitchRad);\n\n  const calibration: CameraCalibration = {\n    timestamp: event.message.timestamp,\n    frame_id: \"camera_optical\",\n    width: 1280,\n    height: 720,\n    distortion_model: \"plumb_bob\",\n    D: new Float64Array([0.0, 0.0, 0.0, 0.0, 0.0]),\n    K: new Float64Array([fx, 0.0, cx, 0.0, fy, cy, 0.0, 0.0, 1.0]),\n    R: new Float64Array([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),\n    P: new Float64Array([fx, 0.0, cx, 0.0, 0.0, fy, cy, 0.0, 0.0, 0.0, 1.0, 0.0]),\n  };\n\n  return calibration;\n}\n"
+    }
+  },
+  "playbackConfig": {
+    "speed": 1
+  },
+  "layout": {
+    "first": {
+      "first": "3D!18i6zy7",
+      "second": "Tab!168pbdr",
+      "direction": "column",
+      "splitPercentage": 55.84415584415584
+    },
+    "second": {
+      "first": {
+        "first": {
+          "first": {
+            "first": "RawMessages!33kd1u8",
+            "second": "gauge_utils.gauge_utils!23ysvz6",
+            "direction": "row"
+          },
+          "second": "Image!3mnp456",
+          "direction": "column",
+          "splitPercentage": 22.641509433962266
+        },
+        "second": "Image!jkmf1s",
+        "direction": "column",
+        "splitPercentage": 56.060606060606055
+      },
+      "second": {
+        "first": {
+          "first": "flight-indicators.AttitudeIndicator!4gijdc8",
+          "second": "gauge_utils.gauge_utils!btu9ek",
+          "direction": "row"
+        },
+        "second": {
+          "first": {
+            "first": "Gauge!3k4nqjp",
+            "second": {
+              "first": "Gauge!3pfs3f1",
+              "second": "Gauge!3fj5gqi",
+              "direction": "row"
+            },
+            "direction": "column",
+            "splitPercentage": 50.78534031413613
+          },
+          "second": {
+            "first": "bar-display.Bar Display!3nn3iqn",
+            "second": "map!3r0lzhp",
+            "direction": "column",
+            "splitPercentage": 20.50209205020922
+          },
+          "direction": "column",
+          "splitPercentage": 27.246790299572034
+        },
+        "direction": "column",
+        "splitPercentage": 24.134199134199132
+      },
+      "direction": "row",
+      "splitPercentage": 64.88845780795343
+    },
+    "direction": "row",
+    "splitPercentage": 46.3579604578564
+  }
+}

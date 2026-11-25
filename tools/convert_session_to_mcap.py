@@ -2199,15 +2199,19 @@ def convert_session_to_mcap(
                     )
                 print("    - Embedded attachment: radar_camera_calib.json")
 
-            # Embed RoadSense Cockpit Layout (for 1-click layout export/loading in Foxglove)
-            layout_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "foxglove_layouts", "RoadSense_Cockpit_Layout.json")
+            # Embed default RoadSense Cockpit Layout (prefers ROADSENSE_Layout_RUSHIL.json, falls back to RoadSense_Cockpit_Layout.json)
+            layouts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "foxglove_layouts")
+            preferred_layout = os.path.join(layouts_dir, "ROADSENSE_Layout_RUSHIL.json")
+            fallback_layout = os.path.join(layouts_dir, "RoadSense_Cockpit_Layout.json")
+            layout_file = preferred_layout if os.path.isfile(preferred_layout) else fallback_layout
             if os.path.isfile(layout_file):
+                layout_name = os.path.basename(layout_file)
                 with open(layout_file, "rb") as lf:
                     layout_data = lf.read()
                     writer._writer.add_attachment(
                         create_time=start_wall_ms * 1_000_000,
                         log_time=start_wall_ms * 1_000_000,
-                        name="RoadSense_Cockpit_Layout.json",
+                        name=layout_name,
                         media_type="application/json",
                         data=layout_data
                     )
@@ -2218,7 +2222,7 @@ def convert_session_to_mcap(
                         media_type="application/json",
                         data=layout_data
                     )
-                print("    - Embedded attachment: RoadSense_Cockpit_Layout.json")
+                print(f"    - Embedded attachment: {layout_name}")
 
             # 8. Flush Summary Indexes & Close
             print("[+] Finalizing chunk indexes, summary statistics, and footer...")
