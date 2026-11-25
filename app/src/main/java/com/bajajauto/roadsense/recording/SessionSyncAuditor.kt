@@ -53,7 +53,8 @@ object SessionSyncAuditor {
         val radarStats: StreamStats?,
         val cameraImuProximity: ProximityStats,
         val radarCameraProximity: ProximityStats?,
-        val summaryNote: String
+        val summaryNote: String,
+        val radarSalvagedFrames: Long = 0L
     ) {
         fun toJson(): JSONObject {
             val root = JSONObject()
@@ -91,6 +92,12 @@ object SessionSyncAuditor {
                     put("totalFrames", rad.totalCount)
                     put("durationSec", rad.durationSec.toDouble())
                     put("effectiveHz", rad.effectiveRateHz.toDouble())
+                    put("meanIntervalMs", rad.meanIntervalMs.toDouble())
+                    put("p50IntervalMs", rad.p50IntervalMs.toDouble())
+                    put("p95IntervalMs", rad.p95IntervalMs.toDouble())
+                    put("maxIntervalMs", rad.maxIntervalMs.toDouble())
+                    put("sequenceDrops", rad.anomalyCount)
+                    put("salvagedFrames", radarSalvagedFrames)
                     put("status", rad.status)
                 }
                 root.put("radar", radObj)
@@ -199,10 +206,13 @@ object SessionSyncAuditor {
             }
         }
 
+        // Auto-detect 200 Hz native IMU (p50 <= 7.5 ms -> 12 ms jitter threshold) vs legacy 100 Hz (20 ms)
+        val imuMedianMs = estimateMedianIntervalMs(imuMonoList)
+        val isHighRateImu = imuMedianMs > 0f && imuMedianMs <= 7.5f
         val imuStats = computeStreamStats(
             timestampsNs = imuMonoList,
-            nominalRateHz = 100f,
-            anomalyThresholdMs = 20f, // Jitter intervals > 20ms @ 100 Hz
+            nominalRateHz = if (isHighRateImu) 200f else 100f,
+            anomalyThresholdMs = if (isHighRateImu) 12f else 20f,
             streamName = "IMU"
         )
 
@@ -240,16 +250,20 @@ object SessionSyncAuditor {
 
         val isRadarRecorded = radarMonoList.isNotEmpty() || sessionInfo.totalRadarFrames > 0L || File(sessionInfo.radarDir, "radar_frames.bin").exists()
         val radarStats = if (radarMonoList.size >= 2) {
+            val radarMedianMs = estimateMedianIntervalMs(radarMonoList)
+            val adaptiveNominalHz = if (radarMedianMs > 0f) (1000f / radarMedianMs).coerceIn(10f, 60f) else 20f
+            val adaptiveJitterThresholdMs = if (radarMedianMs > 0f) maxOf(65f, radarMedianMs * 1.5f) else 75f
             val baseStats = computeStreamStats(
                 timestampsNs = radarMonoList,
-                nominalRateHz = 20f,
-                anomalyThresholdMs = 75f, // Intervals > 75ms @ 20 Hz nominal
+                nominalRateHz = adaptiveNominalHz,
+                anomalyThresholdMs = adaptiveJitterThresholdMs,
                 streamName = "Radar"
             )
-            if (radarSequenceDrops > 0) {
+            val reportedDrops = maxOf(radarSequenceDrops, sessionInfo.totalRadarSequenceDrops.toInt())
+            if (reportedDrops > 0) {
                 baseStats.copy(
-                    anomalyCount = radarSequenceDrops,
-                    status = "WARN ($radarSequenceDrops dropped sequence frames)"
+                    anomalyCount = reportedDrops,
+                    status = "WARN ($reportedDrops dropped sequence frames)"
                 )
             } else {
                 baseStats.copy(
@@ -327,21 +341,28 @@ object SessionSyncAuditor {
             )
         }
 
-        // 6. Compute Radar <-> Camera Proximity Stats
+        // 6. Compute Radar <-> Camera Proximity Stats (adaptive radar Nyquist half-period, e.g. 25 ms @ 20 Hz)
+        val radComplianceMs = if (radarStats != null && radarStats.p50IntervalMs > 0f) {
+            maxOf(16.67f, radarStats.p50IntervalMs * 0.5f)
+        } else {
+            25.0f
+        }
         val radCamProximity = if (radCamDeltasMs.isNotEmpty()) {
             computeProximityStats(
                 deltasMs = radCamDeltasMs,
-                complianceThresholdMs = 16.67f, // Half-frame @ 30 FPS
+                complianceThresholdMs = radComplianceMs,
                 isStrictSub3ms = false
             )
         } else null
 
         // 7. Overall Certification Grade
         val radarDrops = radarStats?.anomalyCount ?: 0
+        val radGoldLimit = maxOf(16.67f, radComplianceMs)
+        val radSilverLimit = maxOf(33.33f, radComplianceMs * 2f)
         val grade = when {
             camImuProximity.evaluatedFrames == 0 -> "INCOMPLETE"
-            camImuProximity.meanDeltaMs <= 4.0f && (radCamProximity == null || radCamProximity.meanDeltaMs <= 16.67f) && cameraStats.anomalyCount <= 1 && radarDrops == 0 -> "GOLD"
-            camImuProximity.meanDeltaMs <= 7.5f && (radCamProximity == null || radCamProximity.meanDeltaMs <= 33.33f) && cameraStats.anomalyCount <= 3 && radarDrops <= 3 -> "SILVER"
+            camImuProximity.meanDeltaMs <= 4.0f && (radCamProximity == null || radCamProximity.meanDeltaMs <= radGoldLimit) && cameraStats.anomalyCount <= 1 && radarDrops == 0 -> "GOLD"
+            camImuProximity.meanDeltaMs <= 7.5f && (radCamProximity == null || radCamProximity.meanDeltaMs <= radSilverLimit) && cameraStats.anomalyCount <= 3 && radarDrops <= 3 -> "SILVER"
             else -> "WARN"
         }
 
@@ -349,7 +370,7 @@ object SessionSyncAuditor {
             append("Sync Grade: $grade | ")
             append("Cam-IMU Mean: ${"%.2f".format(camImuProximity.meanDeltaMs)}ms (${"%.1f".format(camImuProximity.pctCompliant)}% <= 5ms) | ")
             if (radCamProximity != null) {
-                append("Rad-Cam Mean: ${"%.2f".format(radCamProximity.meanDeltaMs)}ms (${"%.1f".format(radCamProximity.pctCompliant)}% <= 16.7ms)")
+                append("Rad-Cam Mean: ${"%.2f".format(radCamProximity.meanDeltaMs)}ms (${"%.1f".format(radCamProximity.pctCompliant)}% <= ${"%.1f".format(radCamProximity.complianceThresholdMs)}ms)")
             } else {
                 append("Radar: Disconnected (Excluded)")
             }
@@ -370,11 +391,25 @@ object SessionSyncAuditor {
             radarStats = radarStats,
             cameraImuProximity = camImuProximity,
             radarCameraProximity = radCamProximity,
-            summaryNote = note
+            summaryNote = note,
+            radarSalvagedFrames = sessionInfo.totalRadarSalvagedFrames
         )
 
         Log.i(TAG, "Completed session audit: $note")
         return result
+    }
+
+    private fun estimateMedianIntervalMs(timestampsNs: List<Long>): Float {
+        if (timestampsNs.size < 2) return 0f
+        val limit = minOf(timestampsNs.size - 1, 512)
+        val diffs = ArrayList<Float>(limit)
+        for (i in 1..limit) {
+            val dt = (timestampsNs[i] - timestampsNs[i - 1]) / 1_000_000f
+            if (dt > 0f) diffs.add(dt)
+        }
+        if (diffs.isEmpty()) return 0f
+        diffs.sort()
+        return diffs[diffs.size / 2]
     }
 
     private fun computeStreamStats(
@@ -460,8 +495,8 @@ object SessionSyncAuditor {
             else if (mean <= 5.0f) "PASS (Within Nyquist limit)"
             else "WARN (Elevated jitter)"
         } else {
-            if (mean <= complianceThresholdMs) "PASS (Excellent < 16.7ms)"
-            else if (mean <= complianceThresholdMs * 2f) "WARN (Acceptable < 33.3ms)"
+            if (mean <= complianceThresholdMs) "PASS (Excellent < ${"%.1f".format(complianceThresholdMs)}ms)"
+            else if (mean <= complianceThresholdMs * 2f) "WARN (Acceptable < ${"%.1f".format(complianceThresholdMs * 2f)}ms)"
             else "FAIL (Poor alignment)"
         }
 

@@ -272,6 +272,19 @@ class RadarSessionRecorder(
         return session
     }
 
+    /**
+     * Blocks briefly (up to [timeoutMs]) until all queued disk writes and close tasks finish.
+     * Used during emergency crash recovery so buffered radar/session metadata hits flash before VM exit.
+     */
+    fun awaitFlush(timeoutMs: Long = 1200L) {
+        val latch = java.util.concurrent.CountDownLatch(1)
+        try {
+            executor.execute { latch.countDown() }
+            latch.await(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS)
+        } catch (_: Exception) {
+        }
+    }
+
     fun release() {
         if (isRecordingActive) {
             stopSession()

@@ -44,6 +44,17 @@ class SensorReadinessEvaluatorTest {
         assertEquals(SensorHudTone.RED, droppedRec.tone)
         assertEquals("ERR", droppedRec.compactValue)
 
+        // Reconnecting after hot-plug detach -> YELLOW RECONN
+        val reconnecting = SensorReadinessEvaluator.evaluateRadar(
+            connState = RadarConnectionState.Reconnecting("USB detached"),
+            radarHz = 0f,
+            isRecording = true,
+            radarDroppedMidRecording = true
+        )
+        assertEquals(SensorHudTone.YELLOW, reconnecting.tone)
+        assertEquals("RECONN", reconnecting.fullValue)
+        assertEquals("REC", reconnecting.compactValue)
+
         // Connected 20 Hz -> GREEN with full and compact labels
         val ready = SensorReadinessEvaluator.evaluateRadar(
             connState = RadarConnectionState.Connected("COM"),

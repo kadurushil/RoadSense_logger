@@ -19,14 +19,21 @@ import com.bajajauto.roadsense.models.RawRadarPacket
 import com.bajajauto.roadsense.gnss.GnssFix
 import com.bajajauto.roadsense.gnss.GnssLocationManager
 import com.bajajauto.roadsense.gnss.GnssState
+import com.bajajauto.roadsense.diagnostics.CrashRecoveryHandler
+import com.bajajauto.roadsense.diagnostics.ThermalMonitor
+import com.bajajauto.roadsense.diagnostics.ThermalSeverity
 import com.bajajauto.roadsense.recording.CameraSessionRecorder
 import com.bajajauto.roadsense.recording.GnssSessionRecorder
 import com.bajajauto.roadsense.recording.ImuSessionRecorder
 import com.bajajauto.roadsense.recording.RadarSessionRecorder
 import com.bajajauto.roadsense.recording.RawUartRecorder
+import com.bajajauto.roadsense.recording.RecordingForegroundService
 import com.bajajauto.roadsense.recording.RecordingState
 import com.bajajauto.roadsense.recording.SessionInfo
 import com.bajajauto.roadsense.recording.SessionSyncAuditor
+import com.bajajauto.roadsense.recording.StorageGuard
+import com.bajajauto.roadsense.recording.StorageHealth
+import com.bajajauto.roadsense.recording.StorageStatus
 import com.bajajauto.roadsense.sync.CrossSensorSyncAssociator
 import com.bajajauto.roadsense.sync.LiveSyncTelemetry
 import com.bajajauto.roadsense.sync.RadarDisplayPacer
@@ -104,7 +111,9 @@ data class LiveMetricsSnapshot(
     val imuPill: SensorPillStatus = SensorReadinessEvaluator.evaluateImu(0f, false, false),
     val canPill: SensorPillStatus = SensorReadinessEvaluator.evaluateCan(
         com.bajajauto.roadsense.canedge.model.CanedgeSyncStats()
-    )
+    ),
+    val thermalSeverity: ThermalSeverity = ThermalSeverity.NOMINAL,
+    val storageStatus: StorageStatus = StorageStatus(-1L, StorageHealth.OK)
 )
 
 @androidx.compose.runtime.Stable
@@ -299,6 +308,43 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val _liveMetricsSnapshot = MutableStateFlow(LiveMetricsSnapshot())
     val liveMetricsSnapshot: StateFlow<LiveMetricsSnapshot> = _liveMetricsSnapshot.asStateFlow()
 
+    private val _storageAlert = MutableStateFlow<String?>(null)
+    val storageAlert: StateFlow<String?> = _storageAlert.asStateFlow()
+
+    fun dismissStorageAlert() {
+        _storageAlert.value = null
+    }
+
+    private val sessionLifecycleLock = Any()
+    @Volatile private var isAutoStoppingForStorage = false
+    @Volatile private var lowStorageWarnLoggedInSession = false
+    @Volatile private var currentStorageStatus = StorageStatus(-1L, StorageHealth.OK)
+    @Volatile private var currentThermalSeverity = ThermalSeverity.NOMINAL
+    @Volatile private var peakThermalSeverity = ThermalSeverity.NOMINAL
+    @Volatile private var peakBatteryTempC = 0f
+
+    private val thermalMonitor = ThermalMonitor(application) { severity, pmStatus ->
+        if (severity.rank > peakThermalSeverity.rank && sessionRecorder.currentSession != null) {
+            peakThermalSeverity = severity
+        }
+        val activeSession = sessionRecorder.currentSession
+        if (activeSession != null && severity != currentThermalSeverity) {
+            com.bajajauto.roadsense.logging.AppLogger.w(
+                "Thermal",
+                "THERMAL_CHANGE during recording: ${currentThermalSeverity.name} -> ${severity.name} (pmStatus=$pmStatus)"
+            )
+            sessionManager.recordTimelineEvent(
+                elapsedRealtimeNs = SystemClock.elapsedRealtimeNanos(),
+                sensor = "SYSTEM",
+                event = "THERMAL_CHANGE",
+                sequenceId = 0L,
+                relativePath = "session_debug.log",
+                summary = "severity=${severity.name};pmStatus=$pmStatus"
+            )
+        }
+        currentThermalSeverity = severity
+    }
+
     @Volatile private var radarFramesThisSec = 0
     @Volatile private var cameraFramesThisSec = 0
     @Volatile private var gnssFixesThisSec = 0
@@ -308,6 +354,55 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     init {
         // Sync baud rate from connection manager to packet assembler for accurate SOF physical byte timing
         packetAssembler.baudRate = connectionManager.currentDataBaudRate
+
+        RecordingForegroundService.onStopRequested = {
+            if (sessionRecorder.currentSession != null) {
+                stopSessionRecording()
+            }
+        }
+
+        CrashRecoveryHandler.emergencyFlushCallback = {
+            emergencyFlushActiveSession()
+        }
+
+        cameraEngine.onRecorderErrorListener = { errMsg ->
+            val activeSession = sessionRecorder.currentSession
+            if (activeSession != null) {
+                sessionManager.recordTimelineEvent(
+                    elapsedRealtimeNs = SystemClock.elapsedRealtimeNanos(),
+                    sensor = "CAMERA",
+                    event = "RECORDER_ERROR",
+                    sequenceId = 0L,
+                    relativePath = "camera/camera_video.mp4",
+                    summary = "error=$errMsg"
+                )
+                viewModelScope.launch(Dispatchers.Main.immediate) {
+                    stopSessionRecording()
+                }
+            }
+        }
+
+        connectionManager.onUsbLifecycleEvent = { event, detail ->
+            val activeSession = sessionRecorder.currentSession
+            if (event == "USB_DETACHED") {
+                syncAssociator.markRadarDisconnected()
+            } else if (event == "USB_RECONNECTED") {
+                rawByteQueue.clear()
+                packetAssembler.reset()
+                clockDiscipliner.reset()
+                displayPacer.reset()
+            }
+            if (activeSession != null) {
+                sessionManager.recordTimelineEvent(
+                    elapsedRealtimeNs = SystemClock.elapsedRealtimeNanos(),
+                    sensor = "RADAR",
+                    event = event,
+                    sequenceId = 0L,
+                    relativePath = "radar/radar_frames.bin",
+                    summary = detail
+                )
+            }
+        }
 
         // Restore persistent camera settings
         cameraEngine.setResolution(appPreferences.cameraResolution)
@@ -364,9 +459,10 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                 lastCpuTimeMs = curCpuTimeMs
                 lastWallTimeMs = curWallTimeMs
 
-                // 2. Battery telemetry (poll every 10s to avoid sticky-broadcast Binder IPC every 1s)
+                // 2. Battery & storage telemetry (poll every 10s to avoid sticky-broadcast Binder IPC every 1s)
                 var batPct = _batteryPct.value
                 var batTemp = _batteryTempC.value
+                var diskStatus = currentStorageStatus
                 if (tickCount % 10 == 0) {
                     try {
                         val bIntent = application.registerReceiver(null, android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
@@ -384,9 +480,51 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                             }
                         }
                     } catch (_: Exception) {}
+
+                    diskStatus = StorageGuard.evaluate(StorageGuard.queryFreeMb(sessionManager.sessionsBaseDir))
+                    currentStorageStatus = diskStatus
+                    val activeRecSession = sessionRecorder.currentSession
+                    if (activeRecSession != null) {
+                        when (diskStatus.health) {
+                            StorageHealth.LOW_WARN -> {
+                                if (!lowStorageWarnLoggedInSession) {
+                                    lowStorageWarnLoggedInSession = true
+                                    _storageAlert.value = "Low storage warning: ${diskStatus.freeMb} MB free (< 1.5 GB)"
+                                    com.bajajauto.roadsense.logging.AppLogger.w("Storage", "LOW_STORAGE_WARN: ${diskStatus.freeMb} MB free")
+                                    sessionManager.recordTimelineEvent(
+                                        elapsedRealtimeNs = SystemClock.elapsedRealtimeNanos(),
+                                        sensor = "STORAGE",
+                                        event = "LOW_WARN",
+                                        sequenceId = 0L,
+                                        relativePath = "session_debug.log",
+                                        summary = "freeMb=${diskStatus.freeMb}"
+                                    )
+                                }
+                            }
+                            StorageHealth.CRITICAL_STOP -> {
+                                if (!isAutoStoppingForStorage) {
+                                    isAutoStoppingForStorage = true
+                                    _storageAlert.value = "Storage critical (${diskStatus.freeMb} MB < 500 MB) — stopping & saving MP4 cleanly"
+                                    com.bajajauto.roadsense.logging.AppLogger.e("Storage", "CRITICAL_AUTO_STOP: ${diskStatus.freeMb} MB free")
+                                    sessionManager.recordTimelineEvent(
+                                        elapsedRealtimeNs = SystemClock.elapsedRealtimeNanos(),
+                                        sensor = "STORAGE",
+                                        event = "CRITICAL_AUTO_STOP",
+                                        sequenceId = 0L,
+                                        relativePath = "camera/camera_video.mp4",
+                                        summary = "freeMb=${diskStatus.freeMb}"
+                                    )
+                                    viewModelScope.launch(Dispatchers.Main.immediate) {
+                                        stopSessionRecording()
+                                    }
+                                }
+                            }
+                            StorageHealth.OK -> {}
+                        }
+                    }
                 }
 
-                // 3. Hardware CPU temperature (cache unsupported OEMs after first SecurityException)
+                // 3. Hardware CPU temperature & live thermal severity (warn + log only)
                 var cTemp = _cpuTempC.value
                 if (cpuTempSupported) {
                     try {
@@ -401,6 +539,28 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                     } catch (_: SecurityException) {
                         cpuTempSupported = false
                     } catch (_: Exception) {}
+                }
+                val resolvedTherm = thermalMonitor.currentSeverity(batTemp)
+                if (resolvedTherm != currentThermalSeverity) {
+                    if (sessionRecorder.currentSession != null) {
+                        com.bajajauto.roadsense.logging.AppLogger.w(
+                            "Thermal",
+                            "THERMAL_CHANGE during recording: ${currentThermalSeverity.name} -> ${resolvedTherm.name} (bat=${batTemp}C)"
+                        )
+                        sessionManager.recordTimelineEvent(
+                            elapsedRealtimeNs = SystemClock.elapsedRealtimeNanos(),
+                            sensor = "SYSTEM",
+                            event = "THERMAL_CHANGE",
+                            sequenceId = 0L,
+                            relativePath = "session_debug.log",
+                            summary = "severity=${resolvedTherm.name};batTempC=$batTemp"
+                        )
+                    }
+                    currentThermalSeverity = resolvedTherm
+                }
+                if (sessionRecorder.currentSession != null) {
+                    if (resolvedTherm.rank > peakThermalSeverity.rank) peakThermalSeverity = resolvedTherm
+                    if (batTemp > peakBatteryTempC) peakBatteryTempC = batTemp
                 }
                 tickCount++
 
@@ -421,7 +581,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 val radarDroppedMidRec = isRec && (
-                    (radarWasConnectedInSession && rConnState is RadarConnectionState.Disconnected) ||
+                    (radarWasConnectedInSession && (rConnState is RadarConnectionState.Disconnected || rConnState is RadarConnectionState.Reconnecting)) ||
                     (radarStreamActiveInSession && rHz <= 0f)
                 )
 
@@ -469,7 +629,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                     camPill = camPill,
                     gpsPill = gpsPill,
                     imuPill = imuPill,
-                    canPill = canPill
+                    canPill = canPill,
+                    thermalSeverity = resolvedTherm,
+                    storageStatus = diskStatus
                 )
                 if (_liveMetricsSnapshot.value != newSnapshot) {
                     _liveMetricsSnapshot.value = newSnapshot
@@ -830,7 +992,31 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         cameraEngine.setRoadAeMode(mode)
     }
 
-    fun startSessionRecording(): SessionInfo? {
+    fun startSessionRecording(): SessionInfo? = synchronized(sessionLifecycleLock) {
+        if (sessionRecorder.currentSession != null) {
+            return@synchronized sessionRecorder.currentSession
+        }
+        val storageStatus = StorageGuard.evaluate(StorageGuard.queryFreeMb(sessionManager.sessionsBaseDir))
+        currentStorageStatus = storageStatus
+        if (storageStatus.health == StorageHealth.CRITICAL_STOP) {
+            val msg = "Storage critically low (${storageStatus.freeMb} MB < ${StorageGuard.CRITICAL_STOP_MB} MB) — free space before recording"
+            _storageAlert.value = msg
+            com.bajajauto.roadsense.logging.AppLogger.e("Storage", msg)
+            return@synchronized null
+        }
+
+        isAutoStoppingForStorage = false
+        lowStorageWarnLoggedInSession = (storageStatus.health == StorageHealth.LOW_WARN)
+        _storageAlert.value = if (storageStatus.health == StorageHealth.LOW_WARN) {
+            "Low storage warning: ${storageStatus.freeMb} MB free (< 1.5 GB)"
+        } else {
+            null
+        }
+        val initialThermal = thermalMonitor.currentSeverity(_batteryTempC.value)
+        currentThermalSeverity = initialThermal
+        peakThermalSeverity = initialThermal
+        peakBatteryTempC = _batteryTempC.value
+
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped START session recording")
         syncAssociator.reset()
         clockDiscipliner.reset()
@@ -839,6 +1025,11 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         }
         val session = sessionRecorder.startSession()
         if (session != null) {
+            RecordingForegroundService.start(
+                context = getApplication(),
+                sessionId = session.sessionId,
+                hasRadarUsb = connectionManager.connectionState.value is RadarConnectionState.Connected
+            )
             radarWasConnectedInSession = connectionManager.connectionState.value is RadarConnectionState.Connected
             radarStreamActiveInSession = false
             lastObservedRadarSeq = -1L
@@ -877,23 +1068,27 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             imuSessionRecorder.startRecording(session)
             imuManager.startSessionRecording(imuSessionRecorder)
         }
-        return session
+        return@synchronized session
     }
 
-    fun stopSessionRecording(): SessionInfo? {
-        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped STOP session recording")
-        sessionRecorder.currentSession?.let { activeSession ->
-            sessionManager.saveSessionCalibration(activeSession, _calibrationParams.value)
-        }
+    fun stopSessionRecording(): SessionInfo? = synchronized(sessionLifecycleLock) {
+        val activeSession = sessionRecorder.currentSession ?: return@synchronized null
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Stopping session recording (${activeSession.sessionId})")
+        sessionManager.saveSessionCalibration(activeSession, _calibrationParams.value)
         cameraEngine.stopVideoRecording()
         cameraSessionRecorder.stopRecording()
         gnssSessionRecorder.stopRecording()
         val imuFrames = imuSessionRecorder.stopRecording()
         imuManager.stopSessionRecording()
-        sessionRecorder.currentSession?.totalImuFrames = imuFrames
+        activeSession.totalImuFrames = imuFrames
+        activeSession.totalRadarSalvagedFrames = totalRadarSalvagedFrames
+        activeSession.totalRadarSequenceDrops = totalRadarDroppedFrames
+        activeSession.peakThermalSeverity = peakThermalSeverity.name
+        activeSession.peakBatteryTempC = peakBatteryTempC
         val stopped = sessionRecorder.stopSession()
         radarWasConnectedInSession = false
         radarStreamActiveInSession = false
+        RecordingForegroundService.stop(getApplication())
         canedgeIngestionManager.onSessionStopped(stopped)
         val totalRecorded = stopped?.totalRadarFrames ?: 0L
         com.bajajauto.roadsense.logging.AppLogger.i(
@@ -904,7 +1099,17 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             "chunksDropped=$totalRawByteChunksDropped"
         )
         _latestSessionAudit.value = stopped?.syncAuditResult
-        return stopped
+        return@synchronized stopped
+    }
+
+    private fun emergencyFlushActiveSession() {
+        val activeSession = sessionRecorder.currentSession ?: return
+        activeSession.terminatedByCrash = true
+        val flushed = stopSessionRecording()
+        if (flushed != null) {
+            sessionManager.writeMetadata(flushed)
+        }
+        sessionRecorder.awaitFlush(1200L)
     }
 
     fun startCanedgeDiscovery() {
@@ -950,6 +1155,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnect() {
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped Disconnect radar")
         connectionManager.disconnect()
+        syncAssociator.markRadarDisconnected()
         rawByteQueue.clear()
         packetAssembler.reset()
         clockDiscipliner.reset()
@@ -1305,6 +1511,10 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         super.onCleared()
         isRadarWorkerRunning = false
         radarProcessingThread?.interrupt()
+        thermalMonitor.release()
+        CrashRecoveryHandler.emergencyFlushCallback = null
+        RecordingForegroundService.onStopRequested = null
+        RecordingForegroundService.stop(getApplication())
         displayPacer.release()
         imuSessionRecorder.stopRecording()
         imuManager.release()

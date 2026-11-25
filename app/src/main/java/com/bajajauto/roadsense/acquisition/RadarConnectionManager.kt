@@ -25,6 +25,7 @@ import java.util.concurrent.Executors
 sealed class RadarConnectionState {
     object Disconnected : RadarConnectionState()
     object Connecting : RadarConnectionState()
+    data class Reconnecting(val message: String, val attempt: Int = 1) : RadarConnectionState()
     data class Connected(val portInfo: String) : RadarConnectionState()
     data class Error(val message: String) : RadarConnectionState()
 }
@@ -41,11 +42,27 @@ class RadarConnectionManager(private val context: Context) {
         const val CONFIG_BAUD_RATE = 115200
         const val DATA_BAUD_RATE = 3125000
         const val DATA_BAUD_RATE_2M = 2000000
+        private const val MAX_AUTO_RECONNECT_ATTEMPTS = 3
+        private val RECONNECT_BACKOFF_MS = longArrayOf(500L, 1500L, 3000L)
     }
 
     @Volatile
     var currentDataBaudRate: Int = DATA_BAUD_RATE
         private set
+
+    @Volatile
+    private var autoReconnectEnabled: Boolean = false
+
+    @Volatile
+    private var connectedDeviceId: Int? = null
+
+    @Volatile
+    private var isReconnecting: Boolean = false
+
+    @Volatile
+    private var pendingUsbReconnect: Boolean = false
+
+    var onUsbLifecycleEvent: ((event: String, detail: String) -> Unit)? = null
 
     fun setDataBaudRate(baudRate: Int) {
         if (baudRate <= 0 || baudRate == currentDataBaudRate) return
@@ -88,21 +105,35 @@ class RadarConnectionManager(private val context: Context) {
 
     private val usbPermissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            if (ACTION_USB_PERMISSION == intent.action) {
-                synchronized(this) {
-                    val device: UsbDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
-                    } else {
-                        @Suppress("DEPRECATION")
-                        intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-                    }
-                    if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                        device?.let {
-                            connectToDevice(it)
+            val action = intent.action ?: return
+            val device: UsbDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+            } else {
+                @Suppress("DEPRECATION")
+                intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+            }
+
+            when (action) {
+                ACTION_USB_PERMISSION -> {
+                    synchronized(this) {
+                        val isHotPlugReconnect = pendingUsbReconnect
+                        pendingUsbReconnect = false
+                        if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
+                            device?.let { connectToDevice(it, isReconnect = isHotPlugReconnect) }
+                        } else {
+                            Log.d(TAG, "permission denied for device $device")
+                            _connectionState.value = RadarConnectionState.Error("USB Permission Denied")
                         }
-                    } else {
-                        Log.d(TAG, "permission denied for device $device")
-                        _connectionState.value = RadarConnectionState.Error("USB Permission Denied")
+                    }
+                }
+                UsbManager.ACTION_USB_DEVICE_DETACHED -> {
+                    if (device != null && (device.deviceId == connectedDeviceId || dataPort != null)) {
+                        handleUsbDetached(device)
+                    }
+                }
+                UsbManager.ACTION_USB_DEVICE_ATTACHED -> {
+                    if (device != null && autoReconnectEnabled) {
+                        handleUsbAttached(device)
                     }
                 }
             }
@@ -110,7 +141,10 @@ class RadarConnectionManager(private val context: Context) {
     }
 
     init {
-        val filter = IntentFilter(ACTION_USB_PERMISSION)
+        val filter = IntentFilter(ACTION_USB_PERMISSION).apply {
+            addAction(UsbManager.ACTION_USB_DEVICE_DETACHED)
+            addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             context.registerReceiver(usbPermissionReceiver, filter, Context.RECEIVER_EXPORTED)
         } else {
@@ -119,7 +153,44 @@ class RadarConnectionManager(private val context: Context) {
         }
     }
 
+    private fun handleUsbDetached(device: UsbDevice) {
+        com.bajajauto.roadsense.logging.AppLogger.w(TAG, "USB_DETACHED: ${device.deviceName} (id=${device.deviceId})")
+        closePortsQuietly()
+        connectedDeviceId = null
+        onUsbLifecycleEvent?.invoke("USB_DETACHED", "device=${device.deviceName}")
+        _connectionState.value = if (autoReconnectEnabled) {
+            RadarConnectionState.Reconnecting("USB detached — waiting for re-plug")
+        } else {
+            RadarConnectionState.Disconnected
+        }
+    }
+
+    private fun handleUsbAttached(device: UsbDevice) {
+        val driver = UsbSerialProber.getDefaultProber().probeDevice(device) ?: return
+        com.bajajauto.roadsense.logging.AppLogger.i(TAG, "USB_ATTACHED matching serial device ${device.deviceName}; attempting hot-plug recovery")
+        _connectionState.value = RadarConnectionState.Reconnecting("USB re-attached — initializing ports")
+        executor.execute {
+            try {
+                Thread.sleep(250)
+            } catch (_: InterruptedException) {
+                return@execute
+            }
+            if (!autoReconnectEnabled) return@execute
+            if (usbManager.hasPermission(driver.device)) {
+                pendingUsbReconnect = false
+                connectToDevice(driver.device, isReconnect = true)
+            } else {
+                pendingUsbReconnect = true
+                val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
+                val permissionIntent = PendingIntent.getBroadcast(context, 0, Intent(ACTION_USB_PERMISSION), flags)
+                usbManager.requestPermission(driver.device, permissionIntent)
+            }
+        }
+    }
+
     fun scanAndConnect() {
+        pendingUsbReconnect = false
+        autoReconnectEnabled = true
         _connectionState.value = RadarConnectionState.Connecting
         val availableDrivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
         if (availableDrivers.isEmpty()) {
@@ -140,17 +211,13 @@ class RadarConnectionManager(private val context: Context) {
             val permissionIntent = PendingIntent.getBroadcast(context, 0, Intent(ACTION_USB_PERMISSION), flags)
             usbManager.requestPermission(device, permissionIntent)
         } else {
-            connectToDevice(device)
+            connectToDevice(device, isReconnect = false)
         }
     }
 
-    private fun connectToDevice(device: UsbDevice) {
+    private fun connectToDevice(device: UsbDevice, isReconnect: Boolean = false) {
         try {
-            // Ensure any previous IO manager/ports are cleanly stopped before re-opening
-            dataIoManager?.stop()
-            dataIoManager = null
-            configIoManager?.stop()
-            configIoManager = null
+            closePortsQuietly()
 
             val driver = UsbSerialProber.getDefaultProber().probeDevice(device)
             if (driver == null || driver.ports.isEmpty()) {
@@ -200,6 +267,8 @@ class RadarConnectionManager(private val context: Context) {
                 }
             }
 
+            connectedDeviceId = device.deviceId
+
             // Purge stale pre-connect RX/TX bytes from CP2105 silicon FIFOs before starting async reads
             dataPort?.let { port ->
                 purgeStaleHwBuffers(port, "Data")
@@ -209,6 +278,10 @@ class RadarConnectionManager(private val context: Context) {
             _connectionState.value = RadarConnectionState.Connected(
                 "Connected: ${ports.size} port(s) [Config: $CONFIG_BAUD_RATE, Data: $currentDataBaudRate]"
             )
+            if (isReconnect) {
+                com.bajajauto.roadsense.logging.AppLogger.i(TAG, "USB_RECONNECTED: Restored 3.125M UART streaming on ${device.deviceName}")
+                onUsbLifecycleEvent?.invoke("USB_RECONNECTED", "device=${device.deviceName}")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error opening serial port", e)
             _connectionState.value = RadarConnectionState.Error(e.message ?: "Connection Failed")
@@ -259,7 +332,6 @@ class RadarConnectionManager(private val context: Context) {
                 Log.e(TAG, "SerialInputOutputManager error: ${e.message}", e)
                 com.bajajauto.roadsense.logging.AppLogger.w(TAG, "SerialInputOutputManager error: ${e.message}")
                 if (port.isOpen && _connectionState.value is RadarConnectionState.Connected) {
-                    // Attempt clean auto-recovery rather than permanently failing connection
                     com.bajajauto.roadsense.logging.AppLogger.i(TAG, "Attempting auto-recovery for data serial IO manager...")
                     executor.execute {
                         try {
@@ -269,9 +341,11 @@ class RadarConnectionManager(private val context: Context) {
                             }
                         } catch (recEx: Exception) {
                             Log.e(TAG, "Auto-recovery failed", recEx)
-                            _connectionState.value = RadarConnectionState.Error(e.message ?: "Unknown IO Error")
+                            attemptHotPlugReconnect("IO error: ${e.message}")
                         }
                     }
+                } else if (autoReconnectEnabled) {
+                    attemptHotPlugReconnect(e.message ?: "USB IO error")
                 } else {
                     _connectionState.value = RadarConnectionState.Error(e.message ?: "Unknown IO Error")
                 }
@@ -309,6 +383,58 @@ class RadarConnectionManager(private val context: Context) {
             }
             start()
         }
+    }
+
+    private fun attemptHotPlugReconnect(reason: String) {
+        if (!autoReconnectEnabled || isReconnecting) return
+        isReconnecting = true
+        executor.execute {
+            try {
+                closePortsQuietly()
+                for (attempt in 1..MAX_AUTO_RECONNECT_ATTEMPTS) {
+                    if (!autoReconnectEnabled) return@execute
+                    _connectionState.value = RadarConnectionState.Reconnecting(
+                        "USB interrupted ($reason) — retry $attempt/$MAX_AUTO_RECONNECT_ATTEMPTS",
+                        attempt
+                    )
+                    Thread.sleep(RECONNECT_BACKOFF_MS[(attempt - 1).coerceAtMost(RECONNECT_BACKOFF_MS.lastIndex)])
+                    val drivers = UsbSerialProber.getDefaultProber().findAllDrivers(usbManager)
+                    val candidate = drivers.firstOrNull()?.device
+                    if (candidate != null && usbManager.hasPermission(candidate)) {
+                        connectToDevice(candidate, isReconnect = true)
+                        return@execute
+                    }
+                }
+                if (autoReconnectEnabled) {
+                    _connectionState.value = RadarConnectionState.Reconnecting("Waiting for USB re-plug")
+                }
+            } catch (_: InterruptedException) {
+            } catch (ex: Exception) {
+                Log.e(TAG, "Hot-plug reconnect error", ex)
+            } finally {
+                isReconnecting = false
+            }
+        }
+    }
+
+    private fun closePortsQuietly() {
+        try {
+            dataIoManager?.stop()
+        } catch (_: Exception) {}
+        dataIoManager = null
+        try {
+            configIoManager?.stop()
+        } catch (_: Exception) {}
+        configIoManager = null
+        dataPort?.let {
+            try { it.purgeHwBuffers(true, true) } catch (_: Exception) {}
+            try { it.close() } catch (_: Exception) {}
+        }
+        configPort?.let {
+            try { it.close() } catch (_: Exception) {}
+        }
+        dataPort = null
+        configPort = null
     }
 
     fun sendConfigCommand(command: String) {
@@ -371,20 +497,14 @@ class RadarConnectionManager(private val context: Context) {
     }
 
     fun disconnect() {
+        autoReconnectEnabled = false
+        isReconnecting = false
+        pendingUsbReconnect = false
+        connectedDeviceId = null
         try {
-            dataIoManager?.stop()
-            dataIoManager = null
-            configIoManager?.stop()
-            configIoManager = null
-            dataPort?.let {
-                try { it.purgeHwBuffers(true, true) } catch (_: Exception) {}
-                it.close()
-            }
-            configPort?.close()
-            dataPort = null
-            configPort = null
+            closePortsQuietly()
             _connectionState.value = RadarConnectionState.Disconnected
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             Log.e(TAG, "Error during disconnect", e)
         }
     }

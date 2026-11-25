@@ -191,6 +191,14 @@ class CrossSensorSyncAssociator {
     }
 
     /**
+     * Immediately marks the radar stream inactive (e.g. on USB detach/disconnect)
+     * so keyframes stop matching against stale buffered radar frames.
+     */
+    fun markRadarDisconnected() {
+        lastRadarHeartbeatNs.set(0L)
+    }
+
+    /**
      * Updates the latest GNSS location fix.
      */
     fun updateGnss(fix: GnssFix) {

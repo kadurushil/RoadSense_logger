@@ -1,10 +1,15 @@
 package com.bajajauto.roadsense.ui
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
@@ -45,6 +50,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.bajajauto.roadsense.diagnostics.CrashRecoveryHandler
 import com.bajajauto.roadsense.diagnostics.UiFrameMetricsProfiler
 import com.bajajauto.roadsense.BuildConfig
 import com.bajajauto.roadsense.logging.AppLogger
@@ -67,9 +73,13 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: RadarViewModel by viewModels()
     private val frameMetricsProfiler = UiFrameMetricsProfiler()
+    private val requestNotificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            AppLogger.i("MainActivity", "POST_NOTIFICATIONS permission result: granted=$granted")
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
         }
@@ -81,6 +91,12 @@ class MainActivity : ComponentActivity() {
                 android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         )
         AppLogger.initAppLogging(applicationContext)
+        CrashRecoveryHandler.install()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
         AppLogger.i(
             "MainActivity",
             "RoadSense started. Build=v${BuildConfig.VERSION_NAME} (#${BuildConfig.GIT_COMMIT_COUNT}, code=${BuildConfig.VERSION_CODE}, type=${BuildConfig.BUILD_TYPE}, commit=${BuildConfig.GIT_SHA}, branch=${BuildConfig.GIT_BRANCH}, built=${BuildConfig.BUILD_TIMESTAMP})"
@@ -130,8 +146,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         frameMetricsProfiler.detach(window)
-        AppLogger.i("MainActivity", "RoadSense onDestroy. Closing app run log.")
-        AppLogger.closeAppLogging()
+        if (!isChangingConfigurations) {
+            AppLogger.i("MainActivity", "RoadSense onDestroy. Closing app run log.")
+            AppLogger.closeAppLogging()
+        }
         super.onDestroy()
     }
 }
@@ -312,6 +330,40 @@ fun RoadSenseCockpitScreen(
                             }
                         }
                     )
+                }
+
+                val storageAlertMsg by viewModel.storageAlert.collectAsState()
+                if (storageAlertMsg != null) {
+                    Surface(
+                        color = Color(0xFF7F1D1D),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 10.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = storageAlertMsg ?: "",
+                                color = Color(0xFFFEE2E2),
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = { viewModel.dismissStorageAlert() },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                                modifier = Modifier.height(26.dp)
+                            ) {
+                                Text("Dismiss", color = Color.White, fontSize = 11.sp, maxLines = 1, softWrap = false)
+                            }
+                        }
+                    }
                 }
 
                 CockpitTabNavigationBar(

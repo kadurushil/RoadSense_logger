@@ -74,7 +74,8 @@ class CameraEngine(private val context: Context) {
     private var backgroundHandler: Handler? = null
     private var captureSyncThread: HandlerThread? = null
     private var captureSyncHandler: Handler? = null
-    @Volatile private var isMediaRecorderActive: Boolean = false
+    @Volatile
+    private var isMediaRecorderActive: Boolean = false
 
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
@@ -86,7 +87,11 @@ class CameraEngine(private val context: Context) {
 
     private var repeatingRequestBuilder: CaptureRequest.Builder? = null
     private var repeatingCaptureCallback: CameraCaptureSession.CaptureCallback? = null
-    @Volatile private var isRepeatingActive: Boolean = false
+    @Volatile
+    private var isRepeatingActive: Boolean = false
+
+    @Volatile
+    private var captureSessionGeneration: Long = 0L
 
     private val _isInfinityFocusLocked = MutableStateFlow(false)
     val isInfinityFocusLocked: StateFlow<Boolean> = _isInfinityFocusLocked.asStateFlow()
@@ -105,7 +110,9 @@ class CameraEngine(private val context: Context) {
     private val _isOisSupported = MutableStateFlow(false)
     val isOisSupported: StateFlow<Boolean> = _isOisSupported.asStateFlow()
 
-    // Autonomous Dual-Zone Road Auto-Exposure State
+    var onRecorderErrorListener: ((String) -> Unit)? = null
+
+    // Hardware Static Road Auto-Exposure State (Option A: 0% CPU/GPU)
     private val _roadAeMode = MutableStateFlow(RoadAeMode.FULL_MATRIX)
     val roadAeMode: StateFlow<RoadAeMode> = _roadAeMode.asStateFlow()
 
@@ -120,14 +127,6 @@ class CameraEngine(private val context: Context) {
 
     private val _contrastRatio = MutableStateFlow(1.0f)
     val contrastRatio: StateFlow<Float> = _contrastRatio.asStateFlow()
-
-    private var previewTextureViewRef: WeakReference<TextureView>? = null
-    private var luminanceAnalysisJob: Job? = null
-    private val engineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
-
-    private var smoothedContrastRatio: Float = 1.0f
-    private var lastAppliedAeState: RoadAeState? = null
-    private var lastAppliedEvIndex: Int = 0
 
     private val _engineState = MutableStateFlow<CameraEngineState>(CameraEngineState.Closed)
     val engineState: StateFlow<CameraEngineState> = _engineState.asStateFlow()
@@ -230,10 +229,14 @@ class CameraEngine(private val context: Context) {
                         val chars = cameraManager.getCameraCharacteristics(id)
                         val physicalIds = chars.physicalCameraIds
                         if (physicalIds.isNotEmpty()) {
-                            AppLogger.i(TAG, "Logical camera $id exposes physical multi-cameras: ${physicalIds.joinToString()}")
+                            AppLogger.i(
+                                TAG,
+                                "Logical camera $id exposes physical multi-cameras: ${physicalIds.joinToString()}"
+                            )
                             visitedIds.addAll(physicalIds)
                         }
-                    } catch (_: Exception) {}
+                    } catch (_: Exception) {
+                    }
                 }
             }
 
@@ -249,12 +252,27 @@ class CameraEngine(private val context: Context) {
 
                     val name = when {
                         isUltra -> "Ultra-Wide (${String.format(Locale.US, "%.1f", focal)}mm)"
-                        facing == CameraCharacteristics.LENS_FACING_BACK -> "Main Wide (${String.format(Locale.US, "%.1f", focal)}mm)"
-                        facing == CameraCharacteristics.LENS_FACING_FRONT -> "Front (${String.format(Locale.US, "%.1f", focal)}mm)"
+                        facing == CameraCharacteristics.LENS_FACING_BACK -> "Main Wide (${
+                            String.format(
+                                Locale.US,
+                                "%.1f",
+                                focal
+                            )
+                        }mm)"
+
+                        facing == CameraCharacteristics.LENS_FACING_FRONT -> "Front (${
+                            String.format(
+                                Locale.US,
+                                "%.1f",
+                                focal
+                            )
+                        }mm)"
+
                         else -> "Camera $id"
                     }
 
-                    val oisModes = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION) ?: intArrayOf()
+                    val oisModes =
+                        chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION) ?: intArrayOf()
                     val hasOis = oisModes.contains(CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON)
 
                     val info = CameraDeviceInfo(
@@ -266,7 +284,10 @@ class CameraEngine(private val context: Context) {
                         supportsOis = hasOis
                     )
                     list.add(info)
-                    AppLogger.i(TAG, "Discovered Camera: id=$id, name=$name, facing=$facing, focal=${focal}mm, ultraWide=$isUltra, supportsOis=$hasOis")
+                    AppLogger.i(
+                        TAG,
+                        "Discovered Camera: id=$id, name=$name, facing=$facing, focal=${focal}mm, ultraWide=$isUltra, supportsOis=$hasOis"
+                    )
                 } catch (e: Exception) {
                     AppLogger.d(TAG, "Skipping camera candidate $id: ${e.message}")
                 }
@@ -280,7 +301,10 @@ class CameraEngine(private val context: Context) {
                     ?: list.firstOrNull()
                 _selectedCamera.value = defaultCam
                 _isOisSupported.value = defaultCam?.supportsOis == true
-                AppLogger.i(TAG, "Selected default camera: ${defaultCam?.displayName} (id=${defaultCam?.id}), OIS supported: ${defaultCam?.supportsOis}")
+                AppLogger.i(
+                    TAG,
+                    "Selected default camera: ${defaultCam?.displayName} (id=${defaultCam?.id}), OIS supported: ${defaultCam?.supportsOis}"
+                )
             }
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to enumerate cameras", e)
@@ -295,7 +319,10 @@ class CameraEngine(private val context: Context) {
             return
         }
 
-        AppLogger.i(TAG, "Switching camera from ${_selectedCamera.value?.displayName} to ${deviceInfo.displayName} (id=${deviceInfo.id})")
+        AppLogger.i(
+            TAG,
+            "Switching camera from ${_selectedCamera.value?.displayName} to ${deviceInfo.displayName} (id=${deviceInfo.id})"
+        )
         _selectedCamera.value = deviceInfo
         _isOisSupported.value = deviceInfo.supportsOis
 
@@ -372,9 +399,21 @@ class CameraEngine(private val context: Context) {
                     )
                 }
                 val resumeMs = (System.nanoTime() - postStartNs) / 1_000_000.0
-                AppLogger.i(TAG, "Resumed repeating capture request on persistent SurfaceView in ${String.format(Locale.US, "%.2f", resumeMs)} ms (restarts=0)")
+                AppLogger.i(
+                    TAG,
+                    "Resumed repeating capture request on persistent SurfaceView in ${
+                        String.format(
+                            Locale.US,
+                            "%.2f",
+                            resumeMs
+                        )
+                    } ms (restarts=0)"
+                )
             } catch (e: Exception) {
-                AppLogger.w(TAG, "Could not resume repeating request on persistent surface; restarting session: ${e.message}")
+                AppLogger.w(
+                    TAG,
+                    "Could not resume repeating request on persistent surface; restarting session: ${e.message}"
+                )
                 restartSession()
             }
         }
@@ -407,7 +446,10 @@ class CameraEngine(private val context: Context) {
         isPreviewActive = true
         val res = _selectedResolution.value
 
-        AppLogger.i(TAG, "Attached persistent SurfaceView surface: ${res.width}x${res.height}, view size: ${width}x${height}")
+        AppLogger.i(
+            TAG,
+            "Attached persistent SurfaceView surface: ${res.width}x${res.height}, view size: ${width}x${height}"
+        )
 
         if (cameraDevice != null) {
             restartSession()
@@ -430,15 +472,22 @@ class CameraEngine(private val context: Context) {
                         try {
                             captureSession?.stopRepeating()
                             isRepeatingActive = false
-                            _engineState.value = if (cameraDevice != null) CameraEngineState.Standby else CameraEngineState.Closed
-                            AppLogger.i(TAG, "Paused CameraCaptureSession repeating request (ISP idle while off-tab/muted)")
+                            _engineState.value =
+                                if (cameraDevice != null) CameraEngineState.Standby else CameraEngineState.Closed
+                            AppLogger.i(
+                                TAG,
+                                "Paused CameraCaptureSession repeating request (ISP idle while off-tab/muted)"
+                            )
                         } catch (e: Exception) {
                             AppLogger.w(TAG, "Could not pause repeating request on park: ${e.message}")
                         }
                     }
                 }
             } else {
-                AppLogger.i(TAG, "Preserving active CameraCaptureSession repeating request for 0-drop recording while parked")
+                AppLogger.i(
+                    TAG,
+                    "Preserving active CameraCaptureSession repeating request for 0-drop recording while parked"
+                )
             }
         } else {
             if (isPreviewActive) return
@@ -454,13 +503,6 @@ class CameraEngine(private val context: Context) {
         currentDisplayRotation = rotation
         if (width > 0) currentViewWidth = width
         if (height > 0) currentViewHeight = height
-
-        if (textureView != null) {
-            previewTextureViewRef = WeakReference(textureView)
-            if (_roadAeMode.value == RoadAeMode.AUTO_ROAD && isPreviewActive) {
-                startLuminanceAnalyzer()
-            }
-        }
 
         if (textureView != null && currentViewWidth > 0 && currentViewHeight > 0) {
             configureTransform(textureView, currentViewWidth, currentViewHeight, rotation)
@@ -484,7 +526,10 @@ class CameraEngine(private val context: Context) {
         )
 
         textureView.setTransform(matrix)
-        AppLogger.d(TAG, "configureTransform (Standard FIT): view=${viewWidth}x${viewHeight}, buf=${res.width}x${res.height}, rot=$displayRotation")
+        AppLogger.d(
+            TAG,
+            "configureTransform (Standard FIT): view=${viewWidth}x${viewHeight}, buf=${res.width}x${res.height}, rot=$displayRotation"
+        )
     }
 
     /**
@@ -498,19 +543,25 @@ class CameraEngine(private val context: Context) {
             AppLogger.d(TAG, "Ignoring detachPreviewSurface for stale Surface")
             return
         }
+        val hadPreviewSurface = previewSurface != null
         AppLogger.i(TAG, "Detaching preview surface (SurfaceHolder destroyed)")
-        stopLuminanceAnalyzer()
-        previewTextureViewRef = null
         isPreviewActive = false
         previewSurface = null
 
-        if (!isRecordingVideo && !isPendingVideoRecording) {
+        if (isRecordingVideo || isPendingVideoRecording) {
+            // Drop destroyed SurfaceView target immediately so BufferQueue stalls don't freeze MediaRecorder in background/rotation
+            if (hadPreviewSurface && cameraDevice != null) {
+                AppLogger.i(TAG, "Preview surface destroyed mid-recording; reconfiguring session to recorderSurface only")
+                restartSession()
+            }
+        } else {
             backgroundHandler?.post {
                 if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording && isRepeatingActive) {
                     try {
                         captureSession?.stopRepeating()
                         isRepeatingActive = false
-                        _engineState.value = if (cameraDevice != null) CameraEngineState.Standby else CameraEngineState.Closed
+                        _engineState.value =
+                            if (cameraDevice != null) CameraEngineState.Standby else CameraEngineState.Closed
                     } catch (e: Exception) {
                         AppLogger.w(TAG, "Could not pause repeating request on detach: ${e.message}")
                     }
@@ -606,7 +657,11 @@ class CameraEngine(private val context: Context) {
         }
 
         val targetId = _selectedCamera.value?.id ?: "0"
-        val chars = try { cameraManager.getCameraCharacteristics(targetId) } catch (e: Exception) { null }
+        val chars = try {
+            cameraManager.getCameraCharacteristics(targetId)
+        } catch (e: Exception) {
+            null
+        }
         val sensorOrientation = chars?.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
         val isFront = chars?.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
 
@@ -628,7 +683,10 @@ class CameraEngine(private val context: Context) {
             } + 360) % 360
         }
 
-        AppLogger.i(TAG, "MediaRecorder setup: ${res.width}x${res.height} @ ${fps}fps, bitrate=${bitrate}, orientationHint=${rotationHint}deg")
+        AppLogger.i(
+            TAG,
+            "MediaRecorder setup: ${res.width}x${res.height} @ ${fps}fps, bitrate=${bitrate}, orientationHint=${rotationHint}deg"
+        )
 
         mediaRecorder = MediaRecorder().apply {
             setVideoSource(MediaRecorder.VideoSource.SURFACE)
@@ -639,6 +697,18 @@ class CameraEngine(private val context: Context) {
             setVideoSize(res.width, res.height)
             setVideoEncoder(MediaRecorder.VideoEncoder.H264)
             setOrientationHint(rotationHint)
+            setOnErrorListener { _, what, extra ->
+                val msg = "MediaRecorder error what=$what extra=$extra"
+                AppLogger.e(TAG, msg)
+                isRecordingVideo = false
+                isPendingVideoRecording = false
+                isMediaRecorderActive = false
+                _engineState.value = CameraEngineState.Error(msg)
+                onRecorderErrorListener?.invoke(msg)
+            }
+            setOnInfoListener { _, what, extra ->
+                AppLogger.w(TAG, "MediaRecorder info what=$what extra=$extra")
+            }
             prepare()
         }
         recorderSurface = mediaRecorder?.surface
@@ -661,9 +731,19 @@ class CameraEngine(private val context: Context) {
         }
 
         try {
+            val sessionGen = ++captureSessionGeneration
             val sessionCallback = object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(session: CameraCaptureSession) {
-                    if (cameraDevice == null) return
+                    if (cameraDevice == null || sessionGen != captureSessionGeneration) {
+                        AppLogger.d(
+                            TAG,
+                            "Ignoring stale CameraCaptureSession onConfigured (gen=$sessionGen, current=$captureSessionGeneration)"
+                        )
+                        try {
+                            session.close()
+                        } catch (_: Exception) {}
+                        return
+                    }
                     captureSession = session
 
                     try {
@@ -721,9 +801,12 @@ class CameraEngine(private val context: Context) {
                         }
 
                         repeatingCaptureCallback = captureCallback
-                        session.setRepeatingRequest(requestBuilder.build(), captureCallback, captureSyncHandler ?: backgroundHandler)
+                        session.setRepeatingRequest(
+                            requestBuilder.build(),
+                            captureCallback,
+                            captureSyncHandler ?: backgroundHandler
+                        )
                         isRepeatingActive = true
-                        startLuminanceAnalyzer()
 
                         if (isRecordingVideo) {
                             _engineState.value = CameraEngineState.Recording(
@@ -746,6 +829,12 @@ class CameraEngine(private val context: Context) {
                 }
 
                 override fun onConfigureFailed(session: CameraCaptureSession) {
+                    if (sessionGen != captureSessionGeneration) {
+                        try {
+                            session.close()
+                        } catch (_: Exception) {}
+                        return
+                    }
                     AppLogger.e(TAG, "CameraCaptureSession configuration failed")
                     _engineState.value = CameraEngineState.Error("Camera configuration failed")
                 }
@@ -777,7 +866,11 @@ class CameraEngine(private val context: Context) {
      */
     private fun applyFocusSettings(builder: CaptureRequest.Builder) {
         val targetCameraId = _selectedCamera.value?.id ?: getBackCameraId() ?: "0"
-        val chars = try { cameraManager.getCameraCharacteristics(targetCameraId) } catch (e: Exception) { null }
+        val chars = try {
+            cameraManager.getCameraCharacteristics(targetCameraId)
+        } catch (e: Exception) {
+            null
+        }
         val afModes = chars?.get(CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES) ?: intArrayOf()
 
         if (_isInfinityFocusLocked.value) {
@@ -857,10 +950,13 @@ class CameraEngine(private val context: Context) {
         val sMinY = minOf(p1.second, p2.second, p3.second, p4.second)
         val sMaxY = maxOf(p1.second, p2.second, p3.second, p4.second)
 
-        val left = (activeArray.left + sMinX * activeArray.width()).toInt().coerceIn(activeArray.left, activeArray.right)
-        val right = (activeArray.left + sMaxX * activeArray.width()).toInt().coerceIn(activeArray.left, activeArray.right)
+        val left =
+            (activeArray.left + sMinX * activeArray.width()).toInt().coerceIn(activeArray.left, activeArray.right)
+        val right =
+            (activeArray.left + sMaxX * activeArray.width()).toInt().coerceIn(activeArray.left, activeArray.right)
         val top = (activeArray.top + sMinY * activeArray.height()).toInt().coerceIn(activeArray.top, activeArray.bottom)
-        val bottom = (activeArray.top + sMaxY * activeArray.height()).toInt().coerceIn(activeArray.top, activeArray.bottom)
+        val bottom =
+            (activeArray.top + sMaxY * activeArray.height()).toInt().coerceIn(activeArray.top, activeArray.bottom)
 
         return Rect(
             minOf(left, right),
@@ -886,7 +982,9 @@ class CameraEngine(private val context: Context) {
     }
 
     /**
-     * Applies autonomous road auto-exposure metering and EV compensation to CaptureRequest.Builder.
+     * Option A Static Hardware Road AE:
+     * Applies static Camera2 CONTROL_AE_REGIONS restricted to the bottom 65% road zone
+     * once at session configure or manual mode toggle (0% CPU, 0% GPU, 0 mid-drive HAL calls).
      */
     private fun applyAeMeteringSettings(builder: CaptureRequest.Builder) {
         if (_isAfAeLocked.value && currentMeteringRegion != null) {
@@ -901,41 +999,37 @@ class CameraEngine(private val context: Context) {
         if (_roadAeMode.value == RoadAeMode.FULL_MATRIX) {
             builder.set(CaptureRequest.CONTROL_AE_REGIONS, null)
             builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, 0)
+            _roadAeState.value = RoadAeState.BALANCED
+            AppLogger.d(TAG, "Applied FULL_MATRIX AE (regions=null, ev=0)")
             return
         }
 
         val targetCameraId = _selectedCamera.value?.id ?: getBackCameraId() ?: "0"
-        val chars = try { cameraManager.getCameraCharacteristics(targetCameraId) } catch (e: Exception) { null }
+        val chars = try {
+            cameraManager.getCameraCharacteristics(targetCameraId)
+        } catch (e: Exception) {
+            null
+        }
         val activeArray = chars?.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
         val maxAeRegions = chars?.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AE) ?: 0
-        val compRange = chars?.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE)
         val effectiveRotation = getEffectiveSensorRotation(chars)
 
-        when (_roadAeState.value) {
-            RoadAeState.SKY_BLOOM -> {
-                if (activeArray != null && maxAeRegions > 0) {
-                    val roadMetering = createRoadMeteringRectangle(activeArray, effectiveRotation)
-                    builder.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(roadMetering))
-                }
-                val evSteps = if (_contrastRatio.value >= 2.5f) 2 else 1
-                val maxComp = compRange?.upper ?: 0
-                builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, evSteps.coerceAtMost(maxComp))
-            }
-            RoadAeState.BALANCED -> {
-                if (activeArray != null && maxAeRegions > 0) {
-                    val roadMetering = createRoadMeteringRectangle(activeArray, effectiveRotation)
-                    builder.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(roadMetering))
-                }
-                builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, 0)
-            }
-            RoadAeState.NIGHT_TUNNEL -> {
-                builder.set(CaptureRequest.CONTROL_AE_REGIONS, null)
-                builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, 0)
-            }
-            RoadAeState.TAP_LOCKED -> {
-                // Handled above
-            }
+        if (activeArray != null && maxAeRegions > 0) {
+            val roadMetering = createRoadMeteringRectangle(activeArray, effectiveRotation)
+            builder.set(CaptureRequest.CONTROL_AE_REGIONS, arrayOf(roadMetering))
+            AppLogger.i(
+                TAG,
+                "Applied AUTO_ROAD AE region=${roadMetering.rect} (active=$activeArray, rot=$effectiveRotation, maxAeRegions=$maxAeRegions)"
+            )
+        } else {
+            builder.set(CaptureRequest.CONTROL_AE_REGIONS, null)
+            AppLogger.w(
+                TAG,
+                "AUTO_ROAD fallback to FULL_MATRIX (activeArray=${activeArray != null}, maxAeRegions=$maxAeRegions)"
+            )
         }
+        builder.set(CaptureRequest.CONTROL_AE_EXPOSURE_COMPENSATION, 0)
+        _roadAeState.value = RoadAeState.BALANCED
     }
 
     private fun updateRepeatingAeSettings() {
@@ -952,106 +1046,10 @@ class CameraEngine(private val context: Context) {
         }
     }
 
-    /**
-     * Starts the autonomous dual-zone luminance analysis coroutine loop.
-     * Throttles TextureView.getBitmap(32, 24) readbacks to 2 Hz during active H.264 recording
-     * (vs 4 Hz in preview-only mode) to minimize GPU/SurfaceTexture bus contention under 30 FPS HAL limit.
-     */
-    private fun startLuminanceAnalyzer() {
-        luminanceAnalysisJob?.cancel()
-        luminanceAnalysisJob = null
-    }
-
-    @Suppress("unused")
-    private fun startLuminanceAnalyzerLegacyDisabled() {
-        luminanceAnalysisJob?.cancel()
-        luminanceAnalysisJob = engineScope.launch {
-            while (isActive) {
-                val intervalMs = if (isRecordingVideo) 500L else 250L
-                delay(intervalMs)
-                if (!isPreviewActive || !isRepeatingActive || _isAfAeLocked.value || _roadAeMode.value != RoadAeMode.AUTO_ROAD) {
-                    continue
-                }
-
-                val textureView = previewTextureViewRef?.get() ?: continue
-                if (!textureView.isAvailable || textureView.width <= 0 || textureView.height <= 0) continue
-
-                try {
-                    val bitmap = textureView.getBitmap(32, 24) ?: continue
-
-                    var skySum = 0L
-                    var skyCount = 0
-                    var roadSum = 0L
-                    var roadCount = 0
-
-                    val startX = (32 * 0.1f).toInt()
-                    val endX = (32 * 0.9f).toInt()
-                    val splitY = (24 * 0.35f).toInt()
-
-                    for (y in 0 until 24) {
-                        for (x in startX..endX) {
-                            val pixel = bitmap.getPixel(x, y)
-                            val r = (pixel shr 16) and 0xFF
-                            val g = (pixel shr 8) and 0xFF
-                            val b = pixel and 0xFF
-                            val luma = (0.299f * r + 0.587f * g + 0.114f * b).toLong()
-
-                            if (y < splitY) {
-                                skySum += luma
-                                skyCount++
-                            } else {
-                                roadSum += luma
-                                roadCount++
-                            }
-                        }
-                    }
-                    bitmap.recycle()
-
-                    val skyLuma = if (skyCount > 0) skySum.toFloat() / skyCount else 128f
-                    val roadLuma = if (roadCount > 0) roadSum.toFloat() / roadCount else 128f
-                    val rawRatio = skyLuma / maxOf(1.0f, roadLuma)
-
-                    smoothedContrastRatio = 0.25f * rawRatio + 0.75f * smoothedContrastRatio
-
-                    _skyLuminance.value = skyLuma
-                    _roadLuminance.value = roadLuma
-                    _contrastRatio.value = smoothedContrastRatio
-
-                    val newState = when {
-                        smoothedContrastRatio >= 1.8f -> RoadAeState.SKY_BLOOM
-                        smoothedContrastRatio >= 0.9f -> RoadAeState.BALANCED
-                        else -> RoadAeState.NIGHT_TUNNEL
-                    }
-
-                    val evTarget = if (newState == RoadAeState.SKY_BLOOM && smoothedContrastRatio >= 2.5f) 2 else if (newState == RoadAeState.SKY_BLOOM) 1 else 0
-
-                    if (newState != lastAppliedAeState || evTarget != lastAppliedEvIndex) {
-                        lastAppliedAeState = newState
-                        lastAppliedEvIndex = evTarget
-                        _roadAeState.value = newState
-                        AppLogger.d(TAG, "Road AE state shift -> $newState (contrast=${String.format(Locale.US, "%.2f", smoothedContrastRatio)}, sky=${skyLuma.toInt()}, road=${roadLuma.toInt()}, ev=$evTarget)")
-                        updateRepeatingAeSettings()
-                    }
-                } catch (_: Exception) {
-                }
-            }
-        }
-    }
-
-    private fun stopLuminanceAnalyzer() {
-        luminanceAnalysisJob?.cancel()
-        luminanceAnalysisJob = null
-    }
-
     fun setRoadAeMode(mode: RoadAeMode) {
         if (_roadAeMode.value == mode) return
         _roadAeMode.value = mode
         AppLogger.i(TAG, "Road AE mode changed to: $mode")
-        if (mode == RoadAeMode.AUTO_ROAD) {
-            startLuminanceAnalyzer()
-        } else {
-            stopLuminanceAnalyzer()
-        }
         updateRepeatingAeSettings()
     }
 
@@ -1060,7 +1058,11 @@ class CameraEngine(private val context: Context) {
      */
     private fun applyStabilizationSettings(builder: CaptureRequest.Builder) {
         val targetCameraId = _selectedCamera.value?.id ?: getBackCameraId() ?: "0"
-        val chars = try { cameraManager.getCameraCharacteristics(targetCameraId) } catch (e: Exception) { null }
+        val chars = try {
+            cameraManager.getCameraCharacteristics(targetCameraId)
+        } catch (e: Exception) {
+            null
+        }
         val oisModes = chars?.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION) ?: intArrayOf()
         val supportsOis = oisModes.contains(CameraMetadata.LENS_OPTICAL_STABILIZATION_MODE_ON)
 
@@ -1150,7 +1152,11 @@ class CameraEngine(private val context: Context) {
         try {
             val isTapLock = normX != null && normY != null
             val targetCameraId = _selectedCamera.value?.id ?: getBackCameraId() ?: "0"
-            val chars = try { cameraManager.getCameraCharacteristics(targetCameraId) } catch (e: Exception) { null }
+            val chars = try {
+                cameraManager.getCameraCharacteristics(targetCameraId)
+            } catch (e: Exception) {
+                null
+            }
             val activeArray = chars?.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE)
             val maxAfRegions = chars?.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AF) ?: 0
             val maxAeRegions = chars?.get(CameraCharacteristics.CONTROL_MAX_REGIONS_AE) ?: 0
@@ -1169,7 +1175,8 @@ class CameraEngine(private val context: Context) {
                     Surface.ROTATION_270 -> 270
                     else -> 0
                 }
-                val isFacingFront = chars?.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
+                val isFacingFront =
+                    chars?.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_FRONT
 
                 val effectiveRotation = if (isFacingFront) {
                     (sensorOrientation + rotationDegrees) % 360
@@ -1214,15 +1221,24 @@ class CameraEngine(private val context: Context) {
 
                 builder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_AUTO)
                 builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE)
-                builder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE)
+                builder.set(
+                    CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
+                    CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE
+                )
                 session.setRepeatingRequest(builder.build(), callback, captureSyncHandler ?: backgroundHandler)
 
                 if (callback != null) {
                     builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_START)
-                    builder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START)
+                    builder.set(
+                        CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
+                        CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_START
+                    )
                     session.capture(builder.build(), callback, captureSyncHandler ?: backgroundHandler)
                     builder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE)
-                    builder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE)
+                    builder.set(
+                        CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
+                        CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE
+                    )
                 }
                 AppLogger.i(TAG, "Triggered in-stream tap AF/AE scan at ($focusX, $focusY)")
 
@@ -1232,12 +1248,22 @@ class CameraEngine(private val context: Context) {
                         val currentBuilder = repeatingRequestBuilder
                         if (currentSession != null && currentBuilder != null && _isAfAeLocked.value && isRepeatingActive) {
                             currentBuilder.set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_AUTO)
-                            currentBuilder.set(CaptureRequest.CONTROL_AF_TRIGGER, CameraMetadata.CONTROL_AF_TRIGGER_IDLE)
-                            currentBuilder.set(CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER, CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE)
+                            currentBuilder.set(
+                                CaptureRequest.CONTROL_AF_TRIGGER,
+                                CameraMetadata.CONTROL_AF_TRIGGER_IDLE
+                            )
+                            currentBuilder.set(
+                                CaptureRequest.CONTROL_AE_PRECAPTURE_TRIGGER,
+                                CameraMetadata.CONTROL_AE_PRECAPTURE_TRIGGER_IDLE
+                            )
                             if (maxAfRegions > 0) currentBuilder.set(CaptureRequest.CONTROL_AF_REGIONS, regions)
                             if (maxAeRegions > 0) currentBuilder.set(CaptureRequest.CONTROL_AE_REGIONS, regions)
                             currentBuilder.set(CaptureRequest.CONTROL_AE_LOCK, true)
-                            currentSession.setRepeatingRequest(currentBuilder.build(), callback, captureSyncHandler ?: backgroundHandler)
+                            currentSession.setRepeatingRequest(
+                                currentBuilder.build(),
+                                callback,
+                                captureSyncHandler ?: backgroundHandler
+                            )
                             AppLogger.i(TAG, "Locked AF and AE at tap point ($focusX, $focusY)")
                         }
                     } catch (e: Exception) {
@@ -1272,9 +1298,8 @@ class CameraEngine(private val context: Context) {
 
     fun closeCamera() {
         try {
+            captureSessionGeneration++
             isRepeatingActive = false
-            stopLuminanceAnalyzer()
-            previewTextureViewRef = null
             captureSession?.close()
             captureSession = null
             repeatingRequestBuilder = null

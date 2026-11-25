@@ -20,9 +20,11 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import com.bajajauto.roadsense.acquisition.RadarConnectionState
 import com.bajajauto.roadsense.camera.CameraEngineState
+import com.bajajauto.roadsense.diagnostics.ThermalSeverity
 import com.bajajauto.roadsense.gnss.GnssFix
 import com.bajajauto.roadsense.gnss.GnssLocationManager
 import com.bajajauto.roadsense.gnss.GnssState
+import com.bajajauto.roadsense.recording.StorageHealth
 import com.bajajauto.roadsense.sync.LiveSyncTelemetry
 import com.bajajauto.roadsense.ui.LiveMetricsSnapshot
 import com.bajajauto.roadsense.ui.RadarViewModel
@@ -243,11 +245,20 @@ private fun LiveMetricsCanvasHud(
         }
 
         val batColor = when {
-            snap.batteryTempC >= 45f -> colorRed
-            snap.batteryTempC >= 40f -> colorAmber
+            snap.storageStatus.health == StorageHealth.CRITICAL_STOP -> colorRed
+            snap.thermalSeverity.rank >= ThermalSeverity.SEVERE.rank || snap.batteryTempC >= 45f -> colorRed
+            snap.storageStatus.health == StorageHealth.LOW_WARN ||
+                snap.thermalSeverity == ThermalSeverity.MODERATE ||
+                snap.batteryTempC >= 40f -> colorAmber
             else -> colorCyan
         }
-        val batText = String.format(Locale.US, "BAT %d%% • %.1f°C", snap.batteryPct, snap.batteryTempC)
+        val diskPrefix = when (snap.storageStatus.health) {
+            StorageHealth.CRITICAL_STOP -> "DISK<0.5G! "
+            StorageHealth.LOW_WARN -> String.format(Locale.US, "LOW %.1fG ", snap.storageStatus.freeMb / 1024f)
+            StorageHealth.OK -> ""
+        }
+        val thermSuffix = if (snap.thermalSeverity.hudTag.isNotEmpty()) " ${snap.thermalSeverity.hudTag}" else ""
+        val batText = String.format(Locale.US, "%sBAT %d%% • %.1f°C%s", diskPrefix, snap.batteryPct, snap.batteryTempC, thermSuffix)
 
         fun measurePill(label: String, value: String): Float {
             return labelPaint.measureText(label) + labelValGap + valuePaint.measureText(value)

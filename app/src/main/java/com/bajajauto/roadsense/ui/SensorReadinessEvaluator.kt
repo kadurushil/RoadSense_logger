@@ -51,6 +51,7 @@ object SensorReadinessEvaluator {
                 }
             }
             is RadarConnectionState.Connecting -> SensorPillStatus("WAIT", "WAIT", SensorHudTone.YELLOW)
+            is RadarConnectionState.Reconnecting -> SensorPillStatus("RECONN", "REC", SensorHudTone.YELLOW)
             is RadarConnectionState.Connected -> {
                 when {
                     radarDroppedMidRecording && radarHz <= 0f -> SensorPillStatus("ERR", "ERR", SensorHudTone.RED)

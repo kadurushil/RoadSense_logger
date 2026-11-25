@@ -165,7 +165,8 @@ private fun RadarHardwareStatusCard(
                 Surface(
                     color = when (connectionState) {
                         is RadarConnectionState.Connected -> Color(0xFF00E676)
-                        is RadarConnectionState.Connecting -> Color(0xFFFFB300)
+                        is RadarConnectionState.Connecting,
+                        is RadarConnectionState.Reconnecting -> Color(0xFFFFB300)
                         is RadarConnectionState.Error -> Color(0xFFFF5252)
                         else -> Color(0xFF78909C)
                     },
@@ -175,6 +176,7 @@ private fun RadarHardwareStatusCard(
                         text = when (connectionState) {
                             is RadarConnectionState.Connected -> "ONLINE (3.125M)"
                             is RadarConnectionState.Connecting -> "CONNECTING"
+                            is RadarConnectionState.Reconnecting -> "RECONNECTING"
                             is RadarConnectionState.Error -> "ERROR"
                             else -> "OFFLINE"
                         },
@@ -192,6 +194,7 @@ private fun RadarHardwareStatusCard(
                 text = when (connectionState) {
                     is RadarConnectionState.Disconnected -> "Hardware disconnected (UART / CP2105)"
                     is RadarConnectionState.Connecting -> "Handshaking with mmWave radar..."
+                    is RadarConnectionState.Reconnecting -> connectionState.message
                     is RadarConnectionState.Connected -> connectionState.portInfo
                     is RadarConnectionState.Error -> "Error: ${connectionState.message}"
                 },
@@ -256,6 +259,9 @@ private fun RadarConnectionButtons(
     connectionState: RadarConnectionState
 ) {
     val isConnected = connectionState is RadarConnectionState.Connected
+    val canDisconnect = isConnected ||
+        connectionState is RadarConnectionState.Reconnecting ||
+        connectionState is RadarConnectionState.Connecting
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -265,14 +271,14 @@ private fun RadarConnectionButtons(
             modifier = Modifier.weight(1f),
             enabled = !isConnected
         ) {
-            Text("Connect Radar")
+            Text("Connect Radar", maxLines = 1, softWrap = false)
         }
         OutlinedButton(
             onClick = { viewModel.disconnect() },
             modifier = Modifier.weight(1f),
-            enabled = isConnected
+            enabled = canDisconnect
         ) {
-            Text("Disconnect")
+            Text("Disconnect", maxLines = 1, softWrap = false)
         }
     }
 }

@@ -33,7 +33,12 @@ data class SessionInfo(
     var crossSensorSyncJson: JSONObject? = null,
     var syncAuditResult: SessionSyncAuditor.AuditResult? = null,
     var canSyncStatus: String? = null,
-    var canClockOffsetMs: Long? = null
+    var canClockOffsetMs: Long? = null,
+    var totalRadarSalvagedFrames: Long = 0L,
+    var totalRadarSequenceDrops: Long = 0L,
+    var peakThermalSeverity: String = "NOMINAL",
+    var peakBatteryTempC: Float = 0f,
+    var terminatedByCrash: Boolean = false
 ) {
     fun toJson(): String {
         val json = JSONObject()
@@ -64,7 +69,17 @@ data class SessionInfo(
         radarObj.put("baudRateCliPort", 115200)
         radarObj.put("totalFrames", totalRadarFrames)
         radarObj.put("totalBytes", totalRadarBytes)
+        radarObj.put("salvagedFrames", totalRadarSalvagedFrames)
+        radarObj.put("sequenceDrops", totalRadarSequenceDrops)
         json.put("radar", radarObj)
+
+        val healthObj = JSONObject()
+        healthObj.put("peakThermalSeverity", peakThermalSeverity)
+        if (peakBatteryTempC > 0f) {
+            healthObj.put("peakBatteryTempC", peakBatteryTempC.toDouble())
+        }
+        healthObj.put("terminatedByCrash", terminatedByCrash)
+        json.put("systemHealth", healthObj)
 
         val gnssObj = JSONObject()
         gnssObj.put("sensor", "Android GNSS Location Provider")
@@ -90,9 +105,12 @@ data class SessionInfo(
         if (totalGnssFixes > 0 || File(gnssDir, "gnss_fixes.csv").exists()) {
             streamsArray.put("gnss/gnss_fixes.csv")
         }
-        if (totalCameraFrames > 0 || File(cameraDir, "camera_frames.csv").exists()) {
+        val legacyCamCsv = File(cameraDir, "camera_frames.csv")
+        if (totalCameraFrames > 0 || File(cameraDir, "camera_video.mp4").exists() || legacyCamCsv.exists()) {
             streamsArray.put("camera/camera_video.mp4")
-            streamsArray.put("camera/camera_frames.csv")
+            if (legacyCamCsv.exists()) {
+                streamsArray.put("camera/camera_frames.csv")
+            }
         }
         if (totalImuFrames > 0 || File(imuDir, "imu_frames.csv").exists()) {
             streamsArray.put("imu/imu_frames.csv")

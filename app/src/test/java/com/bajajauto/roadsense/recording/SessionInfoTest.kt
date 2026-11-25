@@ -25,6 +25,10 @@ class SessionInfoTest {
         sessionInfo.stopTimeMonotonicNs = 15000000000L
         sessionInfo.totalRadarFrames = 100L
         sessionInfo.totalRadarBytes = 50000L
+        sessionInfo.totalRadarSalvagedFrames = 2L
+        sessionInfo.totalRadarSequenceDrops = 1L
+        sessionInfo.peakThermalSeverity = "MODERATE"
+        sessionInfo.peakBatteryTempC = 41.5f
 
         val jsonStr = sessionInfo.toJson()
         assertNotNull(jsonStr)
@@ -39,7 +43,13 @@ class SessionInfoTest {
         val radarObj = parsed.getJSONObject("radar")
         assertEquals(100L, radarObj.getLong("totalFrames"))
         assertEquals(50000L, radarObj.getLong("totalBytes"))
+        assertEquals(2L, radarObj.getLong("salvagedFrames"))
+        assertEquals(1L, radarObj.getLong("sequenceDrops"))
         assertEquals("TI AWR1843BOOST", radarObj.getString("sensor"))
+
+        val healthObj = parsed.getJSONObject("systemHealth")
+        assertEquals("MODERATE", healthObj.getString("peakThermalSeverity"))
+        assertEquals(false, healthObj.getBoolean("terminatedByCrash"))
 
         val streams = parsed.getJSONArray("activeStreams")
         assertTrue(streams.length() >= 2)
