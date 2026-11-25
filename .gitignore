@@ -30,3 +30,5 @@ traces/
 scratch/
 *.pftrace
 ~$*
+APK versions/
+*.apk

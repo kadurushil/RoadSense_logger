@@ -446,6 +446,62 @@ On vehicles or logging sessions where factory calibration has not been performed
 2. **Continuous Soft-Knee Deadband:** Suppresses residual cross-axis leakage below $0.025\text{ rad/s}$ ($~1.4^\circ/\text{s}$) during straight-line travel without discontinuous step transitions.
 3. **GNSS / Vision Straight-Line Sanity Check:** In future multi-sensor fusion, force $\omega_{\text{ego}} = 0$ when road lane boundaries remain parallel and wheel speed differential is zero.
 
+---
+
+## 9. System Reliability, Field UX, Capability & Research Audit Backlog (Nov 2026)
+
+> **Master Roadmap Reference:** [`intel/Implementations/08_HANDOVER_AND_DOCS/109_plan_reliability_ux_soak_and_pitch_master_roadmap.md`](intel/Implementations/08_HANDOVER_AND_DOCS/109_plan_reliability_ux_soak_and_pitch_master_roadmap.md)  
+> **Branch:** `Overhaul` (executed tier-by-tier, starting with Plan `110`)
+
+### 9.1 Critical Reliability & Crash-Safety Gaps `[PLANNED — TIER 1 / Plan 110]`
+1. **Foreground Service & Background Survival (`AndroidManifest.xml`, `RecordingForegroundService.kt`):**
+   - Declare `FOREGROUND_SERVICE` (`camera | location | connectedDevice | dataSync`), `POST_NOTIFICATIONS`, `WAKE_LOCK`, dynamic runtime permission type mask, partial `WakeLock`, and ongoing notification with Stop action so recording survives Home/Power/calls on Samsung One UI.
+2. **Protected Single-File `MediaRecorder`, `StatFs` Disk Guard & Emergency Crash Flush (`CameraEngine.kt`, `StorageGuard.kt`, `CrashRecoveryHandler.kt`):**
+   - Keep single `camera_video.mp4` (avoid multi-part PC stitching complexity); wire `MediaRecorder.OnErrorListener` & `OnInfoListener`; enforce `1.5 GB` amber warning and `< 500 MB` graceful auto-stop so `moov` finalizes cleanly; install `Thread.setDefaultUncaughtExceptionHandler` bounded flush hook.
+3. **USB Hot-Plug Detach & Auto-Recovery (`RadarConnectionManager.kt`):**
+   - Register `ACTION_USB_DEVICE_DETACHED` and `ACTION_USB_DEVICE_ATTACHED` receivers alongside `RadarConnectionState.Reconnecting` so brief vibration disconnects recover automatically into the active session without manual re-scan.
+4. **Thermal Throttling Monitor (`ThermalMonitor.kt`, `LiveMetricsBar.kt`):**
+   - Monitor `PowerManager.addThermalStatusListener` (API 29+) + battery temperature fallback, logging thermal shifts to `session_timeline.csv` and displaying `THRM` (`AMBER`) / `HOT!` (`RED`) alerts directly in the Canvas HUD (warn + log only).
+5. **`SessionSyncAuditor` Parity Fixes (`SessionSyncAuditor.kt`, `SessionInfo.kt`):**
+   - Auto-detect `200 Hz` IMU vs legacy `100 Hz`, adaptively infer Radar cadence (`10–60 Hz`, supporting `45 ms` / `50 ms` DSP builds), and serialize `sequenceDrops`, `salvagedFrames`, and interval percentiles inside `"radar"` in `session_metadata.json`.
+6. **Option A Static Hardware Road AE (`CameraEngine.kt`):**
+   - Delete dead `startLuminanceAnalyzerLegacyDisabled()` `getBitmap()` stub; apply static hardware `CONTROL_AE_REGIONS` restricted to the lower 65% road zone once on open/toggle (`AUTO_ROAD` vs `FULL_MATRIX`) — **0% CPU, 0% GPU, 0 dynamic `setRepeatingRequest()` calls mid-drive**.
+
+### 9.2 UI/UX & Field Usability Improvements
+1. **One-Tap On-Screen Event Bookmarking (`EVENT_MARKER`) `[PLANNED — TIER 2]`:**
+   - Dedicated thumb bookmark button across SBS, SBS Fullscreen, Camera Preview, and Camera Fullscreen (`CUT_IN`, `BRAKE`, `FALSE_ALARM`, `BUMP`, `NOTE`) written into `session_timeline.csv` and exported to Foxglove `/events` annotations. *(Physical volume keys stay standard to prevent mount shake.)*
+2. **Eyes-Free Audio Health Alerts `[PLANNED — TIER 2]`:**
+   - Lightweight `ToneGenerator` chimes on `REC` start/stop, bookmark tap, radar detach, camera error, thermal severe, and low storage with persistent mute toggle.
+3. **Pre-Drive Mount-Slippage Canary & Static Pitch Check `[BACKLOG]`:**
+   - Compare stationary live IMU pitch at session start against calibrated baseline (`radar_camera_calib.json`) and surface an HUD warning if $|\theta_{\text{live}} - \theta_{\text{calib}}| > 0.5^\circ$ before starting a long drive.
+4. **Structured Session Metadata Tagging `[PLANNED — TIER 2]`:**
+   - Quick selector stamping `vehicleId`, `dspFirmwareBuild`, `mountType`, `lightingCondition`, and notes into `session_metadata.json` for automated A/B PC grouping.
+5. **Pre-Drive Preflight Checklist & Codebase Hygiene `[PLANNED — TIER 2]`:**
+   - Compact preflight readout (5 sensor pills + storage + battery + thermal) and cleanup of dead placeholder files (`AcquisitionPlaceholder.kt`, `RecordingPlaceholder.kt`, `AutoFitTextureView.kt`).
+
+### 9.3 Capability Additions
+1. **On-Device Quick-Peek CAN Diagnostics `[BACKLOG]`:**
+   - Pure-Kotlin 36-byte stride reader on staged `.MF4` chunks to verify live CAN frame rate, vehicle speed, and bus-off/error flags inside the Android `CAN` pill and embed DBC/VIN fingerprints in metadata.
+2. **Automated Long-Duration Soak & Reliability Harness `[PLANNED — TIER 3]`:**
+   - Unattended ADB soak runner (`15–60 min`) polling `dumpsys meminfo`, `gfxinfo`, `thermalservice`, and `AppLogger` + chaining `session_health_check.py` / `verify_conversion_parity.py` into a pass/fail `soak_report.json`.
+3. **Post-Drive Summary Card `[PLANNED — TIER 2]`:**
+   - Dismissible overlay (modeled on `LaunchBuildOverlay.kt`) displayed immediately after stopping recording with duration, sync grade, radar drops/salvaged frames, camera FPS, GNSS lock %, CAN chunks staged/pending, thermal peak, and bookmark count.
+
+### 9.4 Open ADAS & Perception Research Gaps
+1. **Dynamic Pitch Bounce & Road-Grade Compensation `[PLANNED — TIER 4]`:**
+   - High-pass complementary fusion of 200 Hz IMU / CAN `pitch_rate_radps` into per-frame monocular IPM $\theta_{\text{eff}}(t)$ (mitigating quadratic $dX/d\theta \approx -X^2/h$ bump spikes), benchmarked offline in `evaluate_vision_vs_radar.py` before Android integration.
+2. **Rolling-Shutter & Exposure-Midpoint Temporal Compensation `[BACKLOG]`:**
+   - Model CMOS vertical row readout latency $t(v) = t_0 + \frac{v}{H} t_{\text{readout}} + \frac{t_{\text{exp}}}{2}$ during radar-vision association.
+3. **Targetless Multi-DOF Auto-Calibration ($\theta, \psi_{\text{radar}}, h_{\text{cam}}$) `[BACKLOG]`:**
+   - Extend `DynamicPitchSolver` to jointly solve pitch, radar squint, and height using stationary clutter + dynamic tracks.
+4. **Full Multi-Object Tracking Evaluation (CLEAR MOT / HOTA) & Radar Clutter Attribution `[BACKLOG]`:**
+   - Compute `MOTA`, `MOTP`, `IDF1`, ID switches, track fragmentation, and multipath ghost attribution for formal DSP A/B qualification.
+5. **Cross-Axis Vehicle IMU Calibration ($3 \times 3$ $R_{\text{IMU}\to\text{Body}}$) `[BACKLOG]`:**
+   - Automated straight-line off-diagonal cross-axis regression (see Section 8 above).
+6. **Hardware-Level Pre-Capture Time Sync for CANedge2 `[BACKLOG]`:**
+   - Hardware NTP / GPS-PPS discipline on CANedge2 to eliminate post-hoc clock offset/drift regression.
+
+
 
 
 
