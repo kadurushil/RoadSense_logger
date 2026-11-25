@@ -288,6 +288,17 @@ class CanedgeIngestionManager(
 
         _localSessionFiles.value = emptyList()
         AppLogger.i(TAG, "[CAN_DIAG] RECORDING_PAUSED session=${session.sessionId} status=PENDING")
+        if (DebugToggles.isCanedgeVerboseActive || DebugToggles.isSessionLifecycleDebugActive) {
+            val queuedIds = synchronized(stateLock) {
+                cachedManifest.sessions
+                    .filter { it.status != CanSessionSyncStatus.COMPLETE }
+                    .map { "${it.sessionId}(${it.status.name})" }
+            }
+            AppLogger.i(
+                TAG,
+                "[CAN_TRANSITION] PAUSE_FOR_NEW_SESSION new=${session.sessionId} pendingQueueCount=${queuedIds.size} queued=$queuedIds"
+            )
+        }
         updateStatsSnapshot(
             discovery.connectionState.value,
             overridePhase = CanedgeHudPhase.PAUSED_RECORDING,
@@ -337,6 +348,17 @@ class CanedgeIngestionManager(
                 TAG,
                 "[CAN_DIAG] SESSION_QUEUED session=${session.sessionId} start=${session.startTimeWallMs} stop=$stopWallMs offsetMs=$offsetMs"
             )
+            if (DebugToggles.isCanedgeVerboseActive || DebugToggles.isSessionLifecycleDebugActive) {
+                val pendingIds = synchronized(stateLock) {
+                    cachedManifest.sessions
+                        .filter { it.status != CanSessionSyncStatus.COMPLETE && it.stopTimeWallMs != null }
+                        .map { "${it.sessionId}(${it.status.name})" }
+                }
+                AppLogger.i(
+                    TAG,
+                    "[CAN_TRANSITION] RESUME_POST_STOP settleMs=$POST_STOP_SETTLE_MS pendingCount=${pendingIds.size} pending=$pendingIds"
+                )
+            }
         }
 
         postStopSettleUntilMs = nowMs + POST_STOP_SETTLE_MS
@@ -795,6 +817,12 @@ class CanedgeIngestionManager(
                 plan.matchedRemoteFiles.isNotEmpty() && allMatchedStaged -> CanSessionSyncStatus.COMPLETE
                 plan.matchedRemoteFiles.isEmpty() -> CanSessionSyncStatus.COMPLETE
                 else -> CanSessionSyncStatus.PARTIAL
+            }
+            if (DebugToggles.isCanedgeVerboseActive || DebugToggles.isSessionLifecycleDebugActive) {
+                AppLogger.i(
+                    TAG,
+                    "[CAN_TRANSITION] RECONCILE_SESSION session=${rec.sessionId} matched=${plan.matchedRemoteFiles.size} staged=${existingCanNames.size} waitingTail=${plan.waitingForFinalChunk} status=${newStatus.name}"
+                )
             }
 
             val updatedRec = rec.copy(

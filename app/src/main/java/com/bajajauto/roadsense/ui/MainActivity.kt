@@ -13,7 +13,11 @@ import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -55,11 +59,18 @@ import com.bajajauto.roadsense.diagnostics.UiFrameMetricsProfiler
 import com.bajajauto.roadsense.BuildConfig
 import com.bajajauto.roadsense.logging.AppLogger
 import com.bajajauto.roadsense.recording.SessionRecordingState
+import com.bajajauto.roadsense.ui.components.EventBookmarkButton
+import com.bajajauto.roadsense.ui.components.EventBookmarkButtonStyle
+import com.bajajauto.roadsense.ui.components.EventBookmarkToastBanner
 import com.bajajauto.roadsense.ui.components.FullscreenCalibrationStudio
 import com.bajajauto.roadsense.ui.components.FullscreenCameraPreview
 import com.bajajauto.roadsense.ui.components.LaunchBuildOverlay
 import com.bajajauto.roadsense.ui.components.LiveMetricsBar
+import com.bajajauto.roadsense.ui.components.PostDriveSummaryOverlay
+import com.bajajauto.roadsense.ui.components.PreflightChecklistOverlay
 import com.bajajauto.roadsense.ui.components.TopSessionHeader
+import com.bajajauto.roadsense.ui.components.rememberTransientSavedFlag
+import com.bajajauto.roadsense.ui.components.resolveCockpitStatusPill
 import com.bajajauto.roadsense.ui.screens.CameraDashboardCard
 import com.bajajauto.roadsense.ui.screens.CanedgeDashboardCard
 import com.bajajauto.roadsense.ui.screens.GnssDashboardCard
@@ -172,8 +183,19 @@ fun RoadSenseCockpitScreen(
     val isCalibrationFullScreen by viewModel.isCalibrationFullScreen.collectAsState()
     val isCameraFullScreen by viewModel.isCameraFullScreen.collectAsState()
     val isSbsFullScreen by viewModel.isSbsFullScreen.collectAsState()
+    val postDriveSummary by viewModel.postDriveSummary.collectAsState()
+    val lastBookmarkToast by viewModel.lastBookmarkToast.collectAsState()
     var showSyncDialog by remember { mutableStateOf(false) }
+    var showPreflightOverlay by remember { mutableStateOf(false) }
     var showLaunchOverlay by rememberSaveable { mutableStateOf(true) }
+
+    val handleRecordTrigger: () -> Unit = {
+        if (viewModel.promptPreflightBeforeRec.value) {
+            showPreflightOverlay = true
+        } else {
+            viewModel.startSessionRecording()
+        }
+    }
 
     val tabs = remember { CockpitTab.values() }
     var currentTabIndex by rememberSaveable { mutableIntStateOf(0) }
@@ -376,7 +398,9 @@ fun RoadSenseCockpitScreen(
                         }
                     },
                     isLandscape = isLandscape,
-                    viewModel = viewModel
+                    viewModel = viewModel,
+                    onOpenPreflight = { showPreflightOverlay = true },
+                    onStartRecordRequested = handleRecordTrigger
                 )
 
                 // Single-Tab Composition Host:
@@ -414,6 +438,29 @@ fun RoadSenseCockpitScreen(
             )
         }
 
+        // Global Event Bookmark Confirmation Toast (visible across regular & fullscreen modes)
+        EventBookmarkToastBanner(
+            toast = lastBookmarkToast,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 18.dp)
+        )
+
+        if (showPreflightOverlay) {
+            PreflightChecklistOverlay(
+                viewModel = viewModel,
+                onDismiss = { showPreflightOverlay = false },
+                onStartRecording = { viewModel.startSessionRecording() }
+            )
+        }
+
+        postDriveSummary?.let { summary ->
+            PostDriveSummaryOverlay(
+                summary = summary,
+                onDismiss = { viewModel.dismissPostDriveSummary() }
+            )
+        }
+
         AnimatedVisibility(
             visible = showLaunchOverlay,
             exit = fadeOut(animationSpec = tween(durationMillis = 250))
@@ -430,7 +477,9 @@ private fun CockpitTabNavigationBar(
     currentTabIndexProvider: () -> Int,
     onSelectTab: (Int) -> Unit,
     isLandscape: Boolean,
-    viewModel: RadarViewModel
+    viewModel: RadarViewModel,
+    onOpenPreflight: () -> Unit,
+    onStartRecordRequested: () -> Unit
 ) {
     val currentTabIndex = currentTabIndexProvider()
     if (isLandscape) {
@@ -445,10 +494,13 @@ private fun CockpitTabNavigationBar(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -468,21 +520,32 @@ private fun CockpitTabNavigationBar(
                                 modifier = Modifier.padding(horizontal = 8.dp)
                             ) {
                                 Icon(imageVector = tab.icon, contentDescription = null, modifier = Modifier.size(15.dp))
-                                Text(text = tab.title, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                                Text(
+                                    text = tab.title,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
                         }
                     }
                 }
 
-                LandscapeSessionControlBar(viewModel = viewModel)
+                LandscapeSessionControlBar(
+                    viewModel = viewModel,
+                    onOpenPreflight = onOpenPreflight,
+                    onStartRecordRequested = onStartRecordRequested
+                )
             }
         }
     } else {
         Box(modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
             TopSessionHeader(
                 viewModel = viewModel,
-                onStartSession = { viewModel.startSessionRecording() },
-                onStopSession = { viewModel.stopSessionRecording() }
+                onStartSession = onStartRecordRequested,
+                onStopSession = { viewModel.stopSessionRecording() },
+                onOpenPreflight = onOpenPreflight
             )
         }
 
@@ -504,6 +567,7 @@ private fun CockpitTabNavigationBar(
                             text = tab.title,
                             fontSize = 10.sp,
                             maxLines = 1,
+                            softWrap = false,
                             fontWeight = if (currentTabIndex == index) FontWeight.Bold else FontWeight.Normal
                         )
                     }
@@ -516,62 +580,122 @@ private fun CockpitTabNavigationBar(
 @Composable
 private fun LandscapeSessionControlBar(
     viewModel: RadarViewModel,
+    onOpenPreflight: () -> Unit,
+    onStartRecordRequested: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val state = viewModel.sessionRecordingState.collectAsState().value
+    val state by viewModel.sessionRecordingState.collectAsState()
+    val isAuditing by viewModel.isSessionAuditing.collectAsState()
+    val canStats by viewModel.canedgeSyncStats.collectAsState()
+    val bookmarkCount by viewModel.sessionBookmarkCount.collectAsState()
+    val hapticsEnabled by viewModel.bookmarkHapticsEnabled.collectAsState()
+
+    val isRecording = state is SessionRecordingState.Recording
+    val showSavedRecently = rememberTransientSavedFlag(state)
+    val canOpenPreflight = state is SessionRecordingState.Idle ||
+        state is SessionRecordingState.Finished ||
+        state is SessionRecordingState.Error
+
+    val statusPill = resolveCockpitStatusPill(
+        state = state,
+        isAuditing = isAuditing,
+        canStats = canStats,
+        showSavedRecently = showSavedRecently,
+        compactRecordingText = true,
+        recordingContainerColor = MaterialTheme.colorScheme.errorContainer,
+        recordingContentColor = MaterialTheme.colorScheme.error,
+        savedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+        savedContentColor = MaterialTheme.colorScheme.primary,
+        idleContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+        idleContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // 4-Way Swipe Event Bookmark button placed directly to the left of the status/Preflight pill
+        EventBookmarkButton(
+            isRecording = isRecording,
+            bookmarkCount = bookmarkCount,
+            hapticsEnabled = hapticsEnabled,
+            style = EventBookmarkButtonStyle.COMPACT_BAR,
+            onMarkEvent = { type -> viewModel.markEvent(type) }
+        )
+
+        // Clickable dynamic status pill: IDLE ⓘ / WARMING… / ● REC / SAVING… / AUDITING… / CAN SYNC / ✓ SAVED (4s)
         Surface(
-            color = when (state) {
-                is SessionRecordingState.Recording -> MaterialTheme.colorScheme.errorContainer
-                is SessionRecordingState.Finished -> MaterialTheme.colorScheme.secondaryContainer
-                else -> MaterialTheme.colorScheme.surfaceVariant
-            },
-            shape = RoundedCornerShape(4.dp),
-            modifier = Modifier.clearAndSetSemantics {}
+            color = statusPill.bgColor,
+            shape = RoundedCornerShape(5.dp),
+            border = if (canOpenPreflight) BorderStroke(1.dp, Color(0xFF475569).copy(alpha = 0.7f)) else null,
+            modifier = Modifier
+                .height(26.dp)
+                .then(if (canOpenPreflight) Modifier.clickable(onClick = onOpenPreflight) else Modifier)
         ) {
-            val statusText = when (state) {
-                is SessionRecordingState.Recording -> {
-                    val durationSec = state.durationMs / 1000
-                    "● REC %02d:%02d (%df)".format(durationSec / 60, durationSec % 60, state.framesRecorded)
-                }
-                is SessionRecordingState.Finished -> "✓ SAVED (${state.totalFrames}f)"
-                else -> "IDLE"
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.padding(horizontal = 7.dp)
+            ) {
+                Text(
+                    text = statusPill.text,
+                    color = statusPill.fgColor,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    softWrap = false
+                )
             }
-            Text(
-                text = statusText,
-                color = when (state) {
-                    is SessionRecordingState.Recording -> MaterialTheme.colorScheme.error
-                    is SessionRecordingState.Finished -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-            )
         }
 
-        if (state is SessionRecordingState.Recording) {
-            Button(
-                onClick = { viewModel.stopSessionRecording() },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                modifier = Modifier.height(26.dp)
-            ) {
-                Text("Stop", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        when (state) {
+            is SessionRecordingState.Recording -> {
+                Button(
+                    onClick = { viewModel.stopSessionRecording() },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    modifier = Modifier.height(26.dp)
+                ) {
+                    Text("Stop", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                }
             }
-        } else {
-            Button(
-                onClick = { viewModel.startSessionRecording() },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                modifier = Modifier.height(26.dp)
-            ) {
-                Text(if (state is SessionRecordingState.Finished) "New" else "Record", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            is SessionRecordingState.WarmingUp -> {
+                OutlinedButton(
+                    onClick = { viewModel.cancelWarmup() },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    border = BorderStroke(1.dp, Color(0xFFFBBF24)),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFBBF24)),
+                    modifier = Modifier.height(26.dp)
+                ) {
+                    Text("Cancel", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                }
+            }
+            is SessionRecordingState.Finalizing -> {
+                Button(
+                    onClick = {},
+                    enabled = false,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    modifier = Modifier.height(26.dp)
+                ) {
+                    Text("Saving…", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                }
+            }
+            else -> {
+                Button(
+                    onClick = onStartRecordRequested,
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    modifier = Modifier.height(26.dp)
+                ) {
+                    Text(
+                        text = if (state is SessionRecordingState.Finished) "New" else "Record",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
         }
     }

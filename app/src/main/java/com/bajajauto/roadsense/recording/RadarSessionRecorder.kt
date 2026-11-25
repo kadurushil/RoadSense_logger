@@ -211,9 +211,40 @@ class RadarSessionRecorder(
     }
 
     /**
-     * Flushes, syncs to disk, updates session metadata, and closes files.
+     * Exposes explicit pre-recording warmup status before streams open atomically.
      */
-    fun stopSession(): SessionInfo? {
+    fun setWarmingUp(statusText: String = "Warming sensors…") {
+        if (!isRecordingActive) {
+            _recordingState.value = SessionRecordingState.WarmingUp(statusText)
+        }
+    }
+
+    /**
+     * Resets state to Idle (e.g. if warmup is cancelled or blocked by low storage).
+     */
+    fun setIdle() {
+        if (!isRecordingActive) {
+            _recordingState.value = SessionRecordingState.Idle
+        }
+    }
+
+    /**
+     * Immediately marks the UI as finalizing on STOP tap so the button never appears frozen.
+     */
+    fun markFinalizing(phase: String = "SAVING") {
+        activeSession?.let { session ->
+            _recordingState.value = SessionRecordingState.Finalizing(session, phase)
+        }
+    }
+
+    /**
+     * Flushes, syncs to disk, closes session files fast, and optionally defers [SessionSyncAuditor]
+     * onto an isolated background worker so the UI unlocks `Record` in <350 ms.
+     */
+    fun stopSession(
+        deferAudit: Boolean = false,
+        onAuditCompleted: ((SessionInfo, SessionSyncAuditor.AuditResult?) -> Unit)? = null
+    ): SessionInfo? {
         if (!isRecordingActive) {
             Log.w(TAG, "Recording is not active")
             return null
@@ -224,6 +255,10 @@ class RadarSessionRecorder(
         val durationMs = SystemClock.elapsedRealtime() - startTimeRealtimeMs
         val totalFrames = framesRecorded
         val totalBytes = rawBytesRecorded
+
+        if (session != null) {
+            _recordingState.value = SessionRecordingState.Finalizing(session, "SAVING")
+        }
 
         executor.execute {
             try {
@@ -242,7 +277,11 @@ class RadarSessionRecorder(
                 if (session != null) {
                     session.totalRadarFrames = totalFrames
                     session.totalRadarBytes = totalBytes
-                    sessionManager.closeSession(session)
+                    if (deferAudit) {
+                        sessionManager.closeSessionFiles(session)
+                    } else {
+                        sessionManager.closeSession(session)
+                    }
 
                     _recordingState.value = SessionRecordingState.Finished(
                         sessionInfo = session,
@@ -253,6 +292,14 @@ class RadarSessionRecorder(
                         totalCameraFrames = session.totalCameraFrames,
                         totalImuFrames = session.totalImuFrames
                     )
+
+                    if (deferAudit) {
+                        sessionManager.runDeferredSessionAudit(session) { auditedSession, result ->
+                            onAuditCompleted?.invoke(auditedSession, result)
+                        }
+                    } else {
+                        onAuditCompleted?.invoke(session, session.syncAuditResult)
+                    }
                 } else {
                     _recordingState.value = SessionRecordingState.Idle
                 }
@@ -260,6 +307,9 @@ class RadarSessionRecorder(
             } catch (e: IOException) {
                 Log.e(TAG, "Error finalizing recording session", e)
                 _recordingState.value = SessionRecordingState.Error("Error closing session: ${e.message}")
+                if (session != null) {
+                    onAuditCompleted?.invoke(session, null)
+                }
             } finally {
                 framesDos = null
                 framesFos = null

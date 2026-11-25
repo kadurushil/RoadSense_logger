@@ -453,7 +453,7 @@ On vehicles or logging sessions where factory calibration has not been performed
 > **Master Roadmap Reference:** [`intel/Implementations/08_HANDOVER_AND_DOCS/109_plan_reliability_ux_soak_and_pitch_master_roadmap.md`](intel/Implementations/08_HANDOVER_AND_DOCS/109_plan_reliability_ux_soak_and_pitch_master_roadmap.md)  
 > **Branch:** `Overhaul` (executed tier-by-tier, starting with Plan `110`)
 
-### 9.1 Critical Reliability & Crash-Safety Gaps `[PLANNED — TIER 1 / Plan 110]`
+### 9.1 Critical Reliability & Crash-Safety Gaps `[COMPLETED — TIER 1 / Commit f64d08d]`
 1. **Foreground Service & Background Survival (`AndroidManifest.xml`, `RecordingForegroundService.kt`):**
    - Declare `FOREGROUND_SERVICE` (`camera | location | connectedDevice | dataSync`), `POST_NOTIFICATIONS`, `WAKE_LOCK`, dynamic runtime permission type mask, partial `WakeLock`, and ongoing notification with Stop action so recording survives Home/Power/calls on Samsung One UI.
 2. **Protected Single-File `MediaRecorder`, `StatFs` Disk Guard & Emergency Crash Flush (`CameraEngine.kt`, `StorageGuard.kt`, `CrashRecoveryHandler.kt`):**
@@ -470,7 +470,7 @@ On vehicles or logging sessions where factory calibration has not been performed
 ### 9.2 UI/UX & Field Usability Improvements
 1. **One-Tap On-Screen Event Bookmarking (`EVENT_MARKER`) `[PLANNED — TIER 2]`:**
    - Dedicated thumb bookmark button across SBS, SBS Fullscreen, Camera Preview, and Camera Fullscreen (`CUT_IN`, `BRAKE`, `FALSE_ALARM`, `BUMP`, `NOTE`) written into `session_timeline.csv` and exported to Foxglove `/events` annotations. *(Physical volume keys stay standard to prevent mount shake.)*
-2. **Eyes-Free Audio Health Alerts `[PLANNED — TIER 2]`:**
+2. **Eyes-Free Audio Health Alerts `[BACKLOG — DEFERRED]`:**
    - Lightweight `ToneGenerator` chimes on `REC` start/stop, bookmark tap, radar detach, camera error, thermal severe, and low storage with persistent mute toggle.
 3. **Pre-Drive Mount-Slippage Canary & Static Pitch Check `[BACKLOG]`:**
    - Compare stationary live IMU pitch at session start against calibrated baseline (`radar_camera_calib.json`) and surface an HUD warning if $|\theta_{\text{live}} - \theta_{\text{calib}}| > 0.5^\circ$ before starting a long drive.

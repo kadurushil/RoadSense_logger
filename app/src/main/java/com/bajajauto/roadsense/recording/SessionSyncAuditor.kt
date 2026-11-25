@@ -5,7 +5,40 @@ import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
+import java.util.Arrays
 import kotlin.math.abs
+
+private class LongArrayBuffer(initialCapacity: Int = 4096) {
+    var data = LongArray(initialCapacity)
+        private set
+    var size: Int = 0
+        private set
+
+    fun add(value: Long) {
+        if (size == data.size) {
+            data = Arrays.copyOf(data, data.size shl 1)
+        }
+        data[size++] = value
+    }
+
+    fun isNotEmpty(): Boolean = size > 0
+}
+
+private class FloatArrayBuffer(initialCapacity: Int = 4096) {
+    var data = FloatArray(initialCapacity)
+        private set
+    var size: Int = 0
+        private set
+
+    fun add(value: Float) {
+        if (size == data.size) {
+            data = Arrays.copyOf(data, data.size shl 1)
+        }
+        data[size++] = value
+    }
+
+    fun isNotEmpty(): Boolean = size > 0
+}
 
 /**
  * On-device cross-sensor synchronization audit and quality certification engine.
@@ -143,62 +176,31 @@ object SessionSyncAuditor {
 
         // 1. Audit Camera Frames (camera_frames.csv or session_timeline.csv fallback)
         val cameraCsv = File(sessionInfo.cameraDir, "camera_frames.csv")
-        val camMonoList = mutableListOf<Long>()
+        val camMonoBuf = LongArrayBuffer(4096)
         if (cameraCsv.exists()) {
             try {
-                BufferedReader(FileReader(cameraCsv)).use { reader ->
+                BufferedReader(FileReader(cameraCsv), 65536).use { reader ->
                     reader.readLine() // Header
                     var line: String?
                     while (reader.readLine().also { line = it } != null) {
-                        val parts = line!!.split(",")
-                        if (parts.size >= 2) {
-                            parts[1].trim().toLongOrNull()?.let { camMonoList.add(it) }
-                        }
+                        parseLongColumn(line!!, 1)?.let { camMonoBuf.add(it) }
                     }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error parsing camera_frames.csv", e)
             }
-        } else {
-            val timelineCsv = File(sessionInfo.sessionDir, SessionTimelineWriter.TIMELINE_FILE_NAME)
-            if (timelineCsv.exists()) {
-                try {
-                    BufferedReader(FileReader(timelineCsv)).use { reader ->
-                        reader.readLine() // Header
-                        var line: String?
-                        while (reader.readLine().also { line = it } != null) {
-                            val parts = line!!.split(",")
-                            if (parts.size >= 3 && parts[1] == "CAMERA" && parts[2] == "FRAME") {
-                                parts[0].trim().toLongOrNull()?.let { camMonoList.add(it) }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error parsing camera frames from session_timeline.csv", e)
-                }
-            }
         }
-
-        val cameraStats = computeStreamStats(
-            timestampsNs = camMonoList,
-            nominalRateHz = 30f,
-            anomalyThresholdMs = 50f, // Drops > 50ms @ 30 FPS
-            streamName = "Camera"
-        )
 
         // 2. Audit High-Rate IMU (imu/imu_frames.csv)
         val imuCsv = File(sessionInfo.imuDir, "imu_frames.csv")
-        val imuMonoList = mutableListOf<Long>()
+        val imuMonoBuf = LongArrayBuffer(16384)
         if (imuCsv.exists()) {
             try {
-                BufferedReader(FileReader(imuCsv)).use { reader ->
+                BufferedReader(FileReader(imuCsv), 65536).use { reader ->
                     reader.readLine() // Header
                     var line: String?
                     while (reader.readLine().also { line = it } != null) {
-                        val parts = line!!.split(",")
-                        if (parts.isNotEmpty()) {
-                            parts[0].trim().toLongOrNull()?.let { imuMonoList.add(it) }
-                        }
+                        parseLongColumn(line!!, 0)?.let { imuMonoBuf.add(it) }
                     }
                 }
             } catch (e: Exception) {
@@ -206,55 +208,77 @@ object SessionSyncAuditor {
             }
         }
 
+        // 3. Single-pass scan of session_timeline.csv for Radar frames (and Camera frames if legacy CSV absent)
+        val timelineCsv = File(sessionInfo.sessionDir, SessionTimelineWriter.TIMELINE_FILE_NAME)
+        val needCameraFromTimeline = !camMonoBuf.isNotEmpty()
+        val radarMonoBuf = LongArrayBuffer(4096)
+        var prevRadarSeq = Long.MIN_VALUE
+        var radarSequenceDrops = 0
+        if (timelineCsv.exists()) {
+            try {
+                BufferedReader(FileReader(timelineCsv), 65536).use { reader ->
+                    reader.readLine() // Header
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        val s = line!!
+                        val c1 = s.indexOf(',')
+                        if (c1 <= 0) continue
+                        val c2 = s.indexOf(',', c1 + 1)
+                        if (c2 <= c1) continue
+                        val c3 = s.indexOf(',', c2 + 1)
+                        if (c3 <= c2) continue
+
+                        if (regionEqualsTrimmed(s, c2 + 1, c3, "FRAME")) {
+                            if (regionEqualsTrimmed(s, c1 + 1, c2, "RADAR")) {
+                                parseLongRange(s, 0, c1)?.let { radarMonoBuf.add(it) }
+                                val c4 = s.indexOf(',', c3 + 1)
+                                val seqEnd = if (c4 > c3) c4 else s.length
+                                val seqId = parseLongRange(s, c3 + 1, seqEnd)
+                                if (seqId != null) {
+                                    if (prevRadarSeq != Long.MIN_VALUE) {
+                                        val diff = seqId - prevRadarSeq
+                                        if (diff > 1L) radarSequenceDrops += (diff - 1L).toInt()
+                                    }
+                                    prevRadarSeq = seqId
+                                }
+                            } else if (needCameraFromTimeline && regionEqualsTrimmed(s, c1 + 1, c2, "CAMERA")) {
+                                parseLongRange(s, 0, c1)?.let { camMonoBuf.add(it) }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error parsing session_timeline.csv", e)
+            }
+        }
+
+        val cameraStats = computeStreamStats(
+            timestampsNs = camMonoBuf.data,
+            count = camMonoBuf.size,
+            nominalRateHz = 30f,
+            anomalyThresholdMs = 50f, // Drops > 50ms @ 30 FPS
+            streamName = "Camera"
+        )
+
         // Auto-detect 200 Hz native IMU (p50 <= 7.5 ms -> 12 ms jitter threshold) vs legacy 100 Hz (20 ms)
-        val imuMedianMs = estimateMedianIntervalMs(imuMonoList)
+        val imuMedianMs = estimateMedianIntervalMs(imuMonoBuf.data, imuMonoBuf.size)
         val isHighRateImu = imuMedianMs > 0f && imuMedianMs <= 7.5f
         val imuStats = computeStreamStats(
-            timestampsNs = imuMonoList,
+            timestampsNs = imuMonoBuf.data,
+            count = imuMonoBuf.size,
             nominalRateHz = if (isHighRateImu) 200f else 100f,
             anomalyThresholdMs = if (isHighRateImu) 12f else 20f,
             streamName = "IMU"
         )
 
-        // 3. Audit Radar Stream (radar/radar_frames.bin & session_timeline.csv)
-        val timelineCsv = File(sessionInfo.sessionDir, "session_timeline.csv")
-        val radarMonoList = mutableListOf<Long>()
-        val radarSeqList = mutableListOf<Long>()
-        if (timelineCsv.exists()) {
-            try {
-                BufferedReader(FileReader(timelineCsv)).use { reader ->
-                    reader.readLine() // Header
-                    var line: String?
-                    while (reader.readLine().also { line = it } != null) {
-                        val parts = line!!.split(",")
-                        if (parts.size >= 4 && parts[1].trim() == "RADAR" && parts[2].trim() == "FRAME") {
-                            val monoNs = parts[0].trim().toLongOrNull()
-                            val seqId = parts[3].trim().toLongOrNull()
-                            if (monoNs != null) radarMonoList.add(monoNs)
-                            if (seqId != null) radarSeqList.add(seqId)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error parsing session_timeline.csv for radar frames", e)
-            }
-        }
-
-        var radarSequenceDrops = 0
-        for (i in 1 until radarSeqList.size) {
-            val diff = radarSeqList[i] - radarSeqList[i - 1]
-            if (diff > 1L) {
-                radarSequenceDrops += (diff - 1L).toInt()
-            }
-        }
-
-        val isRadarRecorded = radarMonoList.isNotEmpty() || sessionInfo.totalRadarFrames > 0L || File(sessionInfo.radarDir, "radar_frames.bin").exists()
-        val radarStats = if (radarMonoList.size >= 2) {
-            val radarMedianMs = estimateMedianIntervalMs(radarMonoList)
+        val isRadarRecorded = radarMonoBuf.isNotEmpty() || sessionInfo.totalRadarFrames > 0L || File(sessionInfo.radarDir, "radar_frames.bin").exists()
+        val radarStats = if (radarMonoBuf.size >= 2) {
+            val radarMedianMs = estimateMedianIntervalMs(radarMonoBuf.data, radarMonoBuf.size)
             val adaptiveNominalHz = if (radarMedianMs > 0f) (1000f / radarMedianMs).coerceIn(10f, 60f) else 20f
             val adaptiveJitterThresholdMs = if (radarMedianMs > 0f) maxOf(65f, radarMedianMs * 1.5f) else 75f
             val baseStats = computeStreamStats(
-                timestampsNs = radarMonoList,
+                timestampsNs = radarMonoBuf.data,
+                count = radarMonoBuf.size,
                 nominalRateHz = adaptiveNominalHz,
                 anomalyThresholdMs = adaptiveJitterThresholdMs,
                 streamName = "Radar"
@@ -287,31 +311,21 @@ object SessionSyncAuditor {
             )
         } else null
 
-        // 4. Audit Keyframe Proximities (sync/sync_keyframes.csv)
+        // 4. Audit Keyframe Proximities (sync/sync_keyframes.csv) — zero-allocation column scan
         val keyframesCsv = File(File(sessionInfo.sessionDir, "sync"), "sync_keyframes.csv")
-        val camImuDeltasMs = mutableListOf<Float>()
-        val radCamDeltasMs = mutableListOf<Float>()
+        val camImuDeltasBuf = FloatArrayBuffer(4096)
+        val radCamDeltasBuf = FloatArrayBuffer(4096)
         var keyframeCount = 0
 
         if (keyframesCsv.exists()) {
             try {
-                BufferedReader(FileReader(keyframesCsv)).use { reader ->
-                    val header = reader.readLine()
+                BufferedReader(FileReader(keyframesCsv), 65536).use { reader ->
+                    reader.readLine() // Header
                     var line: String?
                     while (reader.readLine().also { line = it } != null) {
                         keyframeCount++
-                        val parts = line!!.split(",")
-                        // deltaCamImuMs is column index 11
-                        if (parts.size >= 12) {
-                            parts[11].trim().toFloatOrNull()?.let { camImuDeltasMs.add(abs(it)) }
-                        }
-                        // deltaCamRadarMs is column index 32
-                        if (parts.size >= 33 && isRadarRecorded) {
-                            val status = parts[28].trim()
-                            if (status == "CONNECTED") {
-                                parts[32].trim().toFloatOrNull()?.let { radCamDeltasMs.add(abs(it)) }
-                            }
-                        }
+                        val s = line!!
+                        parseKeyframeCols(s, isRadarRecorded, camImuDeltasBuf, radCamDeltasBuf)
                     }
                 }
             } catch (e: Exception) {
@@ -320,9 +334,10 @@ object SessionSyncAuditor {
         }
 
         // 5. Compute Camera <-> IMU Proximity Stats
-        val camImuProximity = if (camImuDeltasMs.isNotEmpty()) {
+        val camImuProximity = if (camImuDeltasBuf.isNotEmpty()) {
             computeProximityStats(
-                deltasMs = camImuDeltasMs,
+                deltasMs = camImuDeltasBuf.data,
+                count = camImuDeltasBuf.size,
                 complianceThresholdMs = 5.0f, // Nyquist half-period @ 100 Hz
                 isStrictSub3ms = true
             )
@@ -347,9 +362,10 @@ object SessionSyncAuditor {
         } else {
             25.0f
         }
-        val radCamProximity = if (radCamDeltasMs.isNotEmpty()) {
+        val radCamProximity = if (radCamDeltasBuf.isNotEmpty()) {
             computeProximityStats(
-                deltasMs = radCamDeltasMs,
+                deltasMs = radCamDeltasBuf.data,
+                count = radCamDeltasBuf.size,
                 complianceThresholdMs = radComplianceMs,
                 isStrictSub3ms = false
             )
@@ -399,28 +415,126 @@ object SessionSyncAuditor {
         return result
     }
 
-    private fun estimateMedianIntervalMs(timestampsNs: List<Long>): Float {
-        if (timestampsNs.size < 2) return 0f
-        val limit = minOf(timestampsNs.size - 1, 512)
-        val diffs = ArrayList<Float>(limit)
+    private fun parseLongColumn(line: String, colIdx: Int): Long? {
+        var col = 0
+        var start = 0
+        val len = line.length
+        while (col < colIdx) {
+            val comma = line.indexOf(',', start)
+            if (comma < 0) return null
+            start = comma + 1
+            col++
+        }
+        val end = line.indexOf(',', start).let { if (it < 0) len else it }
+        return parseLongRange(line, start, end)
+    }
+
+    private fun parseLongRange(s: String, start: Int, end: Int): Long? {
+        var i = start
+        var e = end
+        while (i < e && s[i] <= ' ') i++
+        while (e > i && s[e - 1] <= ' ') e--
+        if (i >= e) return null
+        var neg = false
+        if (s[i] == '-') {
+            neg = true
+            i++
+        } else if (s[i] == '+') {
+            i++
+        }
+        if (i >= e) return null
+        var acc = 0L
+        while (i < e) {
+            val d = s[i] - '0'
+            if (d !in 0..9) return null
+            acc = acc * 10L + d
+            i++
+        }
+        return if (neg) -acc else acc
+    }
+
+    private fun regionEqualsTrimmed(s: String, start: Int, end: Int, expected: String): Boolean {
+        var i = start
+        var e = end
+        while (i < e && s[i] <= ' ') i++
+        while (e > i && s[e - 1] <= ' ') e--
+        if (e - i != expected.length) return false
+        for (k in expected.indices) {
+            if (s[i + k] != expected[k]) return false
+        }
+        return true
+    }
+
+    /**
+     * Extracts col 11 (`deltaCamImuMs`), col 28 (`radar_status`), and col 32 (`deltaCamRadarMs`)
+     * in a single forward scan without allocating split arrays.
+     */
+    private fun parseKeyframeCols(
+        line: String,
+        isRadarRecorded: Boolean,
+        camImuOut: FloatArrayBuffer,
+        radCamOut: FloatArrayBuffer
+    ) {
+        var col = 0
+        var start = 0
+        val len = line.length
+        var radarConnected = false
+        while (start <= len && col <= 32) {
+            val comma = line.indexOf(',', start)
+            val end = if (comma < 0) len else comma
+            if (col == 11) {
+                parseFloatRange(line, start, end)?.let { camImuOut.add(abs(it)) }
+                if (!isRadarRecorded) return
+            } else if (col == 28 && isRadarRecorded) {
+                radarConnected = regionEqualsTrimmed(line, start, end, "CONNECTED")
+                if (!radarConnected) return
+            } else if (col == 32 && radarConnected) {
+                parseFloatRange(line, start, end)?.let { radCamOut.add(abs(it)) }
+                return
+            }
+            if (comma < 0) break
+            start = comma + 1
+            col++
+        }
+    }
+
+    private fun parseFloatRange(s: String, start: Int, end: Int): Float? {
+        var i = start
+        var e = end
+        while (i < e && s[i] <= ' ') i++
+        while (e > i && s[e - 1] <= ' ') e--
+        if (i >= e) return null
+        return try {
+            s.substring(i, e).toFloat()
+        } catch (_: NumberFormatException) {
+            null
+        }
+    }
+
+    private fun estimateMedianIntervalMs(timestampsNs: LongArray, count: Int): Float {
+        if (count < 2) return 0f
+        val limit = minOf(count - 1, 512)
+        val diffs = FloatArray(limit)
+        var n = 0
         for (i in 1..limit) {
             val dt = (timestampsNs[i] - timestampsNs[i - 1]) / 1_000_000f
-            if (dt > 0f) diffs.add(dt)
+            if (dt > 0f) diffs[n++] = dt
         }
-        if (diffs.isEmpty()) return 0f
-        diffs.sort()
-        return diffs[diffs.size / 2]
+        if (n == 0) return 0f
+        Arrays.sort(diffs, 0, n)
+        return diffs[n / 2]
     }
 
     private fun computeStreamStats(
-        timestampsNs: List<Long>,
+        timestampsNs: LongArray,
+        count: Int,
         nominalRateHz: Float,
         anomalyThresholdMs: Float,
         streamName: String
     ): StreamStats {
-        if (timestampsNs.size < 2) {
+        if (count < 2) {
             return StreamStats(
-                totalCount = timestampsNs.size.toLong(),
+                totalCount = count.toLong(),
                 durationSec = 0f,
                 effectiveRateHz = 0f,
                 meanIntervalMs = 0f,
@@ -432,28 +546,31 @@ object SessionSyncAuditor {
             )
         }
 
-        val durSec = (timestampsNs.last() - timestampsNs.first()) / 1_000_000_000f
-        val effectiveHz = if (durSec > 0f) (timestampsNs.size / durSec) else nominalRateHz
+        val durSec = (timestampsNs[count - 1] - timestampsNs[0]) / 1_000_000_000f
+        val effectiveHz = if (durSec > 0f) (count / durSec) else nominalRateHz
 
-        val intervalsMs = ArrayList<Float>(timestampsNs.size - 1)
+        val intervalCount = count - 1
+        val intervalsMs = FloatArray(intervalCount)
         var anomalies = 0
-        for (i in 1 until timestampsNs.size) {
-            val dt = (timestampsNs[i] - timestampsNs[i - 1]) / 1_000_000f
-            intervalsMs.add(dt)
+        var sumDt = 0.0
+        for (i in 0 until intervalCount) {
+            val dt = (timestampsNs[i + 1] - timestampsNs[i]) / 1_000_000f
+            intervalsMs[i] = dt
+            sumDt += dt
             if (dt > anomalyThresholdMs) {
                 anomalies++
             }
         }
 
-        intervalsMs.sort()
-        val meanDt = intervalsMs.average().toFloat()
-        val p50 = intervalsMs[intervalsMs.size / 2]
-        val p95 = intervalsMs[(intervalsMs.size * 0.95f).toInt().coerceAtMost(intervalsMs.size - 1)]
-        val maxDt = intervalsMs.last()
+        Arrays.sort(intervalsMs)
+        val meanDt = (sumDt / intervalCount).toFloat()
+        val p50 = intervalsMs[intervalCount / 2]
+        val p95 = intervalsMs[(intervalCount * 0.95f).toInt().coerceAtMost(intervalCount - 1)]
+        val maxDt = intervalsMs[intervalCount - 1]
 
         val status = if (anomalies == 0 && abs(effectiveHz - nominalRateHz) / nominalRateHz <= 0.15f) {
             "PASS (Healthy continuous stream)"
-        } else if (anomalies <= 1 && timestampsNs.size > 100) {
+        } else if (anomalies <= 1 && count > 100) {
             "PASS (Nominal, 1 startup pause)"
         } else if (anomalies <= 3) {
             "WARN ($anomalies intervals > ${anomalyThresholdMs.toInt()}ms)"
@@ -462,7 +579,7 @@ object SessionSyncAuditor {
         }
 
         return StreamStats(
-            totalCount = timestampsNs.size.toLong(),
+            totalCount = count.toLong(),
             durationSec = durSec,
             effectiveRateHz = effectiveHz,
             meanIntervalMs = meanDt,
@@ -475,20 +592,27 @@ object SessionSyncAuditor {
     }
 
     private fun computeProximityStats(
-        deltasMs: List<Float>,
+        deltasMs: FloatArray,
+        count: Int,
         complianceThresholdMs: Float,
         isStrictSub3ms: Boolean
     ): ProximityStats {
-        val sorted = deltasMs.sorted()
-        val mean = sorted.average().toFloat()
-        val p50 = sorted[sorted.size / 2]
-        val p90 = sorted[(sorted.size * 0.90f).toInt().coerceAtMost(sorted.size - 1)]
-        val p95 = sorted[(sorted.size * 0.95f).toInt().coerceAtMost(sorted.size - 1)]
-        val p99 = sorted[(sorted.size * 0.99f).toInt().coerceAtMost(sorted.size - 1)]
-        val peak = sorted.last()
-
-        val compliantCount = sorted.count { it <= complianceThresholdMs }
-        val pctCompliant = (compliantCount.toFloat() / sorted.size.toFloat()) * 100f
+        val sorted = Arrays.copyOf(deltasMs, count)
+        Arrays.sort(sorted)
+        var sum = 0.0
+        var compliantCount = 0
+        for (i in 0 until count) {
+            val v = sorted[i]
+            sum += v
+            if (v <= complianceThresholdMs) compliantCount++
+        }
+        val mean = (sum / count).toFloat()
+        val p50 = sorted[count / 2]
+        val p90 = sorted[(count * 0.90f).toInt().coerceAtMost(count - 1)]
+        val p95 = sorted[(count * 0.95f).toInt().coerceAtMost(count - 1)]
+        val p99 = sorted[(count * 0.99f).toInt().coerceAtMost(count - 1)]
+        val peak = sorted[count - 1]
+        val pctCompliant = (compliantCount.toFloat() / count.toFloat()) * 100f
 
         val status = if (isStrictSub3ms) {
             if (mean <= 4.0f) "PASS (High-precision sub-4ms)"
@@ -501,7 +625,7 @@ object SessionSyncAuditor {
         }
 
         return ProximityStats(
-            evaluatedFrames = sorted.size,
+            evaluatedFrames = count,
             meanDeltaMs = mean,
             p50DeltaMs = p50,
             p90DeltaMs = p90,

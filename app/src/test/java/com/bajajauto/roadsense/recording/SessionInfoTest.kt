@@ -29,6 +29,15 @@ class SessionInfoTest {
         sessionInfo.totalRadarSequenceDrops = 1L
         sessionInfo.peakThermalSeverity = "MODERATE"
         sessionInfo.peakBatteryTempC = 41.5f
+        sessionInfo.totalEventBookmarks = 4
+        sessionInfo.recordedWarnings = mutableListOf("Radar USB detached mid-drive")
+        sessionInfo.sessionTags = SessionTags(
+            vehicleId = "Dominar-Test-02",
+            dspFirmwareBuild = "v3.2-can",
+            mountType = "Handlebar",
+            lightingCondition = "Dusk",
+            notes = "Highway cut-in validation"
+        )
 
         val jsonStr = sessionInfo.toJson()
         assertNotNull(jsonStr)
@@ -39,6 +48,14 @@ class SessionInfoTest {
         assertEquals(10000L, parsed.getLong("durationMs"))
         assertEquals(5000000000L, parsed.getLong("startTimeMonotonicNs"))
         assertEquals(15000000000L, parsed.getLong("stopTimeMonotonicNs"))
+        assertEquals(4, parsed.getInt("bookmarksCount"))
+
+        val tagsObj = parsed.getJSONObject("sessionTags")
+        assertEquals("Dominar-Test-02", tagsObj.getString("vehicleId"))
+        assertEquals("v3.2-can", tagsObj.getString("dspFirmwareBuild"))
+        assertEquals("Handlebar", tagsObj.getString("mountType"))
+        assertEquals("Dusk", tagsObj.getString("lightingCondition"))
+        assertEquals("Highway cut-in validation", tagsObj.getString("notes"))
 
         val radarObj = parsed.getJSONObject("radar")
         assertEquals(100L, radarObj.getLong("totalFrames"))
@@ -50,6 +67,8 @@ class SessionInfoTest {
         val healthObj = parsed.getJSONObject("systemHealth")
         assertEquals("MODERATE", healthObj.getString("peakThermalSeverity"))
         assertEquals(false, healthObj.getBoolean("terminatedByCrash"))
+        assertEquals(1, healthObj.getJSONArray("warnings").length())
+        assertEquals("Radar USB detached mid-drive", healthObj.getJSONArray("warnings").getString(0))
 
         val streams = parsed.getJSONArray("activeStreams")
         assertTrue(streams.length() >= 2)

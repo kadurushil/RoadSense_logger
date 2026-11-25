@@ -6,6 +6,10 @@ package com.bajajauto.roadsense.recording
 sealed class SessionRecordingState {
     object Idle : SessionRecordingState()
 
+    data class WarmingUp(
+        val statusText: String = "Warming sensors…"
+    ) : SessionRecordingState()
+
     data class Recording(
         val sessionInfo: SessionInfo,
         val framesRecorded: Long,
@@ -14,6 +18,11 @@ sealed class SessionRecordingState {
         val gnssFixesRecorded: Long = 0L,
         val cameraFramesRecorded: Long = 0L,
         val imuFramesRecorded: Long = 0L
+    ) : SessionRecordingState()
+
+    data class Finalizing(
+        val sessionInfo: SessionInfo,
+        val phase: String = "SAVING"
     ) : SessionRecordingState()
 
     data class Finished(

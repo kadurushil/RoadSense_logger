@@ -3,6 +3,7 @@ package com.bajajauto.roadsense.recording
 import android.content.Context
 import android.os.SystemClock
 import android.util.Log
+import com.bajajauto.roadsense.DebugToggles
 import com.bajajauto.roadsense.fusion.model.CalibrationParameters
 import com.bajajauto.roadsense.logging.AppLogger
 import java.io.File
@@ -10,6 +11,7 @@ import java.io.FileWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.Executors
 
 /**
  * Manages structured multi-sensor recording directories and metadata files under:
@@ -25,6 +27,14 @@ class SessionManager(private val context: Context) {
     }
 
     private val timelineWriter = SessionTimelineWriter()
+    private val auditExecutor = Executors.newSingleThreadExecutor { runnable ->
+        Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+            runnable.run()
+        }, "SessionAudit-Worker").apply {
+            isDaemon = true
+        }
+    }
 
     val sessionsBaseDir: File
         get() {
@@ -113,7 +123,69 @@ class SessionManager(private val context: Context) {
     }
 
     /**
-     * Finalizes session timestamps, closes timeline, and updates session_metadata.json.
+     * Stage 1 (Fast, <50 ms): Finalizes session timestamps, closes timeline & session log, and writes initial metadata.
+     * Leaves the session folder completely closed so a new back-to-back recording can start immediately.
+     */
+    fun closeSessionFiles(sessionInfo: SessionInfo) {
+        val t0 = SystemClock.elapsedRealtime()
+        val nowMs = System.currentTimeMillis()
+        val nowMonoNs = SystemClock.elapsedRealtimeNanos()
+        sessionInfo.stopTimeWallMs = nowMs
+        sessionInfo.stopTimeMonotonicNs = nowMonoNs
+
+        timelineWriter.recordEvent(
+            elapsedRealtimeNs = nowMonoNs,
+            sensor = "SESSION",
+            event = "STOP",
+            sequenceId = 0L,
+            relativePath = METADATA_FILE_NAME,
+            summary = "Session finished: totalFrames=${sessionInfo.totalRadarFrames};totalFixes=${sessionInfo.totalGnssFixes};bookmarks=${sessionInfo.totalEventBookmarks}"
+        )
+        timelineWriter.stop()
+
+        writeMetadata(sessionInfo)
+        val closeMs = SystemClock.elapsedRealtime() - t0
+        if (DebugToggles.isSessionLifecycleDebugActive) {
+            AppLogger.i(TAG, "[LIFECYCLE_DIAG] CLOSE_FILES session=${sessionInfo.sessionId} elapsedMs=$closeMs")
+        }
+        AppLogger.i(TAG, "Closed session ${sessionInfo.sessionId}, total frames: ${sessionInfo.totalRadarFrames}, total bytes: ${sessionInfo.totalRadarBytes}, total fixes: ${sessionInfo.totalGnssFixes}, bookmarks: ${sessionInfo.totalEventBookmarks}")
+        AppLogger.detachSession()
+    }
+
+    /**
+     * Stage 2 (Async / Decoupled): Runs [SessionSyncAuditor] on an isolated background thread
+     * strictly against already-closed files on disk, updates `session_metadata.json`, and invokes [onCompleted].
+     */
+    fun runDeferredSessionAudit(
+        sessionInfo: SessionInfo,
+        onCompleted: ((SessionInfo, SessionSyncAuditor.AuditResult?) -> Unit)? = null
+    ) {
+        auditExecutor.execute {
+            val t0 = SystemClock.elapsedRealtime()
+            if (DebugToggles.isSessionLifecycleDebugActive) {
+                AppLogger.i(TAG, "[LIFECYCLE_DIAG] AUDIT_START session=${sessionInfo.sessionId}")
+            }
+            var auditResult: SessionSyncAuditor.AuditResult? = null
+            try {
+                auditResult = SessionSyncAuditor.auditSession(sessionInfo)
+                sessionInfo.syncAuditResult = auditResult
+                sessionInfo.crossSensorSyncJson = auditResult.toJson()
+                writeMetadata(sessionInfo)
+                val elapsedMs = SystemClock.elapsedRealtime() - t0
+                AppLogger.i(TAG, "Cross-sensor audit (${sessionInfo.sessionId}, ${elapsedMs}ms): ${auditResult.summaryNote}")
+                if (DebugToggles.isSessionLifecycleDebugActive) {
+                    AppLogger.i(TAG, "[LIFECYCLE_DIAG] AUDIT_DONE session=${sessionInfo.sessionId} elapsedMs=$elapsedMs grade=${auditResult.certificationGrade}")
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Failed to run deferred cross-sensor audit for ${sessionInfo.sessionId}: ${e.message}")
+            } finally {
+                onCompleted?.invoke(sessionInfo, auditResult)
+            }
+        }
+    }
+
+    /**
+     * Synchronous combined closure retained for emergency crash recovery & legacy callers.
      */
     fun closeSession(sessionInfo: SessionInfo) {
         val nowMs = System.currentTimeMillis()
@@ -127,23 +199,22 @@ class SessionManager(private val context: Context) {
             event = "STOP",
             sequenceId = 0L,
             relativePath = METADATA_FILE_NAME,
-            summary = "Session finished: totalFrames=${sessionInfo.totalRadarFrames};totalFixes=${sessionInfo.totalGnssFixes}"
+            summary = "Session finished: totalFrames=${sessionInfo.totalRadarFrames};totalFixes=${sessionInfo.totalGnssFixes};bookmarks=${sessionInfo.totalEventBookmarks}"
         )
         timelineWriter.stop()
 
-        // Execute on-device cross-sensor synchronization audit
         try {
             val auditResult = SessionSyncAuditor.auditSession(sessionInfo)
             sessionInfo.syncAuditResult = auditResult
             sessionInfo.crossSensorSyncJson = auditResult.toJson()
-            com.bajajauto.roadsense.logging.AppLogger.i(TAG, "Cross-sensor audit: ${auditResult.summaryNote}")
+            AppLogger.i(TAG, "Cross-sensor audit: ${auditResult.summaryNote}")
         } catch (e: Exception) {
-            com.bajajauto.roadsense.logging.AppLogger.e(TAG, "Failed to run cross-sensor audit: ${e.message}")
+            AppLogger.e(TAG, "Failed to run cross-sensor audit: ${e.message}")
         }
 
         writeMetadata(sessionInfo)
-        com.bajajauto.roadsense.logging.AppLogger.i(TAG, "Closed session ${sessionInfo.sessionId}, total frames: ${sessionInfo.totalRadarFrames}, total bytes: ${sessionInfo.totalRadarBytes}, total fixes: ${sessionInfo.totalGnssFixes}")
-        com.bajajauto.roadsense.logging.AppLogger.detachSession()
+        AppLogger.i(TAG, "Closed session ${sessionInfo.sessionId}, total frames: ${sessionInfo.totalRadarFrames}, total bytes: ${sessionInfo.totalRadarBytes}, total fixes: ${sessionInfo.totalGnssFixes}")
+        AppLogger.detachSession()
     }
 
     /**

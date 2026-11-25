@@ -1009,6 +1009,69 @@ def parse_flight_recorder_logs(session_log_path, start_wall_ms, start_iso_str=No
                 continue
 
 
+EVENT_MARKER_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "sequence_id": {"type": "integer"},
+        "event_type": {"type": "string"},
+        "note": {"type": "string"},
+        "elapsed_realtime_ns": {"type": "integer"},
+        "wall_time_ms": {"type": "integer"},
+        "sensor": {"type": "string"},
+        "raw_summary": {"type": "string"}
+    },
+    "required": ["sequence_id", "event_type", "elapsed_realtime_ns"]
+}
+
+
+def parse_timeline_events(timeline_csv_path):
+    """
+    Parses driver/engineer `USER,EVENT_MARKER` bookmarks from `session_timeline.csv`.
+    Returns a list of structured event dicts preserving monotonic and wall timestamps.
+    """
+    events = []
+    if not timeline_csv_path or not os.path.isfile(timeline_csv_path):
+        return events
+
+    import csv
+    with open(timeline_csv_path, "r", encoding="utf-8", errors="ignore") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            try:
+                sensor = (row.get("sensor") or "").strip().upper()
+                event_name = (row.get("event") or "").strip().upper()
+                if sensor != "USER" or event_name != "EVENT_MARKER":
+                    continue
+                mono_ns = int(row.get("elapsed_realtime_ns") or 0)
+                wall_ms = int(row.get("wall_time_ms") or 0)
+                seq_id = int(row.get("sequence_id") or (len(events) + 1))
+                summary = (row.get("summary") or "").strip()
+
+                event_type = "EVENT"
+                note = ""
+                for part in summary.split(";"):
+                    part = part.strip()
+                    if part.startswith("type="):
+                        val = part[len("type="):].strip()
+                        if val:
+                            event_type = val
+                    elif part.startswith("note="):
+                        note = part[len("note="):].strip()
+
+                events.append({
+                    "sequence_id": seq_id,
+                    "event_type": event_type,
+                    "note": note,
+                    "elapsed_realtime_ns": mono_ns,
+                    "wall_time_ms": wall_ms,
+                    "sensor": sensor,
+                    "raw_summary": summary
+                })
+            except (ValueError, TypeError):
+                continue
+    return events
+
+
 def resolve_session_calibration(session_dir):
     """
     Resolves the 6-DOF camera-radar mounting calibration using a 4-tier hierarchy:
@@ -1934,6 +1997,41 @@ def convert_session_to_mcap(
                     log_msg.message = log_entry["message"]
 
                     writer.write_message("/diagnostics/logs", log_msg, log_time=log_entry["utc_ns"])
+                    count_msg("/diagnostics/logs")
+
+            # Ingest User Event Bookmarks (`USER,EVENT_MARKER`) from session_timeline.csv
+            timeline_csv_path = os.path.join(session_dir, "session_timeline.csv")
+            timeline_events = parse_timeline_events(timeline_csv_path)
+            if timeline_events:
+                print(f"    - Ingesting {len(timeline_events)} User Event Bookmark(s) -> /events & /diagnostics/logs")
+                events_schema_id = writer._writer.register_schema(
+                    name="roadsense.EventMarker",
+                    encoding="jsonschema",
+                    data=json.dumps(EVENT_MARKER_JSON_SCHEMA).encode("utf-8")
+                )
+                events_chan_id = writer._writer.register_channel(
+                    schema_id=events_schema_id,
+                    topic="/events",
+                    message_encoding="json"
+                )
+                for ev in timeline_events:
+                    ev_utc_ns = (ev["elapsed_realtime_ns"] + time_offset_ns) if ev["elapsed_realtime_ns"] > 0 else (ev["wall_time_ms"] * 1_000_000)
+                    writer._writer.add_message(
+                        channel_id=events_chan_id,
+                        log_time=ev_utc_ns,
+                        data=json.dumps(ev).encode("utf-8"),
+                        publish_time=ev_utc_ns
+                    )
+                    count_msg("/events")
+
+                    bm_log = Log()
+                    bm_log.timestamp.seconds = ev_utc_ns // 1_000_000_000
+                    bm_log.timestamp.nanos = ev_utc_ns % 1_000_000_000
+                    bm_log.level = Log.Level.WARNING
+                    bm_log.name = "BOOKMARK"
+                    note_suffix = f" — {ev['note']}" if ev.get("note") else ""
+                    bm_log.message = f"[#{ev['sequence_id']}] {ev['event_type']}{note_suffix}"
+                    writer.write_message("/diagnostics/logs", bm_log, log_time=ev_utc_ns)
                     count_msg("/diagnostics/logs")
 
             # 6.5. Ingest Vision Perception Tracks & Telemetry Sub-Topics (if available)

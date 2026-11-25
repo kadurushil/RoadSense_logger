@@ -41,7 +41,7 @@ import java.util.Locale
 
 /**
  * Immersive edge-to-edge Fullscreen Camera Preview HUD:
- * - Edge-to-edge Camera2 AutoFitTextureView with proper aspect ratio and display rotation transforms.
+ * - Edge-to-edge Camera2 AutoFitSurfaceView with proper aspect ratio and display rotation transforms.
  * - Tap-to-focus (AF/AE) with floating reticle overlay.
  * - Live Radar HUD overlay (points, tracks, range arcs at 10m/30m/60m/120m).
  * - Floating top action pill: Exit button, resolution/fps badge, HUD toggle, Range Arcs toggle, Nudge toggle, and Record/Stop timer button.
@@ -311,7 +311,15 @@ fun FullscreenCameraPreview(
             )
         }
 
-        // 7. Floating Focus Controls (Right Edge Thumb Zone)
+        // 7. Floating Event Bookmark Button (Left Edge Thumb Zone — mirrors right-edge focus dock)
+        FullscreenCameraBookmarkDock(
+            viewModel = viewModel,
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .padding(start = 16.dp)
+        )
+
+        // 8. Floating Focus Controls (Right Edge Thumb Zone)
         Surface(
             color = Color.Black.copy(alpha = 0.70f),
             shape = RoundedCornerShape(16.dp),
@@ -435,6 +443,26 @@ private fun FullscreenRoadAeBadge(
     }
 }
 
+@Composable
+private fun FullscreenCameraBookmarkDock(
+    viewModel: RadarViewModel,
+    modifier: Modifier = Modifier
+) {
+    val sessionRecordingState by viewModel.sessionRecordingState.collectAsState()
+    val bookmarkCount by viewModel.sessionBookmarkCount.collectAsState()
+    val hapticsEnabled by viewModel.bookmarkHapticsEnabled.collectAsState()
+    val isRecording = sessionRecordingState is SessionRecordingState.Recording
+
+    EventBookmarkButton(
+        isRecording = isRecording,
+        bookmarkCount = bookmarkCount,
+        hapticsEnabled = hapticsEnabled,
+        style = EventBookmarkButtonStyle.LARGE_DOCK,
+        onMarkEvent = { type -> viewModel.markEvent(type) },
+        modifier = modifier
+    )
+}
+
 /**
  * Isolated record button that consumes 1 Hz session recording duration updates
  * without recomposing the Fullscreen top action pill.
@@ -446,51 +474,97 @@ internal fun FullscreenRecordButton(
     val sessionRecordingState by viewModel.sessionRecordingState.collectAsState()
     val cameraEngineState by viewModel.cameraEngineState.collectAsState()
 
-    val isRecording = sessionRecordingState is SessionRecordingState.Recording || cameraEngineState is CameraEngineState.Recording
-    if (isRecording) {
-        Button(
-            onClick = { viewModel.stopSessionRecording() },
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
-            shape = RoundedCornerShape(8.dp),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-            modifier = Modifier.height(28.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .background(Color.White, CircleShape)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            val durationSec = (sessionRecordingState as? SessionRecordingState.Recording)?.durationMs?.div(1000) ?: 0L
-            val mins = durationSec / 60
-            val secs = durationSec % 60
-            Text(
-                text = "STOP ${String.format(Locale.US, "%02d:%02d", mins, secs)}",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
+    val isWarming = sessionRecordingState is SessionRecordingState.WarmingUp
+    val isFinalizing = sessionRecordingState is SessionRecordingState.Finalizing
+    val isRecording = !isFinalizing && (sessionRecordingState is SessionRecordingState.Recording || cameraEngineState is CameraEngineState.Recording)
+
+    when {
+        isFinalizing -> {
+            Button(
+                onClick = {},
+                enabled = false,
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                modifier = Modifier.height(28.dp)
+            ) {
+                Text(
+                    text = "SAVING…",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
         }
-    } else {
-        Button(
-            onClick = { viewModel.startSessionRecording() },
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
-            shape = RoundedCornerShape(8.dp),
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-            modifier = Modifier.height(28.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .background(Color.White, CircleShape)
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Text(
-                text = "REC",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
+        isWarming -> {
+            Button(
+                onClick = { viewModel.cancelWarmup() },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB45309)),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                modifier = Modifier.height(28.dp)
+            ) {
+                Text(
+                    text = "WARM…",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+        }
+        isRecording -> {
+            Button(
+                onClick = { viewModel.stopSessionRecording() },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                modifier = Modifier.height(28.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(Color.White, CircleShape)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                val durationSec = (sessionRecordingState as? SessionRecordingState.Recording)?.durationMs?.div(1000) ?: 0L
+                val mins = durationSec / 60
+                val secs = durationSec % 60
+                Text(
+                    text = "STOP ${String.format(Locale.US, "%02d:%02d", mins, secs)}",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+        }
+        else -> {
+            Button(
+                onClick = { viewModel.startSessionRecording() },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                modifier = Modifier.height(28.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(Color.White, CircleShape)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "REC",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
         }
     }
 }

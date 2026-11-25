@@ -9,6 +9,34 @@ import java.util.Date
 import java.util.Locale
 
 /**
+ * Structured run metadata stamped into `session_metadata.json` for automated PC A/B DSP grouping.
+ */
+data class SessionTags(
+    val vehicleId: String = "",
+    val dspFirmwareBuild: String = "",
+    val mountType: String = "Hard Mount",
+    val lightingCondition: String = "Daylight",
+    val notes: String = ""
+) {
+    fun compactSummary(): String {
+        val parts = mutableListOf<String>()
+        if (vehicleId.isNotBlank()) parts.add(vehicleId.trim())
+        if (dspFirmwareBuild.isNotBlank()) parts.add(dspFirmwareBuild.trim())
+        if (mountType.isNotBlank()) parts.add(mountType.trim())
+        if (lightingCondition.isNotBlank()) parts.add(lightingCondition.trim())
+        return if (parts.isEmpty()) "Untagged" else parts.joinToString(" • ")
+    }
+
+    fun toJson(): JSONObject = JSONObject().apply {
+        put("vehicleId", vehicleId)
+        put("dspFirmwareBuild", dspFirmwareBuild)
+        put("mountType", mountType)
+        put("lightingCondition", lightingCondition)
+        put("notes", notes)
+    }
+}
+
+/**
  * Metadata descriptor for a multi-sensor recording session.
  * Tracks wall-clock and monotonic timestamps for synchronization across Radar, GNSS, and Camera.
  */
@@ -38,7 +66,10 @@ data class SessionInfo(
     var totalRadarSequenceDrops: Long = 0L,
     var peakThermalSeverity: String = "NOMINAL",
     var peakBatteryTempC: Float = 0f,
-    var terminatedByCrash: Boolean = false
+    var terminatedByCrash: Boolean = false,
+    var sessionTags: SessionTags = SessionTags(),
+    var totalEventBookmarks: Int = 0,
+    var recordedWarnings: MutableList<String> = mutableListOf()
 ) {
     fun toJson(): String {
         val json = JSONObject()
@@ -79,7 +110,14 @@ data class SessionInfo(
             healthObj.put("peakBatteryTempC", peakBatteryTempC.toDouble())
         }
         healthObj.put("terminatedByCrash", terminatedByCrash)
+        if (recordedWarnings.isNotEmpty()) {
+            val warnArr = JSONArray()
+            recordedWarnings.forEach { warnArr.put(it) }
+            healthObj.put("warnings", warnArr)
+        }
         json.put("systemHealth", healthObj)
+        json.put("sessionTags", sessionTags.toJson())
+        json.put("bookmarksCount", totalEventBookmarks)
 
         val gnssObj = JSONObject()
         gnssObj.put("sensor", "Android GNSS Location Provider")

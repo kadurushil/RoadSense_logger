@@ -35,6 +35,13 @@ class AppPreferences(context: Context) {
         private const val KEY_CANEDGE_DEVICE_ID = "canedge_device_id"
         private const val KEY_CANEDGE_LAST_CLOCK_OFFSET_MS = "canedge_last_clock_offset_ms"
         private const val KEY_CANEDGE_LAST_CLOCK_MEASURED_AT_MS = "canedge_last_clock_measured_at_ms"
+
+        private const val KEY_SESSION_VEHICLE_ID = "session_vehicle_id"
+        private const val KEY_SESSION_DSP_FIRMWARE = "session_dsp_firmware"
+        private const val KEY_SESSION_MOUNT_TYPE = "session_mount_type"
+        private const val KEY_SESSION_LIGHTING = "session_lighting_condition"
+        private const val KEY_BOOKMARK_HAPTICS = "bookmark_haptics_enabled"
+        private const val KEY_PROMPT_PREFLIGHT = "prompt_preflight_before_rec"
     }
 
     var canedgeLastIp: String
@@ -122,4 +129,28 @@ class AppPreferences(context: Context) {
     var cameraLensId: String?
         get() = prefs.getString(KEY_CAMERA_LENS_ID, null)
         set(value) = prefs.edit().putString(KEY_CAMERA_LENS_ID, value).apply()
+
+    var sessionVehicleId: String
+        get() = prefs.getString(KEY_SESSION_VEHICLE_ID, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_SESSION_VEHICLE_ID, value).apply()
+
+    var sessionDspFirmware: String
+        get() = prefs.getString(KEY_SESSION_DSP_FIRMWARE, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_SESSION_DSP_FIRMWARE, value).apply()
+
+    var sessionMountType: String
+        get() = prefs.getString(KEY_SESSION_MOUNT_TYPE, "Hard Mount") ?: "Hard Mount"
+        set(value) = prefs.edit().putString(KEY_SESSION_MOUNT_TYPE, value).apply()
+
+    var sessionLightingCondition: String
+        get() = prefs.getString(KEY_SESSION_LIGHTING, "Daylight") ?: "Daylight"
+        set(value) = prefs.edit().putString(KEY_SESSION_LIGHTING, value).apply()
+
+    var bookmarkHapticsEnabled: Boolean
+        get() = prefs.getBoolean(KEY_BOOKMARK_HAPTICS, true)
+        set(value) = prefs.edit().putBoolean(KEY_BOOKMARK_HAPTICS, value).apply()
+
+    var promptPreflightBeforeRec: Boolean
+        get() = prefs.getBoolean(KEY_PROMPT_PREFLIGHT, false)
+        set(value) = prefs.edit().putBoolean(KEY_PROMPT_PREFLIGHT, value).apply()
 }

@@ -31,7 +31,8 @@ data class DebugToggleSnapshot(
     val bevShowClusters: Boolean = true,
     val bevShowGrid: Boolean = true,
     val hudOverlayMode: HudOverlayMode = HudOverlayMode.TRACKS_LOLLIPOP_80M,
-    val canedgeVerboseLogs: Boolean = false
+    val canedgeVerboseLogs: Boolean = false,
+    val sessionLifecycleDebugLogs: Boolean = false
 )
 
 /**
@@ -100,6 +101,10 @@ object DebugToggles {
     var canedgeVerboseLogs: Boolean = false
         private set
 
+    @Volatile
+    var sessionLifecycleDebugLogs: Boolean = false
+        private set
+
     private val _state = MutableStateFlow(DebugToggleSnapshot())
     val state: StateFlow<DebugToggleSnapshot> = _state.asStateFlow()
 
@@ -122,6 +127,10 @@ object DebugToggles {
     /** True when CANedge2 verbose `[CAN_DIAG]` / poll debug logs should emit without forcing 40 Hz Canvas logs. */
     val isCanedgeVerboseActive: Boolean
         get() = canedgeVerboseLogs || masterDebugEnabled
+
+    /** True when recording start/warmup/stop/audit & CAN transition verification logs should emit. */
+    val isSessionLifecycleDebugActive: Boolean
+        get() = sessionLifecycleDebugLogs || masterDebugEnabled
 
     fun setMasterDebugEnabled(enabled: Boolean) {
         masterDebugEnabled = enabled
@@ -184,6 +193,11 @@ object DebugToggles {
         publishState()
     }
 
+    fun setSessionLifecycleDebugLogs(enabled: Boolean) {
+        sessionLifecycleDebugLogs = enabled
+        publishState()
+    }
+
     fun resetDefaults() {
         masterDebugEnabled = DEFAULT_MASTER_DEBUG
         displayPacerVerboseLogs = true
@@ -197,6 +211,7 @@ object DebugToggles {
         bevShowGrid = true
         hudOverlayMode = HudOverlayMode.TRACKS_LOLLIPOP_80M
         canedgeVerboseLogs = false
+        sessionLifecycleDebugLogs = false
         publishState()
     }
 
@@ -213,7 +228,8 @@ object DebugToggles {
             bevShowClusters = bevShowClusters,
             bevShowGrid = bevShowGrid,
             hudOverlayMode = hudOverlayMode,
-            canedgeVerboseLogs = canedgeVerboseLogs
+            canedgeVerboseLogs = canedgeVerboseLogs,
+            sessionLifecycleDebugLogs = sessionLifecycleDebugLogs
         )
     }
 }

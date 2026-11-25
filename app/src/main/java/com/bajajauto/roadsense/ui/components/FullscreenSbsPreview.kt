@@ -164,7 +164,7 @@ fun FullscreenSbsPreview(
             }
         }
 
-        // --- Minimal Floating Translucent Control Pill ---
+        // --- Minimal Floating Translucent Control Pill + Separate Large Bookmark Button to the Left of EXIT ---
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
@@ -172,11 +172,17 @@ fun FullscreenSbsPreview(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Surface(
-                color = Color.Black.copy(alpha = 0.65f),
-                shape = RoundedCornerShape(20.dp),
-                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                FullscreenSbsBookmarkAction(viewModel = viewModel)
+
+                Surface(
+                    color = Color.Black.copy(alpha = 0.65f),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f))
+                ) {
                 Row(
                     modifier = Modifier
                         .horizontalScroll(rememberScrollState())
@@ -274,6 +280,7 @@ fun FullscreenSbsPreview(
                     // Isolated REC / STOP Button
                     FullscreenRecordButton(viewModel = viewModel)
                 }
+            }
             }
 
             // Expandable Compact Settings Strip
@@ -423,6 +430,25 @@ private fun FullscreenSbsCameraPane(
             }
         }
     }
+}
+
+@Composable
+private fun FullscreenSbsBookmarkAction(
+    viewModel: RadarViewModel
+) {
+    val sessionRecordingState by viewModel.sessionRecordingState.collectAsState()
+    val bookmarkCount by viewModel.sessionBookmarkCount.collectAsState()
+    val hapticsEnabled by viewModel.bookmarkHapticsEnabled.collectAsState()
+    val isRecording = sessionRecordingState is com.bajajauto.roadsense.recording.SessionRecordingState.Recording
+
+    EventBookmarkButton(
+        isRecording = isRecording,
+        bookmarkCount = bookmarkCount,
+        hapticsEnabled = hapticsEnabled,
+        style = EventBookmarkButtonStyle.LARGE_DOCK,
+        showDockCaption = false,
+        onMarkEvent = { type -> viewModel.markEvent(type) }
+    )
 }
 
 @Composable

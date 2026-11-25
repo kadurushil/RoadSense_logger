@@ -1,10 +1,15 @@
 package com.bajajauto.roadsense.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -15,14 +20,18 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.recording.SessionRecordingState
+import com.bajajauto.roadsense.recording.SessionTags
 import com.bajajauto.roadsense.ui.RadarViewModel
 
 private enum class SessionDeckPhase {
     IDLE,
+    WARMING,
     RECORDING,
+    FINALIZING,
     FINISHED,
     ERROR
 }
@@ -49,11 +58,18 @@ fun SessionDeckCard(
     val sessionStateHolder = viewModel.sessionRecordingState.collectAsState()
     val gnssFixesHolder = viewModel.gnssSessionFixes.collectAsState()
     val cameraFramesHolder = viewModel.cameraSessionFrames.collectAsState()
+    val isAuditing by viewModel.isSessionAuditing.collectAsState()
+    val sessionTags by viewModel.sessionTags.collectAsState()
+    val bookmarkHaptics by viewModel.bookmarkHapticsEnabled.collectAsState()
+    val debugToggles by viewModel.debugToggleState.collectAsState()
+    var showMetadataEditor by remember { mutableStateOf(false) }
 
     val sessionPhase by remember(sessionState, sessionStateHolder) {
         derivedStateOf {
             when (sessionState ?: sessionStateHolder.value) {
+                is SessionRecordingState.WarmingUp -> SessionDeckPhase.WARMING
                 is SessionRecordingState.Recording -> SessionDeckPhase.RECORDING
+                is SessionRecordingState.Finalizing -> SessionDeckPhase.FINALIZING
                 is SessionRecordingState.Finished -> SessionDeckPhase.FINISHED
                 is SessionRecordingState.Error -> SessionDeckPhase.ERROR
                 else -> SessionDeckPhase.IDLE
@@ -103,6 +119,23 @@ fun SessionDeckCard(
                                 text = "Synchronized streams (Radar, GNSS, Camera) will be written with hardware monotonic timestamps into an isolated session directory.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Color.Gray
+                            )
+                        }
+                        SessionDeckPhase.WARMING -> {
+                            val warm = (sessionState ?: sessionStateHolder.value) as? SessionRecordingState.WarmingUp
+                            Text(
+                                text = "⏳ ${warm?.statusText ?: "Warming sensors…"}",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Color(0xFFFBBF24),
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        SessionDeckPhase.FINALIZING -> {
+                            Text(
+                                text = "⏳ Saving & flushing video / sensor streams…",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Color(0xFF38BDF8),
+                                fontFamily = FontFamily.Monospace
                             )
                         }
                         SessionDeckPhase.RECORDING -> {
@@ -159,22 +192,48 @@ fun SessionDeckCard(
                             copyNotice = false
                             viewModel.startSessionRecording()
                         },
-                        enabled = sessionPhase != SessionDeckPhase.RECORDING,
+                        enabled = sessionPhase != SessionDeckPhase.RECORDING &&
+                            sessionPhase != SessionDeckPhase.WARMING &&
+                            sessionPhase != SessionDeckPhase.FINALIZING,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text(if (sessionPhase == SessionDeckPhase.FINISHED) "New Session" else "Start Session")
+                        Text(
+                            text = if (sessionPhase == SessionDeckPhase.FINISHED) "New Session" else "Start Session",
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
 
                     OutlinedButton(
                         onClick = { viewModel.stopSessionRecording() },
-                        enabled = sessionPhase == SessionDeckPhase.RECORDING,
+                        enabled = sessionPhase == SessionDeckPhase.RECORDING || sessionPhase == SessionDeckPhase.WARMING,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Stop Session")
+                        Text(
+                            text = when (sessionPhase) {
+                                SessionDeckPhase.WARMING -> "Cancel Warmup"
+                                SessionDeckPhase.FINALIZING -> "Saving…"
+                                else -> "Stop Session"
+                            },
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
             }
         }
+
+        // Collapsible Run Metadata, Tags & Field UX Toggles Card
+        RunMetadataAndTogglesCard(
+            expanded = showMetadataEditor,
+            onToggleExpanded = { showMetadataEditor = !showMetadataEditor },
+            tags = sessionTags,
+            onTagsChanged = { viewModel.setSessionTags(it) },
+            bookmarkHapticsEnabled = bookmarkHaptics,
+            onBookmarkHapticsChanged = { viewModel.setBookmarkHapticsEnabled(it) },
+            lifecycleDebugLogsEnabled = debugToggles.sessionLifecycleDebugLogs,
+            onLifecycleDebugLogsChanged = { viewModel.setSessionLifecycleDebugLogs(it) }
+        )
 
         // Session Sync & Sensor Health Scorecard
         if (sessionPhase == SessionDeckPhase.FINISHED) {
@@ -203,7 +262,7 @@ fun SessionDeckCard(
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFF0F6FC)
                         )
-                        val grade = audit?.certificationGrade ?: "AUDITED"
+                        val grade = if (isAuditing && audit == null) "AUDITING…" else (audit?.certificationGrade ?: "AUDITED")
                         val (badgeColor, badgeBg) = when (grade) {
                             "GOLD" -> Pair(Color(0xFF3FB950), Color(0xFF0D3319))
                             "SILVER" -> Pair(Color(0xFF58A6FF), Color(0xFF0C2D48))
@@ -279,14 +338,20 @@ fun SessionDeckCard(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 val radText = if (audit.radarStats != null) {
-                                    "• Radar: ${"%.1f".format(audit.radarStats.effectiveRateHz)} Hz (${audit.radarStats.totalCount} frames)"
+                                    "• Radar: ${"%.1f".format(audit.radarStats.effectiveRateHz)} Hz (${audit.radarStats.totalCount} frames, ${audit.radarStats.anomalyCount} drops)"
                                 } else {
                                     "• Radar: Disconnected (Excluded from sync check)"
                                 }
                                 Text(
                                     text = radText,
                                     fontSize = 11.sp,
-                                    color = if (audit.radarStats != null) Color(0xFF3FB950) else Color(0xFF8B949E)
+                                    color = when {
+                                        audit.radarStats == null -> Color(0xFF8B949E)
+                                        audit.radarStats.anomalyCount == 0 -> Color(0xFF3FB950)
+                                        audit.radarStats.anomalyCount < 5 -> Color(0xFF69F0AE)
+                                        audit.radarStats.anomalyCount <= 15 -> Color(0xFFFFB300)
+                                        else -> Color(0xFFFF5252)
+                                    }
                                 )
                             }
                         }
@@ -307,7 +372,7 @@ fun SessionDeckCard(
                             )
                             if (audit.radarCameraProximity != null) {
                                 Text(
-                                    text = "• Radar ↔ Camera Mean: ${"%.2f".format(audit.radarCameraProximity.meanDeltaMs)} ms (p50: ${"%.2f".format(audit.radarCameraProximity.p50DeltaMs)}ms, ${"%.1f".format(audit.radarCameraProximity.pctCompliant)}% <= 16.7ms)",
+                                    text = "• Radar ↔ Camera Mean: ${"%.2f".format(audit.radarCameraProximity.meanDeltaMs)} ms (p50: ${"%.2f".format(audit.radarCameraProximity.p50DeltaMs)}ms, ${"%.1f".format(audit.radarCameraProximity.pctCompliant)}% <= ${"%.1f".format(audit.radarCameraProximity.complianceThresholdMs)}ms)",
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.Monospace,
                                     color = Color(0xFF58A6FF)
@@ -425,5 +490,185 @@ private fun SessionDeckRecordingStatsLeaf(
             text = "Duration: ${rec.durationMs / 1000}s",
             style = MaterialTheme.typography.bodyMedium
         )
+    }
+}
+
+@Composable
+private fun RunMetadataAndTogglesCard(
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    tags: SessionTags,
+    onTagsChanged: (SessionTags) -> Unit,
+    bookmarkHapticsEnabled: Boolean,
+    onBookmarkHapticsChanged: (Boolean) -> Unit,
+    lifecycleDebugLogsEnabled: Boolean,
+    onLifecycleDebugLogsChanged: (Boolean) -> Unit
+) {
+    val mountOptions = remember { listOf("Windshield", "Dashboard", "Tripod", "Handlebar") }
+    val lightingOptions = remember { listOf("Day", "Dusk", "Night", "Rain") }
+
+    val summaryChip = listOfNotNull(
+        tags.vehicleId.takeIf { it.isNotBlank() },
+        tags.mountType.takeIf { it.isNotBlank() },
+        tags.lightingCondition.takeIf { it.isNotBlank() }
+    ).joinToString(" • ").ifEmpty { "Tap to configure" }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onToggleExpanded),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Run Metadata & Field Toggles",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = summaryChip,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "Collapse Run Metadata" else "Expand Run Metadata"
+                )
+            }
+
+            if (expanded) {
+                HorizontalDivider()
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedTextField(
+                        value = tags.vehicleId,
+                        onValueChange = { onTagsChanged(tags.copy(vehicleId = it)) },
+                        label = { Text("Vehicle ID", fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = tags.dspFirmwareBuild,
+                        onValueChange = { onTagsChanged(tags.copy(dspFirmwareBuild = it)) },
+                        label = { Text("DSP FW Build", fontSize = 11.sp, maxLines = 1, softWrap = false) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                // Mount Type Chips
+                Text(text = "Mount Type", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    mountOptions.forEach { opt ->
+                        FilterChip(
+                            selected = tags.mountType.equals(opt, ignoreCase = true),
+                            onClick = { onTagsChanged(tags.copy(mountType = opt)) },
+                            label = { Text(opt, fontSize = 11.sp, maxLines = 1, softWrap = false) }
+                        )
+                    }
+                }
+
+                // Lighting Condition Chips
+                Text(text = "Lighting / Weather", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    lightingOptions.forEach { opt ->
+                        FilterChip(
+                            selected = tags.lightingCondition.equals(opt, ignoreCase = true),
+                            onClick = { onTagsChanged(tags.copy(lightingCondition = opt)) },
+                            label = { Text(opt, fontSize = 11.sp, maxLines = 1, softWrap = false) }
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = tags.notes,
+                    onValueChange = { onTagsChanged(tags.copy(notes = it)) },
+                    label = { Text("Run Notes (stamped into session_metadata.json)", fontSize = 11.sp) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                HorizontalDivider()
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Bookmark Haptic Feedback",
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Vibrate on swipe lock-in & bookmark commit (disable if IMU sensitive)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Switch(
+                        checked = bookmarkHapticsEnabled,
+                        onCheckedChange = onBookmarkHapticsChanged
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Lifecycle & CAN Transition Debug Logs",
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Logs [LIFECYCLE_DIAG] & [CAN_TRANSITION] timings to app_system.log",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Switch(
+                        checked = lifecycleDebugLogsEnabled,
+                        onCheckedChange = onLifecycleDebugLogsChanged
+                    )
+                }
+            }
+        }
     }
 }

@@ -23,6 +23,8 @@ import com.bajajauto.roadsense.diagnostics.CrashRecoveryHandler
 import com.bajajauto.roadsense.diagnostics.ThermalMonitor
 import com.bajajauto.roadsense.diagnostics.ThermalSeverity
 import com.bajajauto.roadsense.recording.CameraSessionRecorder
+import com.bajajauto.roadsense.recording.EventBookmarkToast
+import com.bajajauto.roadsense.recording.EventBookmarkType
 import com.bajajauto.roadsense.recording.GnssSessionRecorder
 import com.bajajauto.roadsense.recording.ImuSessionRecorder
 import com.bajajauto.roadsense.recording.RadarSessionRecorder
@@ -31,6 +33,7 @@ import com.bajajauto.roadsense.recording.RecordingForegroundService
 import com.bajajauto.roadsense.recording.RecordingState
 import com.bajajauto.roadsense.recording.SessionInfo
 import com.bajajauto.roadsense.recording.SessionSyncAuditor
+import com.bajajauto.roadsense.recording.SessionTags
 import com.bajajauto.roadsense.recording.StorageGuard
 import com.bajajauto.roadsense.recording.StorageHealth
 import com.bajajauto.roadsense.recording.StorageStatus
@@ -54,11 +57,15 @@ import com.bajajauto.roadsense.imu.ImuSamplingBenchmark
 import com.bajajauto.roadsense.imu.ImuSensorCapability
 import com.bajajauto.roadsense.imu.ImuTelemetryState
 import java.io.File
+import java.util.Locale
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -114,6 +121,26 @@ data class LiveMetricsSnapshot(
     ),
     val thermalSeverity: ThermalSeverity = ThermalSeverity.NOMINAL,
     val storageStatus: StorageStatus = StorageStatus(-1L, StorageHealth.OK)
+)
+
+@Immutable
+data class PostDriveSummaryData(
+    val sessionId: String,
+    val durationMs: Long,
+    val radarFrames: Long,
+    val radarSalvaged: Long,
+    val radarDrops: Long,
+    val cameraFrames: Long,
+    val imuFrames: Long,
+    val gnssFixes: Long,
+    val bookmarksCount: Int,
+    val audit: SessionSyncAuditor.AuditResult?,
+    val warnings: List<String>,
+    val canPendingCount: Int,
+    val canStatusLabel: String,
+    val peakThermalSeverity: String,
+    val peakBatteryTempC: Float,
+    val sessionTags: SessionTags
 )
 
 @androidx.compose.runtime.Stable
@@ -315,6 +342,125 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         _storageAlert.value = null
     }
 
+    // Tier 2 Field UX StateFlows: Tags, Preflight, Event Bookmarks, Async Audit & Post-Drive Summary
+    private val _sessionTags = MutableStateFlow(
+        SessionTags(
+            vehicleId = appPreferences.sessionVehicleId,
+            dspFirmwareBuild = appPreferences.sessionDspFirmware,
+            mountType = appPreferences.sessionMountType,
+            lightingCondition = appPreferences.sessionLightingCondition,
+            notes = ""
+        )
+    )
+    val sessionTags: StateFlow<SessionTags> = _sessionTags.asStateFlow()
+
+    private val _bookmarkHapticsEnabled = MutableStateFlow(appPreferences.bookmarkHapticsEnabled)
+    val bookmarkHapticsEnabled: StateFlow<Boolean> = _bookmarkHapticsEnabled.asStateFlow()
+
+    private val _promptPreflightBeforeRec = MutableStateFlow(appPreferences.promptPreflightBeforeRec)
+    val promptPreflightBeforeRec: StateFlow<Boolean> = _promptPreflightBeforeRec.asStateFlow()
+
+    private val _isSessionAuditing = MutableStateFlow(false)
+    val isSessionAuditing: StateFlow<Boolean> = _isSessionAuditing.asStateFlow()
+
+    private val _sessionBookmarkCount = MutableStateFlow(0)
+    val sessionBookmarkCount: StateFlow<Int> = _sessionBookmarkCount.asStateFlow()
+
+    private val _lastBookmarkToast = MutableStateFlow<EventBookmarkToast?>(null)
+    val lastBookmarkToast: StateFlow<EventBookmarkToast?> = _lastBookmarkToast.asStateFlow()
+
+    private val _postDriveSummary = MutableStateFlow<PostDriveSummaryData?>(null)
+    val postDriveSummary: StateFlow<PostDriveSummaryData?> = _postDriveSummary.asStateFlow()
+
+    private val activeSessionWarnings = java.util.concurrent.CopyOnWriteArrayList<String>()
+    private val activeAuditToken = java.util.concurrent.atomic.AtomicLong(0L)
+    private var warmupJob: Job? = null
+    private var bookmarkToastJob: Job? = null
+    @Volatile private var imuStartedByWarmup = false
+
+    private fun recordSessionWarning(warning: String) {
+        if (sessionRecorder.currentSession != null && !activeSessionWarnings.contains(warning)) {
+            activeSessionWarnings.add(warning)
+        }
+    }
+
+    fun dismissPostDriveSummary() {
+        _postDriveSummary.value = null
+    }
+
+    fun setSessionTags(tags: SessionTags) {
+        _sessionTags.value = tags
+        appPreferences.sessionVehicleId = tags.vehicleId
+        appPreferences.sessionDspFirmware = tags.dspFirmwareBuild
+        appPreferences.sessionMountType = tags.mountType
+        appPreferences.sessionLightingCondition = tags.lightingCondition
+    }
+
+    fun setBookmarkHapticsEnabled(enabled: Boolean) {
+        _bookmarkHapticsEnabled.value = enabled
+        appPreferences.bookmarkHapticsEnabled = enabled
+    }
+
+    fun setPromptPreflightBeforeRec(enabled: Boolean) {
+        _promptPreflightBeforeRec.value = enabled
+        appPreferences.promptPreflightBeforeRec = enabled
+    }
+
+    fun setSessionLifecycleDebugLogs(enabled: Boolean) {
+        DebugToggles.setSessionLifecycleDebugLogs(enabled)
+        com.bajajauto.roadsense.logging.AppLogger.i(
+            "LifecycleDiag",
+            "[LIFECYCLE_DIAG] SESSION_LIFECYCLE_DEBUG_LOGS enabled=$enabled"
+        )
+    }
+
+    /**
+     * Stamps a driver/engineer event bookmark (`USER,EVENT_MARKER`) into `session_timeline.csv`
+     * with nanosecond monotonic alignment while a recording session is active.
+     */
+    fun markEvent(
+        type: EventBookmarkType = EventBookmarkType.EVENT,
+        note: String = ""
+    ) {
+        val activeSession = sessionRecorder.currentSession ?: return
+        val monoNs = SystemClock.elapsedRealtimeNanos()
+        val seq = activeSession.totalEventBookmarks + 1
+        activeSession.totalEventBookmarks = seq
+        _sessionBookmarkCount.value = seq
+
+        val sanitizedNote = note.replace(',', ';').replace('\n', ' ').trim()
+        val summary = if (sanitizedNote.isNotEmpty()) {
+            "type=${type.name};note=$sanitizedNote"
+        } else {
+            "type=${type.name}"
+        }
+        sessionManager.recordTimelineEvent(
+            elapsedRealtimeNs = monoNs,
+            sensor = "USER",
+            event = "EVENT_MARKER",
+            sequenceId = seq.toLong(),
+            relativePath = "session_timeline.csv",
+            summary = summary
+        )
+        com.bajajauto.roadsense.logging.AppLogger.i(
+            "EventBookmark",
+            "BOOKMARK #$seq: type=${type.name} monoNs=$monoNs session=${activeSession.sessionId}"
+        )
+
+        val elapsedSec = ((monoNs - activeSession.startTimeMonotonicNs) / 1_000_000_000L).coerceAtLeast(0L)
+        val timeFmt = String.format(Locale.US, "%02d:%02d", elapsedSec / 60L, elapsedSec % 60L)
+        _lastBookmarkToast.value = EventBookmarkToast(
+            id = seq.toLong(),
+            message = "#$seq ${type.shortLabel} • $timeFmt",
+            accentHex = type.accentHex
+        )
+        bookmarkToastJob?.cancel()
+        bookmarkToastJob = viewModelScope.launch {
+            delay(1600L)
+            _lastBookmarkToast.value = null
+        }
+    }
+
     private val sessionLifecycleLock = Any()
     @Volatile private var isAutoStoppingForStorage = false
     @Volatile private var lowStorageWarnLoggedInSession = false
@@ -341,12 +487,17 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                 relativePath = "session_debug.log",
                 summary = "severity=${severity.name};pmStatus=$pmStatus"
             )
+            if (severity.rank >= ThermalSeverity.MODERATE.rank) {
+                recordSessionWarning("Thermal ${severity.name}")
+            }
         }
         currentThermalSeverity = severity
     }
 
     @Volatile private var radarFramesThisSec = 0
     @Volatile private var cameraFramesThisSec = 0
+    @Volatile private var firstCameraFrameInSecMonoNs = 0L
+    @Volatile private var lastCameraFrameInSecMonoNs = 0L
     @Volatile private var gnssFixesThisSec = 0
     @Volatile private var radarWasConnectedInSession = false
     @Volatile private var radarStreamActiveInSession = false
@@ -368,6 +519,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         cameraEngine.onRecorderErrorListener = { errMsg ->
             val activeSession = sessionRecorder.currentSession
             if (activeSession != null) {
+                recordSessionWarning("Camera recorder error: $errMsg")
                 sessionManager.recordTimelineEvent(
                     elapsedRealtimeNs = SystemClock.elapsedRealtimeNanos(),
                     sensor = "CAMERA",
@@ -386,6 +538,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             val activeSession = sessionRecorder.currentSession
             if (event == "USB_DETACHED") {
                 syncAssociator.markRadarDisconnected()
+                recordSessionWarning("Radar USB detached mid-drive")
             } else if (event == "USB_RECONNECTED") {
                 rawByteQueue.clear()
                 packetAssembler.reset()
@@ -438,8 +591,23 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                 radarFramesThisSec = 0
                 if (_radarHz.value != rHz) _radarHz.value = rHz
 
-                val cFps = cameraFramesThisSec.toFloat()
+                val camCount = cameraFramesThisSec
+                val camFirstNs = firstCameraFrameInSecMonoNs
+                val camLastNs = lastCameraFrameInSecMonoNs
                 cameraFramesThisSec = 0
+                firstCameraFrameInSecMonoNs = 0L
+                lastCameraFrameInSecMonoNs = 0L
+                val cFps = if (camCount >= 3 && camFirstNs > 0L && camLastNs > camFirstNs) {
+                    val spanSec = (camLastNs - camFirstNs) / 1_000_000_000f
+                    // Avoid under-reporting a partial-second startup burst (e.g. 9 frames in 0.3s is 30fps, not 9fps)
+                    if (spanSec in 0.06f..0.85f) {
+                        ((camCount - 1) / spanSec).coerceIn(0f, 65f)
+                    } else {
+                        camCount.toFloat()
+                    }
+                } else {
+                    camCount.toFloat()
+                }
                 if (_cameraFps.value != cFps) _cameraFps.value = cFps
 
                 val gHz = gnssFixesThisSec.toFloat()
@@ -490,6 +658,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                                 if (!lowStorageWarnLoggedInSession) {
                                     lowStorageWarnLoggedInSession = true
                                     _storageAlert.value = "Low storage warning: ${diskStatus.freeMb} MB free (< 1.5 GB)"
+                                    recordSessionWarning("Low storage (${diskStatus.freeMb} MB free)")
                                     com.bajajauto.roadsense.logging.AppLogger.w("Storage", "LOW_STORAGE_WARN: ${diskStatus.freeMb} MB free")
                                     sessionManager.recordTimelineEvent(
                                         elapsedRealtimeNs = SystemClock.elapsedRealtimeNanos(),
@@ -505,6 +674,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                                 if (!isAutoStoppingForStorage) {
                                     isAutoStoppingForStorage = true
                                     _storageAlert.value = "Storage critical (${diskStatus.freeMb} MB < 500 MB) — stopping & saving MP4 cleanly"
+                                    recordSessionWarning("Storage critical auto-stop (${diskStatus.freeMb} MB)")
                                     com.bajajauto.roadsense.logging.AppLogger.e("Storage", "CRITICAL_AUTO_STOP: ${diskStatus.freeMb} MB free")
                                     sessionManager.recordTimelineEvent(
                                         elapsedRealtimeNs = SystemClock.elapsedRealtimeNanos(),
@@ -555,6 +725,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                             relativePath = "session_debug.log",
                             summary = "severity=${resolvedTherm.name};batTempC=$batTemp"
                         )
+                        if (resolvedTherm.rank >= ThermalSeverity.MODERATE.rank) {
+                            recordSessionWarning("Thermal ${resolvedTherm.name} (${String.format(Locale.US, "%.1f", batTemp)}°C)")
+                        }
                     }
                     currentThermalSeverity = resolvedTherm
                 }
@@ -818,6 +991,11 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
 
         // Camera frame shutter listener: automatically records frame metadata if session recording is active and MediaRecorder is running
         cameraEngine.addFrameListener { frame ->
+            val ts = frame.shutterTimestampNs
+            if (firstCameraFrameInSecMonoNs == 0L) {
+                firstCameraFrameInSecMonoNs = ts
+            }
+            lastCameraFrameInSecMonoNs = ts
             cameraFramesThisSec++
             if (frame.isRecording) {
                 cameraSessionRecorder.recordFrame(frame)
@@ -992,7 +1170,123 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         cameraEngine.setRoadAeMode(mode)
     }
 
-    fun startSessionRecording(): SessionInfo? = synchronized(sessionLifecycleLock) {
+    fun startSessionRecording(skipWarmup: Boolean = false) {
+        val currentState = sessionRecorder.recordingState.value
+        if (sessionRecorder.currentSession != null ||
+            currentState is SessionRecordingState.WarmingUp ||
+            currentState is SessionRecordingState.Finalizing
+        ) {
+            return
+        }
+
+        // Dismiss any lingering post-drive summary immediately when starting a new drive
+        _postDriveSummary.value = null
+
+        val storageStatus = StorageGuard.evaluate(StorageGuard.queryFreeMb(sessionManager.sessionsBaseDir))
+        currentStorageStatus = storageStatus
+        if (storageStatus.health == StorageHealth.CRITICAL_STOP) {
+            val msg = "Storage critically low (${storageStatus.freeMb} MB < ${StorageGuard.CRITICAL_STOP_MB} MB) — free space before recording"
+            _storageAlert.value = msg
+            com.bajajauto.roadsense.logging.AppLogger.e("Storage", msg)
+            return
+        }
+
+        val cameraWarm = cameraEngine.isWarmForRecording() || !cameraEngine.hasCameraPermission()
+        val imuWarm = imuManager.telemetryState.value.isMonitoring && imuManager.imuHz.value >= 20f
+
+        if (skipWarmup || (cameraWarm && imuWarm)) {
+            if (DebugToggles.isSessionLifecycleDebugActive) {
+                com.bajajauto.roadsense.logging.AppLogger.i(
+                    "LifecycleDiag",
+                    "[LIFECYCLE_DIAG] WARMUP_SKIPPED skipWarmup=$skipWarmup camWarm=$cameraWarm imuWarm=$imuWarm"
+                )
+            }
+            sessionRecorder.setWarmingUp("Starting…")
+            viewModelScope.launch(Dispatchers.IO) {
+                beginSessionRecordingInternal()
+            }
+            return
+        }
+
+        sessionRecorder.setWarmingUp("Warming sensors…")
+        warmupJob?.cancel()
+        warmupJob = viewModelScope.launch(Dispatchers.Default) {
+            val tWarm0 = SystemClock.elapsedRealtime()
+            if (DebugToggles.isSessionLifecycleDebugActive) {
+                com.bajajauto.roadsense.logging.AppLogger.i(
+                    "LifecycleDiag",
+                    "[LIFECYCLE_DIAG] WARMUP_START camWarm=$cameraWarm imuWarm=$imuWarm"
+                )
+            }
+
+            if (hasLocationPermission()) {
+                startGnssUpdates()
+            }
+
+            val initialImuMonoNs = imuManager.telemetryState.value.lastUpdateMonoNs
+            if (!imuWarm) {
+                imuStartedByWarmup = !imuManager.telemetryState.value.isMonitoring
+                imuManager.startLiveMonitoring()
+            }
+
+            val camDeferred = CompletableDeferred<Boolean>()
+            if (cameraWarm) {
+                camDeferred.complete(true)
+            } else {
+                cameraEngine.warmUpForRecording(targetFrames = 8, timeoutMs = 2000L) { ready ->
+                    camDeferred.complete(ready)
+                }
+            }
+
+            val camReady = withTimeoutOrNull(2000L) { camDeferred.await() } ?: false
+
+            // Wait briefly for IMU samples if IMU was cold, bounded to the same 2,000 ms overall budget
+            if (!imuWarm) {
+                while (isActive && (SystemClock.elapsedRealtime() - tWarm0) < 2000L) {
+                    val hasSamples = imuManager.telemetryState.value.lastUpdateMonoNs != initialImuMonoNs ||
+                        imuManager.imuHz.value >= 10f
+                    if (hasSamples && (SystemClock.elapsedRealtime() - tWarm0) >= 200L) break
+                    delay(40L)
+                }
+            }
+
+            if (!isActive) return@launch
+
+            val elapsedWarmMs = SystemClock.elapsedRealtime() - tWarm0
+            if (DebugToggles.isSessionLifecycleDebugActive) {
+                com.bajajauto.roadsense.logging.AppLogger.i(
+                    "LifecycleDiag",
+                    "[LIFECYCLE_DIAG] WARMUP_DONE elapsedMs=$elapsedWarmMs camReady=$camReady imuHz=${imuManager.imuHz.value}"
+                )
+            }
+
+            imuStartedByWarmup = false
+            kotlinx.coroutines.withContext(Dispatchers.IO) {
+                beginSessionRecordingInternal()
+            }
+        }
+    }
+
+    fun cancelWarmup() {
+        warmupJob?.cancel()
+        warmupJob = null
+        cameraEngine.cancelWarmup()
+        if (imuStartedByWarmup && !isImuRecording.value) {
+            imuManager.stopLiveMonitoring()
+        }
+        imuStartedByWarmup = false
+        if (sessionRecorder.recordingState.value is SessionRecordingState.WarmingUp) {
+            sessionRecorder.setIdle()
+        }
+        if (DebugToggles.isSessionLifecycleDebugActive) {
+            com.bajajauto.roadsense.logging.AppLogger.i("LifecycleDiag", "[LIFECYCLE_DIAG] WARMUP_CANCELLED")
+        }
+    }
+
+    private fun beginSessionRecordingInternal(): SessionInfo? = synchronized(sessionLifecycleLock) {
+        // Ensure any previous session's async RadarSessionRecorder-Worker flush/close has finished
+        // before opening new file streams for a back-to-back recording.
+        sessionRecorder.awaitFlush(1500L)
         if (sessionRecorder.currentSession != null) {
             return@synchronized sessionRecorder.currentSession
         }
@@ -1001,6 +1295,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         if (storageStatus.health == StorageHealth.CRITICAL_STOP) {
             val msg = "Storage critically low (${storageStatus.freeMb} MB < ${StorageGuard.CRITICAL_STOP_MB} MB) — free space before recording"
             _storageAlert.value = msg
+            sessionRecorder.setIdle()
             com.bajajauto.roadsense.logging.AppLogger.e("Storage", msg)
             return@synchronized null
         }
@@ -1016,8 +1311,14 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         currentThermalSeverity = initialThermal
         peakThermalSeverity = initialThermal
         peakBatteryTempC = _batteryTempC.value
+        activeSessionWarnings.clear()
+        _sessionBookmarkCount.value = 0
+        _lastBookmarkToast.value = null
+        if (storageStatus.health == StorageHealth.LOW_WARN) {
+            activeSessionWarnings.add("Low storage (${storageStatus.freeMb} MB free)")
+        }
 
-        com.bajajauto.roadsense.logging.AppLogger.i("UI", "User tapped START session recording")
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Starting session recording")
         syncAssociator.reset()
         clockDiscipliner.reset()
         if (hasLocationPermission()) {
@@ -1025,6 +1326,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         }
         val session = sessionRecorder.startSession()
         if (session != null) {
+            session.sessionTags = _sessionTags.value
             RecordingForegroundService.start(
                 context = getApplication(),
                 sessionId = session.sessionId,
@@ -1071,7 +1373,95 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         return@synchronized session
     }
 
-    fun stopSessionRecording(): SessionInfo? = synchronized(sessionLifecycleLock) {
+    /**
+     * Non-blocking session stop:
+     * 1. Transitions UI state to [SessionRecordingState.Finalizing] within < 16 ms so the Stop button never freezes.
+     * 2. Stops MediaRecorder, IMU, GNSS, and flushes session files on [Dispatchers.IO] (~250-500 ms).
+     * 3. Transitions UI back to [SessionRecordingState.Finished] immediately so a new drive can start right away.
+     * 4. Runs [SessionSyncAuditor] asynchronously on a dedicated background worker and emits [postDriveSummary] when done.
+     */
+    fun stopSessionRecording() {
+        val currentState = sessionRecorder.recordingState.value
+        if (currentState is SessionRecordingState.WarmingUp) {
+            cancelWarmup()
+            return
+        }
+        if (currentState is SessionRecordingState.Finalizing) {
+            return
+        }
+        val activeSession = sessionRecorder.currentSession ?: return
+        val tapTs = SystemClock.elapsedRealtime()
+        if (DebugToggles.isSessionLifecycleDebugActive) {
+            com.bajajauto.roadsense.logging.AppLogger.i(
+                "LifecycleDiag",
+                "[LIFECYCLE_DIAG] STOP_TAPPED session=${activeSession.sessionId}"
+            )
+        }
+        sessionRecorder.markFinalizing("SAVING")
+        // Set audit token & auditing flag BEFORE launching deferred audit to prevent race on very short (<5 ms audit) logs
+        val auditToken = activeAuditToken.incrementAndGet()
+        _isSessionAuditing.value = true
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val stopped = stopSessionRecordingInternal(deferAudit = true) { completedSession, audit ->
+                _latestSessionAudit.value = audit
+                if (activeAuditToken.get() == auditToken) {
+                    _isSessionAuditing.value = false
+                }
+                if (DebugToggles.isSessionLifecycleDebugActive) {
+                    com.bajajauto.roadsense.logging.AppLogger.i(
+                        "LifecycleDiag",
+                        "[LIFECYCLE_DIAG] AUDIT_COMPLETE session=${completedSession.sessionId} grade=${audit?.certificationGrade ?: "N/A"} camDrops=${audit?.cameraStats?.anomalyCount ?: -1} imuSpikes=${audit?.imuStats?.anomalyCount ?: -1}"
+                    )
+                }
+                // Only present Post-Drive Summary if user has not already started a new recording
+                if (sessionRecorder.currentSession == null &&
+                    sessionRecorder.recordingState.value !is SessionRecordingState.WarmingUp
+                ) {
+                    val canStats = canedgeSyncStats.value
+                    _postDriveSummary.value = PostDriveSummaryData(
+                        sessionId = completedSession.sessionId,
+                        durationMs = ((completedSession.stopTimeWallMs ?: System.currentTimeMillis()) - completedSession.startTimeWallMs).coerceAtLeast(0L),
+                        radarFrames = completedSession.totalRadarFrames,
+                        radarSalvaged = completedSession.totalRadarSalvagedFrames,
+                        radarDrops = completedSession.totalRadarSequenceDrops,
+                        cameraFrames = completedSession.totalCameraFrames,
+                        imuFrames = completedSession.totalImuFrames,
+                        gnssFixes = completedSession.totalGnssFixes,
+                        bookmarksCount = completedSession.totalEventBookmarks,
+                        audit = audit,
+                        warnings = completedSession.recordedWarnings.toList(),
+                        canPendingCount = canStats.pendingSessionsCount,
+                        canStatusLabel = when {
+                            canStats.pendingSessionsCount > 0 -> "Syncing ${canStats.pendingSessionsCount} pending session(s) in background — safe to start next drive"
+                            canStats.hudPhase == com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.CONNECTED_SYNCED ||
+                                canStats.hudPhase == com.bajajauto.roadsense.canedge.model.CanedgeHudPhase.SYNCING -> "CANedge2 online & syncing"
+                            else -> "CANedge2 offline — queued for next connect"
+                        },
+                        peakThermalSeverity = completedSession.peakThermalSeverity,
+                        peakBatteryTempC = completedSession.peakBatteryTempC,
+                        sessionTags = completedSession.sessionTags
+                    )
+                }
+            }
+            if (stopped == null) {
+                if (activeAuditToken.get() == auditToken) {
+                    _isSessionAuditing.value = false
+                }
+            } else if (DebugToggles.isSessionLifecycleDebugActive) {
+                val elapsedMs = SystemClock.elapsedRealtime() - tapTs
+                com.bajajauto.roadsense.logging.AppLogger.i(
+                    "LifecycleDiag",
+                    "[LIFECYCLE_DIAG] STOP_IO_COMPLETE session=${stopped.sessionId} totalMs=$elapsedMs auditQueued=true"
+                )
+            }
+        }
+    }
+
+    private fun stopSessionRecordingInternal(
+        deferAudit: Boolean,
+        onAuditCompleted: ((SessionInfo, SessionSyncAuditor.AuditResult?) -> Unit)? = null
+    ): SessionInfo? = synchronized(sessionLifecycleLock) {
         val activeSession = sessionRecorder.currentSession ?: return@synchronized null
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "Stopping session recording (${activeSession.sessionId})")
         sessionManager.saveSessionCalibration(activeSession, _calibrationParams.value)
@@ -1085,7 +1475,17 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         activeSession.totalRadarSequenceDrops = totalRadarDroppedFrames
         activeSession.peakThermalSeverity = peakThermalSeverity.name
         activeSession.peakBatteryTempC = peakBatteryTempC
-        val stopped = sessionRecorder.stopSession()
+        activeSession.sessionTags = _sessionTags.value
+        val warningsCopy = activeSessionWarnings.toMutableList()
+        if (totalRadarDroppedFrames >= 5L) {
+            warningsCopy.add("Radar dropped $totalRadarDroppedFrames frame(s)")
+        }
+        activeSession.recordedWarnings = warningsCopy
+
+        val stopped = sessionRecorder.stopSession(
+            deferAudit = deferAudit,
+            onAuditCompleted = onAuditCompleted
+        )
         radarWasConnectedInSession = false
         radarStreamActiveInSession = false
         RecordingForegroundService.stop(getApplication())
@@ -1096,16 +1496,18 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             "Radar Session Telemetry: framesRecorded=$totalRecorded, salvagedFrames=$totalRadarSalvagedFrames, " +
             "droppedFrames=$totalRadarDroppedFrames, sequenceGaps=$totalRadarSequenceGaps, " +
             "queuePeakDepth=$peakRawByteQueueDepth/2048 (${peakRawByteQueueDepth * 100 / 2048}%), " +
-            "chunksDropped=$totalRawByteChunksDropped"
+            "chunksDropped=$totalRawByteChunksDropped, bookmarks=${stopped?.totalEventBookmarks ?: 0}"
         )
-        _latestSessionAudit.value = stopped?.syncAuditResult
+        if (!deferAudit) {
+            _latestSessionAudit.value = stopped?.syncAuditResult
+        }
         return@synchronized stopped
     }
 
     private fun emergencyFlushActiveSession() {
         val activeSession = sessionRecorder.currentSession ?: return
         activeSession.terminatedByCrash = true
-        val flushed = stopSessionRecording()
+        val flushed = stopSessionRecordingInternal(deferAudit = false)
         if (flushed != null) {
             sessionManager.writeMetadata(flushed)
         }

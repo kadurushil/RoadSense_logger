@@ -3,10 +3,12 @@ package com.bajajauto.roadsense.camera
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.PackageManager
+import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.*
 import android.hardware.camera2.params.MeteringRectangle
+import android.media.ImageReader
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Handler
@@ -156,6 +158,117 @@ class CameraEngine(private val context: Context) {
 
     @Volatile
     private var isPreviewActive = false
+
+    @Volatile
+    private var isWarmingUpForRecording = false
+    @Volatile
+    private var warmupFramesRemaining = 0
+    private var warmupImageReader: ImageReader? = null
+    private var warmupCallback: ((Boolean) -> Unit)? = null
+    private var warmupTimeoutRunnable: Runnable? = null
+    private val warmupLock = Any()
+
+    /**
+     * Returns true when the Camera2 pipeline is already open, repeating, and delivering
+     * steady shutter callbacks so recording can start immediately without a warmup wait.
+     */
+    fun isWarmForRecording(): Boolean {
+        return cameraDevice != null && isRepeatingActive && _totalFramesLogged.value >= 3L
+    }
+
+    /**
+     * Pre-warms the Camera2 HAL / ISP before calling [startVideoRecording] so exposure,
+     * white balance, and the 30 FPS sensor clock settle before frame #0 of the MP4 begins.
+     * Uses the live preview surface if active, or a lightweight 32x32 draining [ImageReader]
+     * when the viewfinder is muted. Bounded by [timeoutMs] (default 2000 ms).
+     */
+    fun warmUpForRecording(
+        targetFrames: Int = 5,
+        timeoutMs: Long = 2000L,
+        onWarm: (Boolean) -> Unit
+    ) {
+        if (!hasCameraPermission()) {
+            onWarm(false)
+            return
+        }
+        if (isWarmForRecording() || isRecordingVideo || isPendingVideoRecording) {
+            onWarm(true)
+            return
+        }
+
+        val timeoutTask = Runnable {
+            completeWarmup(success = false, reason = "timeout(${timeoutMs}ms)")
+        }
+
+        synchronized(warmupLock) {
+            warmupTimeoutRunnable?.let { backgroundHandler?.removeCallbacks(it) }
+            warmupTimeoutRunnable = timeoutTask
+            warmupCallback = onWarm
+            warmupFramesRemaining = targetFrames.coerceAtLeast(1)
+            isWarmingUpForRecording = true
+
+            if (previewSurface == null || previewSurface?.isValid != true) {
+                releaseWarmupReaderLocked()
+                warmupImageReader = ImageReader.newInstance(32, 32, ImageFormat.YUV_420_888, 2).apply {
+                    setOnImageAvailableListener({ reader ->
+                        try {
+                            reader.acquireLatestImage()?.close()
+                        } catch (_: Exception) {}
+                    }, backgroundHandler)
+                }
+            }
+        }
+
+        backgroundHandler?.postDelayed(timeoutTask, timeoutMs)
+        AppLogger.i(TAG, "Starting camera pre-record warmup (targetFrames=$targetFrames, timeoutMs=$timeoutMs, hasPreview=${previewSurface?.isValid == true})")
+
+        backgroundHandler?.post {
+            if (!isWarmingUpForRecording) return@post
+            if (cameraDevice == null) {
+                openCamera()
+            } else if (!isRepeatingActive) {
+                if (previewSurface?.isValid == true && captureSession != null && repeatingRequestBuilder != null) {
+                    resumeRepeatingPreviewIfNeeded()
+                } else {
+                    restartSession()
+                }
+            }
+        }
+    }
+
+    fun cancelWarmup() {
+        completeWarmup(success = false, reason = "cancelled")
+        backgroundHandler?.post {
+            synchronized(warmupLock) {
+                releaseWarmupReaderLocked()
+            }
+            if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording) {
+                closeCamera()
+            }
+        }
+    }
+
+    private fun completeWarmup(success: Boolean, reason: String) {
+        val cb: ((Boolean) -> Unit)?
+        synchronized(warmupLock) {
+            if (!isWarmingUpForRecording && warmupCallback == null) return
+            isWarmingUpForRecording = false
+            warmupFramesRemaining = 0
+            warmupTimeoutRunnable?.let { backgroundHandler?.removeCallbacks(it) }
+            warmupTimeoutRunnable = null
+            cb = warmupCallback
+            warmupCallback = null
+        }
+        AppLogger.i(TAG, "Camera pre-record warmup finished (success=$success, reason=$reason)")
+        cb?.invoke(success)
+    }
+
+    private fun releaseWarmupReaderLocked() {
+        try {
+            warmupImageReader?.close()
+        } catch (_: Exception) {}
+        warmupImageReader = null
+    }
 
     /**
      * Kept as a no-op for API compatibility.
@@ -388,7 +501,7 @@ class CameraEngine(private val context: Context) {
         val callback = repeatingCaptureCallback ?: return
         val postStartNs = System.nanoTime()
         backgroundHandler?.post {
-            if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording) return@post
+            if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording && !isWarmingUpForRecording) return@post
             try {
                 session.setRepeatingRequest(builder.build(), callback, captureSyncHandler ?: backgroundHandler)
                 isRepeatingActive = true
@@ -466,9 +579,9 @@ class CameraEngine(private val context: Context) {
         if (paused) {
             if (!isPreviewActive) return
             isPreviewActive = false
-            if (!isRecordingVideo && !isPendingVideoRecording) {
+            if (!isRecordingVideo && !isPendingVideoRecording && !isWarmingUpForRecording) {
                 backgroundHandler?.post {
-                    if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording && isRepeatingActive) {
+                    if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording && !isWarmingUpForRecording && isRepeatingActive) {
                         try {
                             captureSession?.stopRepeating()
                             isRepeatingActive = false
@@ -598,7 +711,7 @@ class CameraEngine(private val context: Context) {
             _engineState.value = CameraEngineState.Opening
             cameraManager.openCamera(targetCameraId, object : CameraDevice.StateCallback() {
                 override fun onOpened(camera: CameraDevice) {
-                    if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording) {
+                    if (!isPreviewActive && !isRecordingVideo && !isPendingVideoRecording && !isWarmingUpForRecording) {
                         AppLogger.i(TAG, "Camera opened after preview was cancelled; closing immediately")
                         camera.close()
                         cameraDevice = null
@@ -721,8 +834,14 @@ class CameraEngine(private val context: Context) {
     private fun createCaptureSession() {
         val device = cameraDevice ?: return
         val surfaces = mutableListOf<Surface>()
+        val activeWarmupSurface = if (isWarmingUpForRecording && !isRecordingVideo && !isPendingVideoRecording && (previewSurface == null || previewSurface?.isValid != true)) {
+            warmupImageReader?.surface
+        } else {
+            null
+        }
 
-        previewSurface?.let { surfaces.add(it) }
+        previewSurface?.takeIf { it.isValid }?.let { surfaces.add(it) }
+        activeWarmupSurface?.let { surfaces.add(it) }
         recorderSurface?.let { surfaces.add(it) }
 
         if (surfaces.isEmpty()) {
@@ -764,7 +883,8 @@ class CameraEngine(private val context: Context) {
                             if (isRecSession) CameraDevice.TEMPLATE_RECORD else CameraDevice.TEMPLATE_PREVIEW
                         )
 
-                        previewSurface?.let { requestBuilder.addTarget(it) }
+                        previewSurface?.takeIf { it.isValid }?.let { requestBuilder.addTarget(it) }
+                        activeWarmupSurface?.let { requestBuilder.addTarget(it) }
                         recorderSurface?.let { requestBuilder.addTarget(it) }
 
                         val targetFps = _selectedFps.value.fps
@@ -796,6 +916,19 @@ class CameraEngine(private val context: Context) {
                                     isRecording = isRec
                                 )
                                 _totalFramesLogged.value++
+                                if (isWarmingUpForRecording) {
+                                    val done = synchronized(warmupLock) {
+                                        if (isWarmingUpForRecording) {
+                                            warmupFramesRemaining--
+                                            warmupFramesRemaining <= 0
+                                        } else {
+                                            false
+                                        }
+                                    }
+                                    if (done) {
+                                        completeWarmup(success = true, reason = "shutter_frames_settled")
+                                    }
+                                }
                                 frameListeners.forEach { it.invoke(meta) }
                             }
                         }
@@ -1300,19 +1433,25 @@ class CameraEngine(private val context: Context) {
         try {
             captureSessionGeneration++
             isRepeatingActive = false
+            completeWarmup(success = false, reason = "camera_closed")
             captureSession?.close()
             captureSession = null
             repeatingRequestBuilder = null
             repeatingCaptureCallback = null
             cameraDevice?.close()
             cameraDevice = null
+            synchronized(warmupLock) {
+                releaseWarmupReaderLocked()
+            }
             mediaRecorder?.release()
             mediaRecorder = null
             recorderSurface = null
-            previewSurface?.release()
+            if (previewSurfaceTexture != null) {
+                previewSurface?.release()
+                previewSurfaceTexture?.release()
+                previewSurfaceTexture = null
+            }
             previewSurface = null
-            previewSurfaceTexture?.release()
-            previewSurfaceTexture = null
             _engineState.value = CameraEngineState.Closed
             AppLogger.i(TAG, "Closed CameraDevice and released preview surfaces")
         } catch (e: Exception) {
@@ -1340,10 +1479,15 @@ class CameraEngine(private val context: Context) {
                 AppLogger.i(TAG, "Auto-engaged infinity focus lock for video recording session")
             }
 
+            // Finish any pending warmup state before reconfiguring to MediaRecorder surface
+            completeWarmup(success = true, reason = "recording_starting")
+
             if (cameraDevice == null) {
+                synchronized(warmupLock) { releaseWarmupReaderLocked() }
                 openCamera()
             } else {
                 restartSession()
+                synchronized(warmupLock) { releaseWarmupReaderLocked() }
             }
 
             return true
@@ -1357,7 +1501,8 @@ class CameraEngine(private val context: Context) {
     }
 
     /**
-     * Stops video recording and releases MediaRecorder.
+     * Stops video recording and always releases MediaRecorder & reconfigures/closes CameraDevice,
+     * even if `MediaRecorder.stop()` throws (e.g. accidental < 1s stop before frame #1).
      */
     fun stopVideoRecording(): Long {
         if (!isRecordingVideo && !isPendingVideoRecording) return 0L
@@ -1369,19 +1514,28 @@ class CameraEngine(private val context: Context) {
 
         try {
             mediaRecorder?.stop()
-            mediaRecorder?.reset()
-            mediaRecorder?.release()
+            AppLogger.i(TAG, "Stopped video recording. Total frames captured: $total")
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Error stopping MediaRecorder (frames=$total) — cleaning up resources safely", e)
+        } finally {
+            try {
+                mediaRecorder?.reset()
+            } catch (_: Exception) {}
+            try {
+                mediaRecorder?.release()
+            } catch (_: Exception) {}
             mediaRecorder = null
             recorderSurface = null
 
-            AppLogger.i(TAG, "Stopped video recording. Total frames captured: $total")
-            if (isPreviewActive && previewSurface != null) {
-                restartSession()
-            } else {
-                closeCamera()
+            try {
+                if (isPreviewActive && previewSurface != null && previewSurface?.isValid == true) {
+                    restartSession()
+                } else {
+                    closeCamera()
+                }
+            } catch (e: Exception) {
+                AppLogger.e(TAG, "Error restoring camera after MediaRecorder stop", e)
             }
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "Error stopping MediaRecorder", e)
         }
 
         return total

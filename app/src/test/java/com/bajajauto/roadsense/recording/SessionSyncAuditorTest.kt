@@ -149,4 +149,67 @@ class SessionSyncAuditorTest {
             tempDir.deleteRecursively()
         }
     }
+
+    @Test
+    fun zeroAllocAuditorProcessesLargeSessionQuicklyAndAccurately() {
+        val tempDir = Files.createTempDirectory("auditor_large_test_").toFile()
+        try {
+            val radarDir = File(tempDir, "radar").apply { mkdirs() }
+            val gnssDir = File(tempDir, "gnss").apply { mkdirs() }
+            val cameraDir = File(tempDir, "camera").apply { mkdirs() }
+            val imuDir = File(tempDir, "imu").apply { mkdirs() }
+            val syncDir = File(tempDir, "sync").apply { mkdirs() }
+
+            val sessionInfo = SessionInfo(
+                sessionId = "session_test_large",
+                sessionDir = tempDir,
+                radarDir = radarDir,
+                gnssDir = gnssDir,
+                cameraDir = cameraDir,
+                imuDir = imuDir,
+                syncDir = syncDir,
+                startTimeWallMs = 1_700_000_000_000L,
+                startTimeMonotonicNs = 1_000_000_000L,
+                totalRadarFrames = 12_000L
+            )
+
+            // 10-minute synthetic stream: 60,000 IMU (100 Hz), 18,000 Camera (30 Hz), 12,000 Radar (20 Hz)
+            File(imuDir, "imu_frames.csv").bufferedWriter().use { w ->
+                w.write("elapsed_realtime_ns,ax,ay,az\n")
+                var t = 1_000_000_000L
+                repeat(60_000) {
+                    w.write("$t,0,0,9.81\n")
+                    t += 10_000_000L
+                }
+            }
+
+            File(tempDir, "session_timeline.csv").bufferedWriter().use { w ->
+                w.write("elapsed_realtime_ns,sensor,event,sequence_id,relative_path,summary\n")
+                var camT = 1_000_000_000L
+                repeat(18_000) { i ->
+                    w.write("$camT,CAMERA,FRAME,$i,camera/camera_video.mp4,\n")
+                    camT += 33_333_333L
+                }
+                var radT = 1_000_000_000L
+                repeat(12_000) { seq ->
+                    w.write("$radT,RADAR,FRAME,$seq,radar/radar_frames.bin,len=1024\n")
+                    radT += 50_000_000L
+                }
+            }
+
+            val t0 = System.nanoTime()
+            val result = SessionSyncAuditor.auditSession(sessionInfo)
+            val elapsedMs = (System.nanoTime() - t0) / 1_000_000L
+
+            assertEquals(18_000L, result.cameraStats.totalCount)
+            assertEquals(0, result.cameraStats.anomalyCount)
+            assertEquals(60_000L, result.imuStats.totalCount)
+            assertEquals(0, result.imuStats.anomalyCount)
+            assertEquals(12_000L, result.radarStats?.totalCount)
+            assertEquals(0, result.radarStats?.anomalyCount)
+            assertTrue("Expected zero-alloc audit < 2500ms on JVM, took ${elapsedMs}ms", elapsedMs < 2500L)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
 }
