@@ -30,7 +30,7 @@
 
 1. **Screenshot Placeholders (3 Dashed Boxes Left Intentionally Blank):**
    - **Slide 05 (`PHONE SCREENSHOT SLOT`):** Drop in a phone screenshot from `SM-M325F` showing **Immersive Fullscreen SBS**, the `±60°` BEV overlay (`100 m / 150 m`), and the live **5-pill Traffic-Light Readiness HUD (`CAN`, `CAM`, `RAD`, `GNSS`, `IMU`)**.
-   - **Slide 07 (`DASHBOARD SCREENSHOT SLOT`):** Drop in your Web Dashboard ANSI-highlighted Vision Benchmark + `DynamicPitchSolver` screenshot (`session_20261120_112453` Pass 1 vs Ideal `4.238°` Pass 2).
+   - **Slide 07 (`DASHBOARD SCREENSHOT SLOT`):** Drop in your Web Dashboard ANSI-highlighted Vision Benchmark + `DynamicPitchSolver` screenshot (`session_20261124_120846` Pass 1 `8.997°` vs Ideal `7.550°` Pass 2 hitting `45.7%`).
    - **Slide 10 (`FOXGLOVE SCREENSHOT SLOT`):** Drop in a Foxglove Studio 3D viewport capture showing synchronized `/radar/points`, TLV 2 `/radar/clusters`, `/vision/geo_tracks`, `/vision/camera_frustum`, `/can/*` signals, and upright `cy = 360` alignment.
 2. **Native Equations (`Alt + =` / OMML):**
    - Click inside the dashed `[ NATIVE EQUATION SLOT ]` on **Slide 05** or **Slide 07**, delete the placeholder text, press **`Alt + =`** to open a native PowerPoint equation box, paste the LaTeX string below (one equation per line), and press `Enter`.
@@ -104,7 +104,7 @@ x_k = [\psi_k,\ b_{z,k}]^T,\quad \psi_k = \psi_{k-1} + (-g_{z,k} - b_z)\Delta t
 ## Slide 07: Vision-vs-Radar Benchmark Overhaul & `DynamicPitchSolver`
 
 ### Executive Pitch
-> "Earlier radar-vision benchmarks understated real hardware alignment due to three methodological flaws: comparing radar bumper reflections against the center of 3D vehicle boxes (`+length/2` bias), dropping valid nearby matches under greedy 1-to-1 assignment, and letting a 1-degree windshield mount mismatch erode medium-range overlap. Switching to front ground-contact patch anchoring, nearest-radius existence with `0–50 m` unrestricted lateral evaluation, and integrating `DynamicPitchSolver` fixed this. On the 40,024-frame November 20 drive, the solver automatically detected that calibrated pitch was `0.995°` too steep (`5.232°` vs `4.238°`), doubling `15–30 m` match rate (`5.7% -> 10.5%`), tripling `30–50 m`, and zeroing bus and truck longitudinal bias."
+> "Earlier radar-vision benchmarks understated real hardware alignment due to three methodological flaws: comparing radar bumper reflections against the center of 3D vehicle boxes (`+length/2` bias), dropping valid nearby matches under greedy 1-to-1 assignment, and letting a ~1.5-degree windshield mount mismatch erode medium-range overlap. Switching to front ground-contact patch anchoring, nearest-radius existence with `0–50 m` unrestricted lateral evaluation, and integrating `DynamicPitchSolver` fixed this. On our latest validated-DSP drive (`session_20261124_120846`, GOLD sync, 9,279 radar / 13,900 camera frames, 0 drops), the solver detected that configured pitch was `1.447°` too steep (`8.997° -> 7.550°`), lifting overall `0–50 m` association from `36.0%` to **`45.7%`** (`62.5%` at `0–15 m`, **`39.9%`** at `15–30 m` — a **`3.35×` jump**, `76.2%` on motorcycles, `49.6%` on trucks), cutting Fwd MAE from `1.496 m` down to **`1.209 m`**, and slashing Mutual-NN bias `7.6×` (`-0.887 -> -0.117 m`)."
 
 ### Native Equations for Slot 2 (`Alt + =` / OMML)
 Paste these inside **Native Equation Slot 2**:
@@ -136,14 +136,14 @@ Paste these inside **Native Equation Slot 2**:
 ## Slide 11: Update 5 Roadmap — Physical Hard Mounting, DSP Qualification & `>66%` Gate
 
 ### Executive Pitch
-> "Our final slide frames the clear, disciplined path forward for Update 5. We have proven that our software pipeline, USB acquisition, clocking, UI, CAN alignment, and MCAP serialization are solid. What remains our #1 bottleneck is physical hard mounting: flexible windshield mounts introduce roughly 1 degree of pitch play — confirmed independently by our pitch solver catching a `0.995°` offset on November 20 — which destabilizes ranges quadratically at 30–50 meters. Our #1 priority is rigid machined hard mounting, followed immediately by controlled A/B qualification of AWR1843 DSP firmware builds under those rigid mounts (given 8,994 empty frames on our current build), and closed-loop online pitch auto-trim toward our >66% sustained association gate."
+> "Our final slide frames the clear, disciplined path forward for Update 5. We have proven that our software pipeline, USB acquisition, clocking, UI, CAN alignment, MCAP serialization, and validated radar DSP are solid—already pushing overall `0–50 m` association past 45% (`45.7%`, with `62.5%` under 15 m and `76.2%` on motorcycles). What remains our #1 bottleneck is physical hard mounting: flexible windshield mounts introduced a `1.447°` pitch offset on `session_20261124_120846` (`8.997° -> 7.550°`) that alone cut `15–30 m` matching from `39.9%` down to `11.9%`. Our #1 priority is rigid machined hard mounting, followed by locking this validated DSP baseline with 200 Hz IMU/CAN dynamic pitch-bounce compensation, and automated pitch auto-trim toward our >66% sustained association gate."
 
 ---
 
 ## Boardroom Q&A Cheat Sheet
 
-### Q1: "If software and sync are 100%, why is Vision-Radar match rate only 22.6% at `4.238°`?"
-* **Answer:** "Because our zero-loss instrumentation now separates pipeline health from sensor and mount limits cleanly. In `session_20261120_112453`, `8,994` of `40,024` radar frames (22.5%) returned zero tracker detections from the current AWR1843 DSP firmware, while camera windshield play shifted pitch by `0.995°`. Fixing the pitch angle alone nearly doubled `15–30 m` matching (`5.7% -> 10.5%`). Hard mounts plus comparing legacy vs current radar DSP builds is our exact Update 5 focus."
+### Q1: "We hit 45.7% overall (and 62.5% within 15 m)—what closes the remaining gap to >66%?"
+* **Answer:** "Two concrete physics factors. First, `session_20261124_120846` proved that just `1.45°` of flexible windshield mount shift dropped `15–30 m` association from `39.9%` to `11.9%` (`3.35×` loss); rigid machined hard mounts lock static extrinsics permanently. Second, dynamic suspension pitch bounce over bumps and braking still shifts monocular ground rays by 2–4 meters per frame (`dX/dθ ≈ -X²/h`). Combining hard mounts with 200 Hz IMU/CAN dynamic pitch-bounce compensation directly bridges the gap from `45.7%` past our `>66%` gate."
 
 ### Q2: "What happens if radar is disconnected on a drive—does CAN alignment fail?"
 * **Answer:** "No. Under commit `d2265c8`, `tools/CAN_Processing/` automatically falls back from Tier-1 radar `FrameNumber_Act` sync to Tier-2 dual-anchor FFT (`rfft`) cross-correlation between CAN steering/IMU yaw rate and phone IMU `gz`, achieving `0.998` correlation (`4.2σ` SNR) and even recovering 57.6 seconds of stale session metadata."

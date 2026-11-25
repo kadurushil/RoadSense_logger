@@ -23,7 +23,7 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-export async function generateRoadSenseUpdate4Presentation() {
+export async function generateRoadSenseUpdate4Presentation(customOutPath = null) {
     const pres = new pptxgen();
 
     pres.defineLayout({ name: "SCREEN16x9_FULL", width: 13.333, height: 7.500 });
@@ -168,7 +168,7 @@ export async function generateRoadSenseUpdate4Presentation() {
             {
                 tag: "CAN SYNC, MCAP AND PITCH SOLVER",
                 title: "E2E CAN, 100% Parity & Pitch Solver",
-                desc: "Autonomous Android CAN watchdog + Tier-1/Tier-2 PC processing (77 CAN topics); 100.0% 8-category MCAP parity; DynamicPitchSolver detecting 0.995 deg error and doubling 15-30m match rate.",
+                desc: "Autonomous Android CAN watchdog + Tier-1/Tier-2 PC processing (77 CAN topics); 100.0% 8-category MCAP parity; DynamicPitchSolver lifting 0-50m match rate to 45.7% (3.35x at 15-30m).",
                 color: COLOR_PURPLE,
                 bg: "FAF5FF"
             }
@@ -238,7 +238,7 @@ export async function generateRoadSenseUpdate4Presentation() {
                 title: "4. 100.0% MCAP Parity & Pitch-Solved Benchmark Overhaul",
                 bullets: [
                     ["MCAP Integrity & 8-Category Parity: ", "Enriched Foxglove /vision/* topics + binary Protobuf IMU + trailing MP4 extrapolation; verify_conversion_parity.py jumped from 58.0% -> 100.0% (23,340 frames, 0 errors)."],
-                    ["Benchmark Overhaul & DynamicPitchSolver: ", "Switched to front contact_patch + nearest matching (0-50 m, zero lateral filter) + clutter-immune pitch solver recovering 0.995° mount offset and doubling 15-30m match rate."]
+                    ["Benchmark Overhaul & DynamicPitchSolver: ", "Switched to front contact_patch + nearest matching (0-50 m, zero lateral filter) + clutter-immune pitch solver recovering 1.447° mount offset (8.997° -> 7.550°), hitting 45.7% match (39.9% at 15-30m)."]
                 ]
             }
         ];
@@ -534,33 +534,35 @@ export async function generateRoadSenseUpdate4Presentation() {
             "DASHBOARD SCREENSHOT SLOT"
         );
 
-        // Right Bottom: Empirical Verification Table (session_20261120_112453, 40,024 frames)
+        // Right Bottom: Empirical Verification Table (session_20261124_120846, 9,279 Radar / 13,900 Cam)
         addCard(slide, 6.95, 4.46, 5.58, 2.56, COLOR_SUCCESS, "F8FAFC");
-        slide.addText("Empirical Verification: session_20261120_112453 (40,024 Frames, 0–50 m)", {
-            x: 7.10, y: 4.56, w: 5.28, h: 0.24,
-            fontSize: 9.8, bold: true, color: COLOR_SUCCESS, fontFace: "Segoe UI", margin: 0
+        slide.addText("Empirical Verification: session_20261124_120846 (GOLD Sync, 0–50 m)", {
+            x: 7.10, y: 4.55, w: 5.28, h: 0.24,
+            fontSize: 9.6, bold: true, color: COLOR_SUCCESS, fontFace: "Segoe UI", margin: 0
         });
 
+        const solvedCell = (t) => ({ text: t, options: { bold: true, fill: "F0FDF4", color: COLOR_TEXT_MAIN } });
+        const deltaBold = (t) => ({ text: t, options: { bold: true, color: COLOR_TEXT_MAIN } });
         const pitchTable = [
             [
                 { text: "Metric (0–50 m, All Lateral)", options: { bold: true, fill: "E2E8F0", color: COLOR_TEXT_MAIN } },
-                { text: "Cfg @ 5.232°", options: { bold: true, fill: "FEE2E2", color: COLOR_ROSE, align: "right" } },
-                { text: "Solved @ 4.238°", options: { bold: true, fill: "DCFCE7", color: COLOR_SUCCESS, align: "right" } },
+                { text: "Cfg @ 8.997°", options: { bold: true, fill: "FEE2E2", color: COLOR_ROSE, align: "right" } },
+                { text: "Solved @ 7.550°", options: { bold: true, fill: "DCFCE7", color: COLOR_SUCCESS, align: "right" } },
                 { text: "Delta", options: { bold: true, fill: "DBEAFE", color: COLOR_PRIMARY, align: "right" } }
             ],
-            ["15–30 m Match Rate", "5.7%", "10.5%", "1.84x (Doubled)"],
-            ["30–50 m Match Rate", "0.5%", "1.6%", "3.2x (Tripled)"],
-            ["Overall Fwd MAE / RMSE", "1.272 / 1.549 m", "1.136 / 1.422 m", "-0.136 m"],
-            ["Mutual-NN Median Dist / Bias", "2.156 / -0.391 m", "1.897 / -0.002 m", "-0.259 m / ~0"],
-            ["Bus / Truck Fwd Bias", "-0.640 / -0.351 m", "+0.012 / -0.006 m", "Zeroed"]
+            ["Overall 0–50 m Match Rate", "36.0%", solvedCell("45.7%"), deltaBold("+9.7 pts (+27%)")],
+            ["0–15 m / 15–30 m Match", "52.1% / 11.9%", solvedCell("62.5% / 39.9%"), deltaBold("3.35x Mid-Range")],
+            ["30–50 m Match Rate", "9.2%", solvedCell("16.5%"), deltaBold("1.79x Far-Range")],
+            ["Overall Fwd MAE / RMSE", "1.496 / 1.762 m", solvedCell("1.209 / 1.496 m"), "-0.287 m MAE"],
+            ["Mutual-NN Dist / Bias", "2.367 / -0.887 m", solvedCell("1.805 / -0.117 m"), "-0.562 m / 7.6x"]
         ];
         slide.addTable(pitchTable, {
-            x: 7.10, y: 4.88, w: 5.28, h: 2.02,
-            fontSize: 8.2, fontFace: "Segoe UI", color: COLOR_TEXT_MAIN,
+            x: 7.10, y: 4.86, w: 5.28, h: 2.04,
+            fontSize: 8.0, fontFace: "Segoe UI", color: COLOR_TEXT_MAIN,
             border: { pt: 0.5, color: "CBD5E1" },
             fill: { color: "FFFFFF" },
             margin: [3, 4, 3, 4],
-            colW: [1.80, 1.18, 1.20, 1.10]
+            colW: [1.80, 1.15, 1.23, 1.10]
         });
     }
 
@@ -741,12 +743,13 @@ export async function generateRoadSenseUpdate4Presentation() {
         });
 
         // Right Top: Full One-Month Before/After KPI Scorecard Table
-        addCard(slide, 6.45, 1.54, 6.08, 4.28, COLOR_PRIMARY, "FFFFFF");
-        slide.addText("End-to-End Quantified Impact Scorecard (Oct 23 -> Nov 23)", {
-            x: 6.60, y: 1.64, w: 5.78, h: 0.25,
-            fontSize: 10.5, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI", margin: 0
+        addCard(slide, 6.45, 1.54, 6.08, 4.30, COLOR_PRIMARY, "FFFFFF");
+        slide.addText("End-to-End Quantified Impact Scorecard (Oct 23 -> Nov 24)", {
+            x: 6.60, y: 1.63, w: 5.78, h: 0.24,
+            fontSize: 10.4, bold: true, color: COLOR_PRIMARY, fontFace: "Segoe UI", margin: 0
         });
 
+        const afterCell = (t) => ({ text: t, options: { bold: true, fill: "F0FDF4", color: COLOR_TEXT_MAIN } });
         const kpiRows = [
             [
                 { text: "Subsystem / Metric", options: { bold: true, fill: "E2E8F0", color: COLOR_TEXT_MAIN } },
@@ -754,23 +757,24 @@ export async function generateRoadSenseUpdate4Presentation() {
                 { text: "After", options: { bold: true, fill: "DCFCE7", color: COLOR_SUCCESS, align: "right" } },
                 { text: "Gain", options: { bold: true, fill: "DBEAFE", color: COLOR_PRIMARY, align: "right" } }
             ],
-            ["Radar Frame Corruption", "7.67% (824 gaps)", "0.00% (Salvaged)", "100% Fixed"],
-            ["Live Radar Inter-Frame Jitter", "8.73 ms std", "0.21 ms std", "41x Tighter"],
-            ["1 Hz Metrics HUD Tick", "26.6–64.4 ms", "0.28 ms", "-99.5% Latency"],
-            ["Viewfinder Draw (BEV / OVL)", "8.57 / 14.45 ms", "0.36 / 0.38 ms", "-95.8% / -97.4%"],
-            ["Fullscreen Exit Stall", "1,315–1,478 ms", "0 restarts", "Yellow STBY HWC"],
-            ["Stationary IMU Yaw Drift (39s)", "-56.29° drift", "+0.18° bounded", "99.7% Cut (EKF)"],
-            ["CAN Tier-1 Sync Spread", "220.17 ms", "38.90 ms (-0.08 med)", "5.7x Tighter"],
-            ["MCAP Parity Scorecard", "58.0% (FAIL)", "100.0% (23,340 frm)", "0 Errors"],
-            ["Vision-Radar 15–30 m Match", "5.7% (@ 5.23°)", "10.5% (@ 4.24°)", "1.84x (Doubled)"]
+            ["Radar Frame Corruption", "7.67% (824 gaps)", afterCell("0.00% (0 drops)"), "100% Fixed"],
+            ["Live Radar Inter-Frame Jitter", "8.73 ms std", afterCell("0.21 ms std"), "41x Tighter"],
+            ["1 Hz Metrics HUD Tick", "26.6–64.4 ms", afterCell("0.28 ms"), "-99.5% Latency"],
+            ["Viewfinder Draw (BEV / OVL)", "8.57 / 14.45 ms", afterCell("0.36 / 0.38 ms"), "-95.8% / -97.4%"],
+            ["Fullscreen Exit Stall", "1,315–1,478 ms", afterCell("0 restarts"), "Yellow STBY HWC"],
+            ["Stationary IMU Yaw Drift (39s)", "-56.29° drift", afterCell("+0.18° bounded"), "99.7% Cut (EKF)"],
+            ["CAN Tier-1 Sync Spread", "220.17 ms", afterCell("38.90 ms (-0.08)"), "5.7x Tighter"],
+            ["MCAP Parity Scorecard", "58.0% (FAIL)", afterCell("100.0% (23,340)"), "0 Errors"],
+            ["Vision-Radar Match (0–50 m)", "22.5% (Old DSP)", afterCell("45.7% (@ 7.55°)"), "2.0x (62.5% near)"],
+            ["Mid-Range 15–30 m Match", "5.7% (Old DSP)", afterCell("39.9% (@ 7.55°)"), "7.0x (3.35x Pitch)"]
         ];
         slide.addTable(kpiRows, {
-            x: 6.60, y: 1.96, w: 5.78, h: 3.74,
-            fontSize: 8.1, fontFace: "Segoe UI", color: COLOR_TEXT_MAIN,
+            x: 6.60, y: 1.93, w: 5.78, h: 3.82,
+            fontSize: 7.7, fontFace: "Segoe UI", color: COLOR_TEXT_MAIN,
             border: { pt: 0.5, color: "CBD5E1" },
             fill: { color: "FFFFFF" },
             margin: [2, 4, 2, 4],
-            colW: [2.18, 1.15, 1.35, 1.10]
+            colW: [2.14, 1.15, 1.37, 1.12]
         });
 
         // Right Bottom: Verification & Knowledge Organization Box
@@ -814,7 +818,7 @@ export async function generateRoadSenseUpdate4Presentation() {
                 badge: "PRIORITY #1 — BIGGEST CHALLENGE",
                 title: "Physical Hard Mounting & Bracket Rigidity",
                 sections: [
-                    ["Observed Reality: ", "Flexible windshield suction & temporary bumper brackets induce ~1° dynamic pitch/roll shifts across bumps—confirmed empirically by our DynamicPitchSolver detecting a 0.995° mount offset (5.232° -> 4.238°) that halved 15–30 m match rates and added -0.64 m bus range bias."],
+                    ["Observed Reality: ", "Flexible windshield suction & temporary bumper brackets induce ~1.5° dynamic pitch/roll shifts across bumps—confirmed on session_20261124_120846 where a 1.447° pitch offset (8.997° -> 7.550°) cut 15–30 m match rate from 39.9% down to 11.9% (3.35x loss)."],
                     ["Physics Sensitivity: ", "Under flat-earth IPM (dY/dθ ≈ -Y²/H), a 1.0° bracket flex shifts targets at 40 m by >10 meters longitudinally."],
                     ["Deliverable: ", "Replace temporary suction mounts with machined aluminum rigid bumper/roof-rail fixtures, alignment dowel pins, and certified static level-ground calibration."]
                 ]
@@ -822,11 +826,11 @@ export async function generateRoadSenseUpdate4Presentation() {
             {
                 x: 4.84, color: COLOR_WARNING, bg: "FFFBEB",
                 badge: "PRIORITY #2 — SENSOR QUALIFICATION",
-                title: "AWR1843 Radar DSP Build A/B Evaluation",
+                title: "Validated Radar DSP Lock & Dynamic Pitch",
                 sections: [
-                    ["Observed Reality: ", "On session_20261120_112453, even at solved ideal pitch (4.238°), 0–50 m association capped at 22.6% with 8,994 / 40,024 empty radar frames (22.5%) despite 0% UART serial drops."],
-                    ["Diagnostic Separation: ", "Our zero-loss capture and clutter-immune benchmark now isolate radar tracker DSP quality cleanly from camera, sync, or serial bottlenecks."],
-                    ["Deliverable: ", "Conduct controlled A/B test drives comparing legacy vs current AWR1843 tracker DSP firmware builds under identical rigid hard mounts."]
+                    ["Observed Breakthrough: ", "Moving to the validated AWR1843 DSP (session_20261124_120846, GOLD sync, 0 drops) doubled 0–50 m match to 45.7% (0–15 m: 62.5%, 15–30 m: 39.9%, motorcycle: 76.2%, truck: 49.6%)."],
+                    ["Remaining Margin: ", "With zero serial loss and a healthy DSP verified, remaining unmatched tracks stem from dynamic bump pitch oscillation and mounting play."],
+                    ["Deliverable: ", "Lock the validated DSP build as baseline and deploy 200 Hz IMU/CAN dynamic pitch-bounce compensation over speed bumps & braking."]
                 ]
             },
             {
@@ -867,13 +871,17 @@ export async function generateRoadSenseUpdate4Presentation() {
         });
     }
 
-    const outDeckPath = path.join(__dirname, "decks", "RoadSense_Update4_Executive_Progress.pptx");
+    const outDeckPath = customOutPath
+        ? path.resolve(customOutPath)
+        : path.join(__dirname, "decks", "RoadSense_Update4_Executive_Progress.pptx");
     await pres.writeFile({ fileName: outDeckPath });
     console.log(`[RoadSense] Generated 11-slide Update 4 presentation at: ${outDeckPath}`);
 }
 
 if (process.argv[1] && process.argv[1].endsWith("generate_roadsense_update4_deck.js")) {
-    generateRoadSenseUpdate4Presentation().catch(err => {
+    const outIdx = process.argv.indexOf("--out");
+    const customOut = (outIdx >= 0 && process.argv[outIdx + 1]) ? process.argv[outIdx + 1] : null;
+    generateRoadSenseUpdate4Presentation(customOut).catch(err => {
         console.error("[RoadSense] Error generating Update 4 presentation:", err);
         process.exit(1);
     });
