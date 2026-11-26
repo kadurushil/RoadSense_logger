@@ -468,24 +468,24 @@ On vehicles or logging sessions where factory calibration has not been performed
    - Delete dead `startLuminanceAnalyzerLegacyDisabled()` `getBitmap()` stub; apply static hardware `CONTROL_AE_REGIONS` restricted to the lower 65% road zone once on open/toggle (`AUTO_ROAD` vs `FULL_MATRIX`) — **0% CPU, 0% GPU, 0 dynamic `setRepeatingRequest()` calls mid-drive**.
 
 ### 9.2 UI/UX & Field Usability Improvements
-1. **One-Tap On-Screen Event Bookmarking (`EVENT_MARKER`) `[PLANNED — TIER 2]`:**
-   - Dedicated thumb bookmark button across SBS, SBS Fullscreen, Camera Preview, and Camera Fullscreen (`CUT_IN`, `BRAKE`, `FALSE_ALARM`, `BUMP`, `NOTE`) written into `session_timeline.csv` and exported to Foxglove `/events` annotations. *(Physical volume keys stay standard to prevent mount shake.)*
+1. **One-Tap On-Screen Event Bookmarking (`EVENT_MARKER`) `[COMPLETED — TIER 2 / Commit 27593a9]`:**
+   - Dedicated thumb 4-way swipe bookmark button across regular cockpit bar, SBS Fullscreen, and Camera Fullscreen (`EVENT`, `CUT_IN`, `BRAKE`, `FALSE_ALARM`, `BUMP`) written into `session_timeline.csv` and exported to Foxglove `/events` + `/diagnostics/logs`. *(Physical volume keys stay standard to prevent mount shake.)*
 2. **Eyes-Free Audio Health Alerts `[BACKLOG — DEFERRED]`:**
    - Lightweight `ToneGenerator` chimes on `REC` start/stop, bookmark tap, radar detach, camera error, thermal severe, and low storage with persistent mute toggle.
 3. **Pre-Drive Mount-Slippage Canary & Static Pitch Check `[BACKLOG]`:**
    - Compare stationary live IMU pitch at session start against calibrated baseline (`radar_camera_calib.json`) and surface an HUD warning if $|\theta_{\text{live}} - \theta_{\text{calib}}| > 0.5^\circ$ before starting a long drive.
-4. **Structured Session Metadata Tagging `[PLANNED — TIER 2]`:**
+4. **Structured Session Metadata Tagging `[COMPLETED — TIER 2 / Commit 27593a9]`:**
    - Quick selector stamping `vehicleId`, `dspFirmwareBuild`, `mountType`, `lightingCondition`, and notes into `session_metadata.json` for automated A/B PC grouping.
-5. **Pre-Drive Preflight Checklist & Codebase Hygiene `[PLANNED — TIER 2]`:**
-   - Compact preflight readout (5 sensor pills + storage + battery + thermal) and cleanup of dead placeholder files (`AcquisitionPlaceholder.kt`, `RecordingPlaceholder.kt`, `AutoFitTextureView.kt`).
+5. **Pre-Drive Preflight Checklist & Codebase Hygiene `[COMPLETED — TIER 2 / Commit 27593a9]`:**
+   - Clickable `IDLE` zero-scroll landscape preflight modal (5 sensor pills + storage + battery + thermal + warmup) and cleanup of dead placeholder files (`AcquisitionPlaceholder.kt`, `RecordingPlaceholder.kt`, `AutoFitTextureView.kt`).
 
 ### 9.3 Capability Additions
 1. **On-Device Quick-Peek CAN Diagnostics `[BACKLOG]`:**
    - Pure-Kotlin 36-byte stride reader on staged `.MF4` chunks to verify live CAN frame rate, vehicle speed, and bus-off/error flags inside the Android `CAN` pill and embed DBC/VIN fingerprints in metadata.
-2. **Automated Long-Duration Soak & Reliability Harness `[PLANNED — TIER 3]`:**
-   - Unattended ADB soak runner (`15–60 min`) polling `dumpsys meminfo`, `gfxinfo`, `thermalservice`, and `AppLogger` + chaining `session_health_check.py` / `verify_conversion_parity.py` into a pass/fail `soak_report.json`.
-3. **Post-Drive Summary Card `[PLANNED — TIER 2]`:**
-   - Dismissible overlay (modeled on `LaunchBuildOverlay.kt`) displayed immediately after stopping recording with duration, sync grade, radar drops/salvaged frames, camera FPS, GNSS lock %, CAN chunks staged/pending, thermal peak, and bookmark count.
+2. **Automated Long-Duration Soak & Reliability Harness `[COMPLETED — TIER 3 / Plan 112]`:**
+   - Unattended Wired/Wireless ADB soak runner (`scripts/run_soak_test.py`, `scripts/soak_analyzer.py`) polling `dumpsys meminfo`, `gfxinfo`, `thermalservice`, `battery`, and live logcat watermarks, automatically chaining `sync_and_process_sessions.py`, `session_health_check.py`, and `verify_conversion_parity.py` into `soak_report.json` + interactive `soak_report.html` + Web Dashboard card.
+3. **Post-Drive Summary Card `[COMPLETED — TIER 2 / Commit 27593a9]`:**
+   - Dismissible 10 s auto-dismiss overlay (modeled on `LaunchBuildOverlay.kt`) displayed immediately after stopping recording with duration, sync grade, radar drops/salvaged frames, camera FPS, GNSS lock %, CAN background sync status, thermal peak, and bookmark count.
 
 ### 9.4 Open ADAS & Perception Research Gaps
 1. **Dynamic Pitch Bounce & Road-Grade Compensation `[PLANNED — TIER 4]`:**

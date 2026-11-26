@@ -32,3 +32,5 @@ scratch/
 ~$*
 APK versions/
 *.apk
+.vscode/
+.vscode/

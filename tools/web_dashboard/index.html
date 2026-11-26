@@ -742,6 +742,79 @@
           </div>
         </div>
 
+        <!-- Bench Soak & Reliability Certification Card (Tier 3 / Plan 112) -->
+        <div style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.10), rgba(239, 68, 68, 0.08)); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 8px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <span style="font-size: 13.5px; font-weight: 700; color: #f8fafc; display: flex; align-items: center; gap: 6px;">
+                🔥 Bench Soak &amp; Reliability Harness
+              </span>
+              <p style="font-size: 11.5px; color: #94a3b8; margin-top: 3px;">
+                Monitors heap leaks, thermal curve, UI P95 drift &amp; crashes over Wired or Wireless ADB, then auto-runs Health Check + MCAP Parity.
+              </p>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+            <div>
+              <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 3px;">Duration</label>
+              <select id="soakDurationSelect" style="width: 100%; padding: 6px 8px; font-size: 12px;">
+                <option value="2">2 min (Smoke Test)</option>
+                <option value="5">5 min (Quick Bench)</option>
+                <option value="15">15 min (Bench)</option>
+                <option value="30" selected>30 min (Standard Cert)</option>
+                <option value="60">60 min (Endurance)</option>
+              </select>
+            </div>
+            <div>
+              <label style="font-size: 11px; color: #94a3b8; display: block; margin-bottom: 3px;">ADB Serial / Wireless IP (Optional)</label>
+              <input type="text" id="soakSerialInput" placeholder="Auto-detect or 192.168.43.1:5555" style="width: 100%; padding: 6px 8px; font-size: 12px;">
+            </div>
+          </div>
+
+          <div style="display: flex; flex-direction: column; gap: 6px;">
+            <label class="checkbox-item" style="font-size: 12px; margin: 0;">
+              <input type="checkbox" id="soakAutoStop" checked>
+              <span>Auto-stop recording on phone over ADB when soak finishes (unattended)</span>
+            </label>
+            <label class="checkbox-item" style="font-size: 12px; margin: 0;">
+              <input type="checkbox" id="soakAutoAudit" checked>
+              <span>Auto-pull &amp; run Health Check + MCAP Parity after soak</span>
+            </label>
+          </div>
+
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button class="btn-primary" style="background: linear-gradient(135deg, #d97706, #ea580c); font-weight: 700; padding: 7px 14px; font-size: 12.5px;" onclick="runBenchSoak()">
+              ▶ Start Bench Soak
+            </button>
+            <button class="btn-secondary" style="padding: 7px 12px; font-size: 12px;" onclick="setupWirelessAdb()" title="Enable TCP 5555 Wireless ADB so Radar OTG can plug into USB-C">
+              📶 Setup Wireless ADB
+            </button>
+          </div>
+
+          <!-- Live Bench Soak Progress & Telemetry Bar -->
+          <div id="soakProgressBox" style="display: none; background: rgba(15, 23, 42, 0.72); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 10px 12px; margin-top: 2px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px;">
+              <div style="display: flex; align-items: center; gap: 8px; min-width: 0;">
+                <span id="soakPhaseBadge" style="font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: rgba(245, 158, 11, 0.2); color: #fbbf24; white-space: nowrap;">CONNECTING</span>
+                <span id="soakProgressDesc" style="font-size: 11.5px; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Initializing ADB connection...</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 11.5px; flex-shrink: 0;">
+                <span id="soakProgressEta" style="color: #fbbf24; font-weight: 600;"></span>
+                <span id="soakProgressPct" style="color: #fff; font-weight: 700;">0%</span>
+              </div>
+            </div>
+            <div style="width: 100%; height: 7px; background: #1e2230; border-radius: 4px; overflow: hidden;">
+              <div id="soakProgressBarFill" style="width: 0%; height: 100%; background: linear-gradient(90deg, #f59e0b, #ea580c); border-radius: 4px; transition: width 0.35s ease-out;"></div>
+            </div>
+            <div id="soakLiveChips" style="display: flex; gap: 10px; flex-wrap: wrap; margin-top: 7px; font-family: var(--font-mono); font-size: 11px; color: #94a3b8;">
+              <span id="soakChipPss">PSS: —</span>
+              <span id="soakChipBat">Bat: —</span>
+              <span id="soakChipDisk">Disk: —</span>
+            </div>
+          </div>
+        </div>
+
         <div class="form-group">
           <label>Diagnostic Tool</label>
           <select id="diagToolSelect" onchange="onDiagToolChanged()">
@@ -1358,10 +1431,69 @@
         pulseEl.style.background = 'var(--accent-red)';
         pulseEl.style.boxShadow = '0 0 8px var(--accent-red)';
         fillEl.style.background = 'var(--accent-red)';
+      } else if (p.step === 'wait_record' || p.step === 'wait_stop') {
+        pulseEl.style.background = '#fbbf24';
+        pulseEl.style.boxShadow = '0 0 8px #fbbf24';
+        fillEl.style.background = 'linear-gradient(90deg, #d97706, #fbbf24)';
+      } else if (p.step === 'soak') {
+        pulseEl.style.background = '#f59e0b';
+        pulseEl.style.boxShadow = '0 0 8px #f59e0b';
+        fillEl.style.background = 'linear-gradient(90deg, #f59e0b, #ea580c)';
       } else {
         pulseEl.style.background = 'var(--accent-cyan)';
         pulseEl.style.boxShadow = '0 0 8px var(--accent-cyan)';
         fillEl.style.background = 'linear-gradient(90deg, var(--primary), var(--accent-cyan))';
+      }
+
+      // 4. Mirror live soak progress into the Bench Soak card widget
+      const soakBox = document.getElementById('soakProgressBox');
+      if (soakBox && (p.step === 'wait_record' || p.step === 'soak' || p.step === 'wait_stop' || p.step === 'post_audit' || (soakBox.style.display === 'block' && (p.step === 'done' || p.error)))) {
+        soakBox.style.display = 'block';
+        const phaseEl = document.getElementById('soakPhaseBadge');
+        const sDescEl = document.getElementById('soakProgressDesc');
+        const sEtaEl = document.getElementById('soakProgressEta');
+        const sPctEl = document.getElementById('soakProgressPct');
+        const sFillEl = document.getElementById('soakProgressBarFill');
+        if (phaseEl) {
+          const phaseText = p.phase || (p.step === 'done' ? 'COMPLETE' : (p.error ? 'FAILED' : 'RUNNING'));
+          phaseEl.textContent = phaseText;
+          if (p.step === 'done') {
+            phaseEl.style.background = 'rgba(34, 197, 94, 0.2)';
+            phaseEl.style.color = '#4ade80';
+          } else if (p.error) {
+            phaseEl.style.background = 'rgba(239, 68, 68, 0.2)';
+            phaseEl.style.color = '#f87171';
+          } else if (p.step === 'wait_record' || p.step === 'wait_stop') {
+            phaseEl.style.background = 'rgba(251, 191, 36, 0.2)';
+            phaseEl.style.color = '#fbbf24';
+          } else {
+            phaseEl.style.background = 'rgba(245, 158, 11, 0.22)';
+            phaseEl.style.color = '#fb923c';
+          }
+        }
+        if (sDescEl && p.desc) sDescEl.textContent = p.desc;
+        if (sPctEl) sPctEl.textContent = `${Math.round(pct)}%`;
+        if (sFillEl) {
+          sFillEl.style.width = `${pct}%`;
+          sFillEl.style.background = p.step === 'done' ? 'var(--accent-green)' : (p.error ? 'var(--accent-red)' : 'linear-gradient(90deg, #f59e0b, #ea580c)');
+        }
+        if (sEtaEl) {
+          if (p.eta_s != null && p.eta_s > 0) {
+            const m = Math.floor(p.eta_s / 60);
+            const s = Math.floor(p.eta_s % 60);
+            sEtaEl.textContent = `ETA ${m > 0 ? m + 'm ' : ''}${s}s`;
+          } else {
+            sEtaEl.textContent = '';
+          }
+        }
+        if (p.soak) {
+          const pssChip = document.getElementById('soakChipPss');
+          const batChip = document.getElementById('soakChipBat');
+          const diskChip = document.getElementById('soakChipDisk');
+          if (pssChip) pssChip.textContent = `PSS: ${p.soak.pss}`;
+          if (batChip) batChip.textContent = `Bat: ${p.soak.bat} (${p.soak.therm})`;
+          if (diskChip) diskChip.textContent = `Disk: ${p.soak.disk}`;
+        }
       }
     }
 
@@ -1478,6 +1610,12 @@
         return `<a href="/logs/${sessId}/sync_audit_report.html" target="_blank" class="console-link console-link-html" title="Open full interactive HTML dashboard in a new tab">📊 sync_audit_report.html ↗</a><a href="javascript:void(0)" onclick="openFolder('${sessId}')" class="console-link console-link-folder" title="Open session folder in File Explorer">📁 Folder</a>`;
       });
 
+      // Convert soak_report.html paths into rich clickable links + open folder buttons
+      const soakReportRegex = /(?:file:\/\/\/)?(?:[a-zA-Z]:[\\\/].*?[\\\/]logs[\\\/]soak_runs[\\\/]|logs[\\\/]soak_runs[\\\/]|\/logs\/soak_runs\/)(soak_[a-zA-Z0-9_]+)[\\\/]soak_report\.html/gi;
+      html = html.replace(soakReportRegex, (match, soakId) => {
+        return `<a href="/logs/soak_runs/${soakId}/soak_report.html" target="_blank" class="console-link console-link-html" title="Open interactive Bench Soak HTML report in a new tab">🔥 soak_report.html ↗</a><a href="javascript:void(0)" onclick="openFolder('logs/soak_runs/${soakId}')" class="console-link console-link-folder" title="Open soak run folder in File Explorer">📁 Folder</a>`;
+      });
+
       // Convert vision output MCAPs into rich links
       const visionMcapRegex = /(?:tools[\\\/]vision[\\\/]output[\\\/]mcap[\\\/]|output[\\\/]mcap[\\\/])([a-zA-Z0-9_\.]+\.mcap)/gi;
       html = html.replace(visionMcapRegex, (match, fileName) => {
@@ -1586,6 +1724,35 @@
             if (iframe) {
               iframe.src = `/${htmlRelPath}?t=${Date.now()}`;
             }
+          }
+        }
+      }
+
+      // Inline interactive preview for Bench Soak HTML certification reports
+      if (line.includes('soak_report.html')) {
+        const smatch = line.match(/logs[\\\/](soak_runs[\\\/]soak_[a-zA-Z0-9_]+)[\\\/]soak_report\.html/i);
+        if (smatch) {
+          const soakRelDir = smatch[1].replace(/\\/g, '/');
+          const soakId = soakRelDir.split('/').pop();
+          const cardId = `soak-report-card-${soakId}`;
+          if (!term.querySelector(`#${cardId}`)) {
+            const htmlRelPath = `logs/${soakRelDir}/soak_report.html`;
+            const previewDiv = document.createElement('div');
+            previewDiv.id = cardId;
+            previewDiv.style.margin = '14px 0 20px 0';
+            previewDiv.style.padding = '12px';
+            previewDiv.style.background = '#131722';
+            previewDiv.style.border = '1px solid #d97706';
+            previewDiv.style.borderRadius = '8px';
+            previewDiv.innerHTML = `
+              <div style="font-weight: 600; color: #fbbf24; margin-bottom: 10px; font-size: 13px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <span>🔥 Bench Soak Certification Report <span style="font-size:11px;color:#94a3b8;font-family:monospace;">(${soakId})</span></span>
+                <a href="/${htmlRelPath}" target="_blank" style="color: #4ade80; text-decoration: none; font-size: 11px; font-weight: 600; padding: 4px 12px; background: rgba(74, 222, 128, 0.12); border-radius: 5px; border: 1px solid rgba(74, 222, 128, 0.3);">↗ Open Full Report</a>
+              </div>
+              <iframe src="/${htmlRelPath}?t=${Date.now()}" style="width: 100%; height: 760px; border: 1px solid #1e2433; border-radius: 6px; background: #0b0f17; display: block;" title="Bench Soak Certification Report"></iframe>
+            `;
+            term.appendChild(previewDiv);
+            setTimeout(() => { previewDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, 100);
           }
         }
       }
@@ -1888,6 +2055,49 @@
       }
 
       executeCommand(`scripts/${tool}`, args);
+    }
+
+    function runBenchSoak() {
+      const duration = document.getElementById('soakDurationSelect').value || '30';
+      const serial = (document.getElementById('soakSerialInput').value || '').trim();
+      const autoStop = document.getElementById('soakAutoStop').checked;
+      const autoAudit = document.getElementById('soakAutoAudit').checked;
+
+      // Immediately reveal the soak card's live progress bar
+      const soakBox = document.getElementById('soakProgressBox');
+      if (soakBox) {
+        soakBox.style.display = 'block';
+        const phaseEl = document.getElementById('soakPhaseBadge');
+        const sDescEl = document.getElementById('soakProgressDesc');
+        const sPctEl = document.getElementById('soakProgressPct');
+        const sFillEl = document.getElementById('soakProgressBarFill');
+        const sEtaEl = document.getElementById('soakProgressEta');
+        if (phaseEl) {
+          phaseEl.textContent = 'STARTING';
+          phaseEl.style.background = 'rgba(251, 191, 36, 0.2)';
+          phaseEl.style.color = '#fbbf24';
+        }
+        if (sDescEl) sDescEl.textContent = 'Connecting via ADB & waiting for RECORD...';
+        if (sPctEl) sPctEl.textContent = '0%';
+        if (sFillEl) sFillEl.style.width = '0%';
+        if (sEtaEl) sEtaEl.textContent = '';
+      }
+
+      const args = ['--duration-min', duration, '--interval-sec', duration <= 2 ? '10' : '15'];
+      if (serial) {
+        args.push('--serial', serial);
+      }
+      if (autoStop) {
+        args.push('--auto-stop');
+      }
+      if (!autoAudit) {
+        args.push('--skip-post-audit');
+      }
+      executeCommand('scripts/run_soak_test.py', args);
+    }
+
+    function setupWirelessAdb() {
+      executeCommand('scripts/run_soak_test.py', ['--setup-wireless-adb']);
     }
 
     function runFlightRecorderSearch() {

@@ -37,7 +37,7 @@ if REPO_ROOT not in sys.path:
     sys.path.insert(0, REPO_ROOT)
 
 from tools.sync_and_process_sessions import parse_radar_frames_bin
-from tools.convert_session_to_mcap import parse_radar_stream
+from tools.convert_session_to_mcap import parse_radar_stream, _build_imu_protobuf_classes
 
 # Attempt MCAP and Protobuf imports
 try:
@@ -714,14 +714,26 @@ def verify_session_parity(
                     veh_yaws = []
                     veh_az = []
                     imu_samples_read = 0
+                    imu_veh_cls = None
                     for schema, ch, msg in reader.iter_messages(topics=["/imu/vehicle"]):
                         if imu_samples_read % 100 == 0:
-                            v_data = json.loads(msg.data.decode("utf-8"))
-                            veh_pitches.append(v_data.get("pitch_deg", 0.0))
-                            veh_rolls.append(v_data.get("roll_deg", 0.0))
-                            veh_yaws.append(v_data.get("yaw_deg", 0.0))
-                            accel = v_data.get("acceleration", {})
-                            veh_az.append(accel.get("z", 0.0))
+                            if schema is not None and getattr(schema, "encoding", "") == "protobuf":
+                                if imu_veh_cls is None:
+                                    _, imu_veh_cls = _build_imu_protobuf_classes()
+                                imu_msg = imu_veh_cls()
+                                imu_msg.ParseFromString(msg.data)
+                                veh_pitches.append(float(imu_msg.pitch_deg))
+                                veh_rolls.append(float(imu_msg.roll_deg))
+                                veh_yaws.append(float(imu_msg.yaw_deg))
+                                az_val = float(imu_msg.acceleration.z) if imu_msg.HasField("acceleration") else float(imu_msg.az)
+                                veh_az.append(az_val)
+                            else:
+                                v_data = json.loads(msg.data.decode("utf-8"))
+                                veh_pitches.append(v_data.get("pitch_deg", 0.0))
+                                veh_rolls.append(v_data.get("roll_deg", 0.0))
+                                veh_yaws.append(v_data.get("yaw_deg", 0.0))
+                                accel = v_data.get("acceleration", {})
+                                veh_az.append(accel.get("z", v_data.get("az", 0.0)))
                         imu_samples_read += 1
 
                     if veh_pitches:

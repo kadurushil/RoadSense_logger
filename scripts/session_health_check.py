@@ -89,7 +89,7 @@ def resolve_session_dir(target):
 
     sys.exit(f"Error: Could not resolve session directory: {target}")
 
-def audit_session(sess_dir, quiet=False, save_json=True):
+def audit_session(sess_dir, quiet=False, save_json=True, optional_can=False):
     sess_name = os.path.basename(sess_dir)
     if not quiet:
         print("=" * 80)
@@ -314,7 +314,7 @@ def audit_session(sess_dir, quiet=False, save_json=True):
     # 6. CANedge
     print(f"\n[6/8] CANEDGE2 (CYCLIC MDF4 CHUNKS):")
     can_dir = os.path.join(sess_dir, "can")
-    status_can = "FAIL (Missing)"
+    status_can = "WARN (Not Connected / Optional)" if optional_can else "FAIL (Missing)"
     if os.path.exists(can_dir):
         chunks = sorted([f for f in os.listdir(can_dir) if f.endswith(".MF4") or f.endswith(".mf4")])
         print(f"  Staged Chunks:    {len(chunks)} files staged in session can/")
@@ -333,7 +333,7 @@ def audit_session(sess_dir, quiet=False, save_json=True):
             print(f"  Chunk Range:      {chunks[0]}  -->  {chunks[-1]}")
         status_can = 'PASS (Staged & Valid)' if valid_headers == len(chunks) and len(chunks) > 0 else ('WARN (Partial Chunks)' if chunks else 'WARN (No CAN files)')
     else:
-        print("  can/ directory NOT FOUND.")
+        print("  can/ directory NOT FOUND" + (" (optional bench mode)." if optional_can else "."))
 
     print(f"  Status:           {colorize_status(status_can)}")
     scorecard["CANedge2"] = status_can
@@ -367,8 +367,14 @@ def audit_session(sess_dir, quiet=False, save_json=True):
     if os.path.exists(dbg_log):
         with open(dbg_log, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
-        errs = [l.strip() for l in lines if " E/" in l or " ERROR " in l or "Exception" in l]
-        warns = [l.strip() for l in lines if " W/" in l or " WARN " in l]
+        errs = [
+            l.strip() for l in lines
+            if " E/" in l or " F/" in l or "[ERROR]" in l or "[FATAL]" in l or "Exception" in l
+        ]
+        warns = [
+            l.strip() for l in lines
+            if " W/" in l or "[WARN ]" in l or "[WARN]" in l
+        ]
         print(f"  Log File Length:  {len(lines):,} lines ({os.path.getsize(dbg_log):,} bytes)")
         print(f"  Errors Logged:    {len(errs)}")
         print(f"  Warnings Logged:  {len(warns)}")
@@ -519,6 +525,7 @@ if __name__ == "__main__":
     parser.add_argument("--all", action="store_true", help="Audit all sessions in logs/")
     parser.add_argument("--skip-processed", action="store_true", help="Skip sessions that already have health_scorecard.json")
     parser.add_argument("-q", "--quiet", action="store_true", help="Quiet mode: show summary table only")
+    parser.add_argument("--optional-can", action="store_true", help="Treat missing can/ directory as WARN instead of FAIL (for desk/bench sessions)")
     parser.add_argument("session", nargs="?", default="latest", help="Session folder name, full path, or 'latest'")
     args = parser.parse_args()
 
@@ -526,4 +533,4 @@ if __name__ == "__main__":
         run_batch_health_check(args)
     else:
         target_dir = resolve_session_dir("latest" if args.latest else args.session)
-        audit_session(target_dir, quiet=args.quiet, save_json=True)
+        audit_session(target_dir, quiet=args.quiet, save_json=True, optional_can=args.optional_can)
