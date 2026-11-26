@@ -41,8 +41,8 @@ class RadarDisplayPacer(
         private const val VSYNC_SNAP_TOLERANCE_NS = 4_000_000L
         private const val INTERVAL_20HZ_NS = 50_000_000L
         private const val INTERVAL_30HZ_NS = 33_333_333L
-        private const val HYSTERESIS_HIGH_RATE_NS = 38_000_000L // ~26.3 Hz
-        private const val HYSTERESIS_LOW_RATE_NS = 41_000_000L  // ~24.4 Hz
+        private const val HYSTERESIS_HIGH_RATE_NS = 46_500_000L // ~21.5 Hz (accommodates 22+ Hz DSP without queue bloat)
+        private const val HYSTERESIS_LOW_RATE_NS = 48_000_000L  // ~20.8 Hz (1.5 ms hysteresis deadband back to 20 Hz)
         private const val HYSTERESIS_FRAMES = 20
     }
 
@@ -136,8 +136,10 @@ class RadarDisplayPacer(
 
                 val targetNs = adaptiveTargetIntervalNs
                 if (lastChoreographerEmitNs == 0L || (frameTimeNanos - lastChoreographerEmitNs) >= (targetNs - VSYNC_SNAP_TOLERANCE_NS)) {
-                    lastChoreographerEmitNs = frameTimeNanos
-                    processSingleTick(frameTimeNanos)
+                    val emitted = processSingleTick(frameTimeNanos)
+                    if (emitted != null) {
+                        lastChoreographerEmitNs = frameTimeNanos
+                    }
                 }
 
                 if (isRunning.get()) {
@@ -161,27 +163,8 @@ class RadarDisplayPacer(
         lastEnqueueNs = nowNs
 
         // Adaptive rate detection with hysteresis (only when using default 50ms pacing)
-        if (hasAndroidMainLooper && frameIntervalMs == 50L && deltaArrNs in 10_000_000L..200_000_000L) {
-            emaArrivalNs = ((emaArrivalNs * 0.85) + (deltaArrNs * 0.15)).toLong()
-            if (adaptiveTargetIntervalNs == INTERVAL_20HZ_NS && emaArrivalNs <= HYSTERESIS_HIGH_RATE_NS) {
-                if (++rateSwitchStreak >= HYSTERESIS_FRAMES) {
-                    adaptiveTargetIntervalNs = INTERVAL_30HZ_NS
-                    rateSwitchStreak = 0
-                    if (DebugToggles.isDisplayPacerVerboseActive) {
-                        AppLogger.i("DisplayPacer", "[VSYNC_RATE_ADAPT] Switched VSync target -> 30.0 Hz (33.3 ms), emaArrMs=${"%.2f".format(emaArrivalNs / 1e6)}")
-                    }
-                }
-            } else if (adaptiveTargetIntervalNs == INTERVAL_30HZ_NS && emaArrivalNs >= HYSTERESIS_LOW_RATE_NS) {
-                if (++rateSwitchStreak >= HYSTERESIS_FRAMES) {
-                    adaptiveTargetIntervalNs = INTERVAL_20HZ_NS
-                    rateSwitchStreak = 0
-                    if (DebugToggles.isDisplayPacerVerboseActive) {
-                        AppLogger.i("DisplayPacer", "[VSYNC_RATE_ADAPT] Switched VSync target -> 20.0 Hz (50.0 ms), emaArrMs=${"%.2f".format(emaArrivalNs / 1e6)}")
-                    }
-                }
-            } else {
-                rateSwitchStreak = 0
-            }
+        if (hasAndroidMainLooper && frameIntervalMs == 50L) {
+            updateAdaptiveRate(deltaArrNs)
         }
 
         queue.offer(frame)
@@ -237,6 +220,32 @@ class RadarDisplayPacer(
     fun getTotalDroppedFrames(): Long = totalDroppedFrames
 
     fun getBufferedCount(): Int = queue.size
+
+    fun getTargetIntervalNs(): Long = adaptiveTargetIntervalNs
+
+    internal fun updateAdaptiveRate(deltaArrNs: Long) {
+        if (deltaArrNs !in 10_000_000L..200_000_000L) return
+        emaArrivalNs = ((emaArrivalNs * 0.85) + (deltaArrNs * 0.15)).toLong()
+        if (adaptiveTargetIntervalNs == INTERVAL_20HZ_NS && emaArrivalNs <= HYSTERESIS_HIGH_RATE_NS) {
+            if (++rateSwitchStreak >= HYSTERESIS_FRAMES) {
+                adaptiveTargetIntervalNs = INTERVAL_30HZ_NS
+                rateSwitchStreak = 0
+                if (DebugToggles.isDisplayPacerVerboseActive) {
+                    AppLogger.i("DisplayPacer", "[VSYNC_RATE_ADAPT] Switched VSync target -> 30.0 Hz (33.3 ms), emaArrMs=${"%.2f".format(emaArrivalNs / 1e6)}")
+                }
+            }
+        } else if (adaptiveTargetIntervalNs == INTERVAL_30HZ_NS && emaArrivalNs >= HYSTERESIS_LOW_RATE_NS) {
+            if (++rateSwitchStreak >= HYSTERESIS_FRAMES) {
+                adaptiveTargetIntervalNs = INTERVAL_20HZ_NS
+                rateSwitchStreak = 0
+                if (DebugToggles.isDisplayPacerVerboseActive) {
+                    AppLogger.i("DisplayPacer", "[VSYNC_RATE_ADAPT] Switched VSync target -> 20.0 Hz (50.0 ms), emaArrMs=${"%.2f".format(emaArrivalNs / 1e6)}")
+                }
+            }
+        } else {
+            rateSwitchStreak = 0
+        }
+    }
 
     /**
      * Starts VSync-locked Choreographer pacing on Android MainLooper, or coroutine fallback under JVM tests.

@@ -223,4 +223,24 @@ class RadarDisplayPacerTest {
         assertTrue(pacer.getTotalDroppedFrames() >= 3L)
         pacer.release()
     }
+
+    @Test
+    fun testAdaptiveRateSupportsBoth20HzAnd22HzDspStreams() {
+        val pacer = RadarDisplayPacer(frameIntervalMs = 50L, bufferDelayMs = 50L, maxQueueDepth = 3)
+        assertEquals(50_000_000L, pacer.getTargetIntervalNs())
+
+        // 1. Steady 20 Hz DSP (50 ms) must stay on 20 Hz VSync cadence
+        repeat(35) { pacer.updateAdaptiveRate(50_000_000L) }
+        assertEquals(50_000_000L, pacer.getTargetIntervalNs())
+
+        // 2. Faster 22.3 Hz DSP (~44.8 ms) must switch up to 30 Hz (33.3 ms) ceiling so queue never bloats
+        repeat(35) { pacer.updateAdaptiveRate(44_800_000L) }
+        assertEquals(33_333_333L, pacer.getTargetIntervalNs())
+
+        // 3. Returning to 20 Hz DSP (50 ms) must restore 20 Hz cadence cleanly
+        repeat(35) { pacer.updateAdaptiveRate(50_000_000L) }
+        assertEquals(50_000_000L, pacer.getTargetIntervalNs())
+
+        pacer.release()
+    }
 }
