@@ -6,8 +6,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
@@ -31,12 +34,43 @@ class RecordingForegroundService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var adbStopReceiver: BroadcastReceiver? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         ensureNotificationChannel()
+        registerDebugAdbStopReceiver()
+    }
+
+    private fun registerDebugAdbStopReceiver() {
+        val isDebuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (!isDebuggable || adbStopReceiver != null) return
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == ACTION_STOP_RECORDING) {
+                    AppLogger.i(TAG, "Stop action received via ADB debug broadcast")
+                    mainHandler.post {
+                        onStopRequested?.invoke()
+                    }
+                    stopForegroundSafely()
+                    stopSelf()
+                }
+            }
+        }
+        try {
+            ContextCompat.registerReceiver(
+                this,
+                receiver,
+                IntentFilter(ACTION_STOP_RECORDING),
+                ContextCompat.RECEIVER_EXPORTED
+            )
+            adbStopReceiver = receiver
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "Failed to register debug ADB stop receiver: ${e.message}")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -61,6 +95,13 @@ class RecordingForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        adbStopReceiver?.let { receiver ->
+            try {
+                unregisterReceiver(receiver)
+            } catch (_: Exception) {
+            }
+            adbStopReceiver = null
+        }
         releaseWakeLock()
         stopForegroundSafely()
         AppLogger.i(TAG, "RecordingForegroundService stopped and WakeLock released")
