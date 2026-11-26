@@ -1917,12 +1917,54 @@ fun testRotatingPhoneToLeftRotatesHorizonLineToRightForPhysicalSync() {
 
 ---
 
-### Additional Engineering Rules (37–41)
+## Bug #36: Reverse Landscape Compose Animation/Draw Frame Pacing Stutter (`P95 = 35.15 ms` → `18.67 ms` in Staging)
+
+### Symptoms
+* Baseline 5-sensor soak (`logs/soak_runs/soak_20261126_111051`) showed `Total P95 = 35.15 ms` (`Max Window P95 = 64.26 ms`, `Draw P95 = 9.12 ms`, `36.0%` jank, `12` `DisplayPacer` drops) on `SM-M325F` during active Reverse Landscape radar recording.
+
+### Root Cause Analysis
+Verified via 30-second ADB profiling (`scripts/profile_ui_perf.py`), lock-free `@NonRestartableComposable` `RecompAudit`, and `dumpsys gfxinfo`:
+1. **2 Hz (`500 ms`) `CALLBACK_ANIMATION` Stalls (`animP95 = 4.83–4.97 ms`):** Even with Direct-Canvas leaves, parent composables (`LandscapeSessionControlBar` in `MainActivity.kt` and `RadarDashboardCard.kt`) collected `viewModel.sessionRecordingState.collectAsState()` inside `derivedStateOf { ... }`, waking Compose's snapshot/recomposer loop every `500 ms` during active recording.
+2. **Skia `SW Path Mask` Software Rasterization (`774.57 KB`):** Replacing `cachedGridBitmap` (`ImageBitmap`) with stroked multi-arc `Path`s (`ringArcsPath`) forced Mali-G52 OpenGL to allocate a `774.57 KB SW Path Mask` texture and raised slow issue-draw commands to `286` (`gpuP95 = 8.22 ms`).
+3. **Per-Point `drawCircle` Overhead (`drawP95 = 8.84–9.12 ms`):** Individual Compose `drawCircle(...)` calls per radar reflection scaled linearly with point density.
+4. **Debug APK vs. Release Runtime (`staging`) Overhead:** Debug builds carried ART debuggable JIT and Compose runtime overhead (`drawP95 = 4.17 ms`, `13 / 759` slow UI thread frames in `phase2d` Debug vs. `drawP95 = 1.69 ms`, `0 / 742` slow UI thread frames in `staging`).
+
+### Resolution (`0cdb9a3`, `b2fc5dc`)
+* **Coarse Lifecycle Phase & DrawScope Isolation:** Added `SessionLifecyclePhase` (`SessionRecordingState.kt`, `RadarSessionRecorder.kt`, `RadarViewModel.kt`) so parent chrome and `RadarDashboardCard` receive `0` emissions during steady recording; moved telemetry reads strictly inside `Canvas` `DrawScope` on isolated `.graphicsLayer()` RenderNodes (`LandscapeStatusPillCanvas`, `RadarTelemetryStripCanvas`).
+* **Batched BEV Point Cloud & Offscreen Grid Cache (`RadarBevPlot.kt`):** Restored `BevGeometryCache.cachedGridBitmap` (`ImageBitmap` via `CanvasDrawScope`) and replaced per-point `drawCircle` calls with 3 pre-allocated `FloatArray(512)` buffers rendered via 3 batched `nativeCanvas.drawPoints(...)` calls (`Paint.Cap.SQUARE`, `strokeWidth = 8f`, `isAntiAlias = false`) + zero-allocation indexed cluster/track loops.
+* **Lightweight ADB UI Profiler (`scripts/profile_ui_perf.py`):** Added 30-second wired/wireless ADB profiler, `RecompAudit` (`[RECOMP_5S]`), `animP50`/`animP95` `FrameWindowStats` metrics, `DebugToggles.uiPerfProfilingLogs` switch, and `--no-toggle` support for `staging`/release builds.
+* **Verification Progression (`SM-M325F`):**
+  * `soak_20261126_111051` (Baseline Debug): `P50 = 15.90 ms`, `P95 = 35.15 ms`, `Draw P95 = 9.12 ms`, `12` drops.
+  * `radar_phase2d` (Optimized Debug): `P50 = 14.75 ms`, `P95 = 22.84 ms`, `Anim P95 = 0.55 ms`, `Draw P50/P95 = 1.77 / 4.17 ms`, `0` drops, `RecompAudit = 0`.
+  * `radar_staging` (`staging` Release runtime): `P50 = 15.41 ms`, `P95 = 18.67 ms` (`Max Win P95 = 19.53 ms`), `Anim P95 = 0.33 ms`, `Draw P50/P95 = 0.72 / 1.69 ms`, `0 / 742` slow UI thread frames, `0.0 / 5s` recompositions across all 8 tracked scopes.
+
+---
+
+## Bug #37: 22.3 Hz DSP `[BLOAT_TRIM]` UI-Thread Stalls & `2.03 MB` BEV Grid Overdraw (`Tier A`)
+
+### Symptoms
+* Reducing radar DSP point-cloud density cut DSP frame time so output rate rose from `20.0 Hz` (`50 ms`) to **`~22.3 Hz` (`44.8 ms`)**, causing `RadarDisplayPacer` to emit **`66` `[BLOAT_TRIM]` warnings in 30 s** (`Draw P50` regressed `1.77 → 4.40 ms` due to synchronous `AppLogger.w` calls on `main`).
+* Even in `staging`, `RadarBevCanvas` alpha-blended a full-pane **`2.03 MB` `ImageBitmap`** (`cachedGridBitmap`) on Mali-G52 every frame (`gpuP95 = 8.77 ms` on Radar tab vs `4.74 ms` on Storage tab).
+
+### Root Cause
+1. `RadarDisplayPacer` (`HYSTERESIS_HIGH_RATE_NS = 38 ms`, i.e., `26.3 Hz`) stayed locked at `20.0 Hz` (`50 ms`) for `22.3 Hz` streams, accruing `+2.3 frames/sec` until `queue.size >= 3` fired `[BLOAT_TRIM]` every `~450 ms`. Moreover, `vsyncCallback.doFrame` updated `lastChoreographerEmitNs` even when `processSingleTick()` found `queue` empty, creating VSync lockouts at `30 Hz` ceiling.
+2. `RadarBevPlot` blitted a full-viewport RGBA texture (`cachedGridBitmap`) over `Modifier.background(0xFF090B10)`, whereas individual `drawArc` / `drawLine` primitives hit Skia's hardware oval factory (`GrOvalOpFactory`) without creating an `SW Path Mask` (unlike combined `ringArcsPath`).
+
+### Resolution
+* **Tier A Primitive Grid Cache (`RadarBevPlot.kt`):** Replaced `cachedGridBitmap` (`ImageBitmap` + `CanvasDrawScope`) with cached geometric primitives in `BevGeometryCache` rendered via individual `drawArc(...)` and `drawLine(...)` calls (`-97%` GPU `Image Texture`: `2.03 MB` → `66.59 KB`, `0` `SW Path Mask`, `gpu_p50`: `7 ms` → `6 ms`).
+* **Dual `20 Hz` / `22+ Hz` `RadarDisplayPacer` Hysteresis (`RadarDisplayPacer.kt`):** Lowered `HYSTERESIS_HIGH_RATE_NS` to `46.5 ms` (`~21.5 Hz`) and `HYSTERESIS_LOW_RATE_NS` to `48.0 ms` (`~20.8 Hz`), and gated `lastChoreographerEmitNs` updates strictly on `emitted != null`.
+* **Verification (`radar_tierA_pacer_debug`, Debug APK, `22.3 Hz` DSP):** `Total P95 = 19.16 ms` (`-16%` vs `phase2d` Debug `22.84 ms`), `GPU P50 / P95 = 6 ms / 7.48 ms`, `DisplayPacer Drops = 0`, `RecompAudit = 0`. Added `testAdaptiveRateSupportsBoth20HzAnd22HzDspStreams` in `RadarDisplayPacerTest.kt` and architectural comparison in `intel/Implementations/06_UI_AND_PERFORMANCE/114_feasibility_bev_pointcloud_rendering_vs_foxglove_gles30.md`.
+
+---
+
+### Additional Engineering Rules (37–43)
 37. **Constrain 2D BEV metric scale by both height and `±60°` FOV half-width, while extending range arcs through `(usableHeight / scale)`:** Preventing horizontal clipping on tall SBS panes keeps range contours readable while utilizing vertical headroom.
 38. **Keep PC converters (`convert_session_to_mcap.py`) decoupled from deprecated `camera_frames.csv` when `MasterTimelineSynchronizer` is active:** Always treat legacy CSVs as fallbacks rather than hard gates for `/camera/video`.
 39. **Apply identical 4:3-to-16:9 ISP crop offsets (`cropX`, `cropY`) to both UI viewport intrinsics and saved Foxglove stream intrinsics:** Any device exposing `LENS_INTRINSIC_CALIBRATION` in active-array coordinates will otherwise report `cy = 480` (4:3) on 720p (`360`) 16:9 streams.
 40. **Compute heterogeneous IMU sensor rates from the primary hardware driver (`TYPE_ACCELEROMETER`), never by dividing combined multi-sensor callbacks:** Dividing combined callbacks across 200 Hz accel/gyro and 100 Hz linear-accel/rotation streams reports `150 Hz` instead of the true `200 Hz` primary rate (`a151e2f`).
 41. **Benchmark Vision-vs-Radar using `contact_patch` + mutual-NN Huber/bias pitch regression (never raw match-count maximization):** Matching `position_3d` box centers injects `+length/2` bias against radar bumper reflections, 1-to-1 `lapjv` drops valid close neighbors, and naive match-count pitch optimization collapses far targets onto dense `0–10 m` radar clutter (`fd5a687`).
+42. **Decouple parent Compose chrome from periodic telemetry `StateFlow`s via coarse `SessionLifecyclePhase` flows, batch BEV points via `nativeCanvas.drawPoints(Paint.Cap.SQUARE)`, and run field logging on `staging`/release builds:** Avoids `derivedStateOf` `CALLBACK_ANIMATION` stalls, multi-arc `SW Path Mask` allocations, and Debug runtime UI overhead (`0cdb9a3`).
+43. **Size `RadarDisplayPacer` rate-adaptation hysteresis for `20–22+ Hz` DSP variance and draw static BEV arcs individually rather than in combined `Path`s or full-pane RGBA bitmaps:** Keeping `HYSTERESIS_HIGH_RATE_NS = 46.5 ms` (`~21.5 Hz`) and advancing `lastChoreographerEmitNs` only on non-null emits avoids `[BLOAT_TRIM]` UI-thread log storms on faster DSPs while preserving `20 Hz` lock; individual `drawArc` calls hit `GrOvalOpFactory` with `0` `SW Path Mask` and `-97%` GPU texture footprint (`66.59 KB`).
 
 
 
