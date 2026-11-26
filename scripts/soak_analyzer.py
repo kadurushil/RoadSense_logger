@@ -244,12 +244,30 @@ def parse_uiperf_window(line: str) -> Optional[Dict[str, float]]:
         "p95_ms": float(m.group(5)),
         "max_ms": float(m.group(6)),
     }
+    m_anim50 = re.search(r"animP50=([0-9.]+)ms", line)
+    if m_anim50:
+        out["anim_p50_ms"] = float(m_anim50.group(1))
+    m_anim95 = re.search(r"animP95=([0-9.]+)ms", line)
+    if m_anim95:
+        out["anim_p95_ms"] = float(m_anim95.group(1))
+    m_draw50 = re.search(r"drawP50=([0-9.]+)ms", line)
+    if m_draw50:
+        out["draw_p50_ms"] = float(m_draw50.group(1))
     m_draw = re.search(r"drawP95=([0-9.]+)ms", line)
     if m_draw:
         out["draw_p95_ms"] = float(m_draw.group(1))
+    m_layout = re.search(r"layoutP95=([0-9.]+)ms", line)
+    if m_layout:
+        out["layout_p95_ms"] = float(m_layout.group(1))
     m_gpu = re.search(r"gpuP95=([0-9.]+)ms", line)
     if m_gpu:
         out["gpu_p95_ms"] = float(m_gpu.group(1))
+    m_unk = re.search(r"unkP95=([0-9.]+)ms", line)
+    if m_unk:
+        out["unk_p95_ms"] = float(m_unk.group(1))
+    m_swap = re.search(r"swapP95=([0-9.]+)ms", line)
+    if m_swap:
+        out["swap_p95_ms"] = float(m_swap.group(1))
     return out
 
 
