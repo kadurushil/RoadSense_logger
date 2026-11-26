@@ -18,9 +18,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
@@ -28,6 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.DebugToggleSnapshot
+import com.bajajauto.roadsense.diagnostics.TrackRecomposition
 import com.bajajauto.roadsense.logging.AppLogger
 import com.bajajauto.roadsense.models.RadarFrame
 import com.bajajauto.roadsense.ui.RadarViewModel
@@ -54,13 +56,6 @@ private val BEV_COLOR_EGO = Color(0xFF00E5FF)
 private val BEV_COLOR_CLUSTER_FILL = Color(0x55FFD54F)
 private val BEV_COLOR_CLUSTER_STROKE = Color(0xFFFFD54F)
 
-private val BEV_COLOR_APPR = Color(0xFFFF5252)
-private val BEV_COLOR_APPR_GLOW = Color(0x59FF5252)
-private val BEV_COLOR_REC = Color(0xFF40C4FF)
-private val BEV_COLOR_REC_GLOW = Color(0x5940C4FF)
-private val BEV_COLOR_STAT = Color(0xFF69F0AE)
-private val BEV_COLOR_STAT_GLOW = Color(0x5969F0AE)
-
 private val BEV_COLOR_FCW = Color(0xFFFF1744)
 private val BEV_COLOR_FCW_GLOW = Color(0x40FF1744)
 private val BEV_COLOR_FCW_HALO = Color(0xA6FF1744)
@@ -74,17 +69,32 @@ private val BEV_COLOR_VEC_FCW = Color(0xFFFF5252)
 private val BEV_COLOR_VEC_ACC = Color(0xFF80D8FF)
 private val BEV_COLOR_VEC_DEFAULT = Color(0xFFFFD54F)
 
+private fun createBevPointPaint(argbColor: Int): Paint = Paint().apply {
+    color = argbColor
+    strokeWidth = 8f
+    strokeCap = Paint.Cap.SQUARE
+    isAntiAlias = false
+}
+
+private fun ensurePointBuffer(buf: FloatArray, required: Int): FloatArray =
+    if (required <= buf.size) buf else buf.copyOf((buf.size * 2).coerceAtLeast(required))
+
 private class BevGeometryCache {
     val egoPath = Path()
     val triPath = Path()
-    var cachedEgoW = -1f
-    var cachedEgoH = -1f
     var cachedGridBitmap: ImageBitmap? = null
     var cachedGridW = -1
     var cachedGridH = -1
     var cachedGridRange = -1f
     var cachedGridShow = false
     val gridDrawScope = CanvasDrawScope()
+
+    var apprPts = FloatArray(512)
+    var recPts = FloatArray(512)
+    var statPts = FloatArray(512)
+    val apprPointPaint = createBevPointPaint(0xFFFF5252.toInt())
+    val recPointPaint = createBevPointPaint(0xFF40C4FF.toInt())
+    val statPointPaint = createBevPointPaint(0xFF69F0AE.toInt())
 }
 
 private class BevDrawTimingState {
@@ -104,6 +114,7 @@ fun RadarBevPlot(
     isLandscape: Boolean = false,
     showChrome: Boolean = true
 ) {
+    TrackRecomposition("RadarBevPlot")
     val maxRangeMeters by viewModel.radarMaxRange.collectAsState()
     val dynamicOnly by viewModel.radarDynamicOnly.collectAsState()
     val minSnrFilter by viewModel.radarMinSnr.collectAsState()
@@ -464,6 +475,7 @@ private fun RadarBevCanvas(
     debugState: DebugToggleSnapshot,
     modifier: Modifier = Modifier
 ) {
+    TrackRecomposition("RadarBev")
     // Only allocate fallback StateFlow collector when caller did not supply frameProducer
     val fallbackFrameState = if (frameProducer == null) viewModel.latestFrame.collectAsState() else null
     val enableTimingLog = debugState.masterDebugEnabled && debugState.canvasTimingLogs
@@ -506,6 +518,7 @@ private fun RadarBevCanvas(
             modifier = Modifier
                 .fillMaxSize()
                 .clearAndSetSemantics {}
+                .graphicsLayer()
         ) {
             val drawStartNs = if (enableTimingLog) System.nanoTime() else 0L
             val activeFrame = frameProducer?.invoke() ?: fallbackFrameState?.value ?: staticFrame
@@ -617,60 +630,83 @@ private fun RadarBevCanvas(
 
             // 6. Draw Clusters (TLV Type 2)
             if (showClusters) {
-                activeFrame?.clusters?.forEach { cluster ->
-                    val cx = originX + cluster.x * scale
-                    val cy = originY - cluster.y * scale
-                    if (cy in 0f..originY && cx in 0f..canvasWidth) {
-                        val r = 8f
-                        drawCircle(
-                            color = BEV_COLOR_CLUSTER_FILL,
-                            center = Offset(cx, cy),
-                            radius = r
-                        )
-                        drawCircle(
-                            color = BEV_COLOR_CLUSTER_STROKE,
-                            center = Offset(cx, cy),
-                            radius = r,
-                            style = BEV_STROKE_CLUSTER
-                        )
+                val clusters = activeFrame?.clusters
+                if (clusters != null && clusters.isNotEmpty()) {
+                    for (i in clusters.indices) {
+                        val cluster = clusters[i]
+                        val cx = originX + cluster.x * scale
+                        val cy = originY - cluster.y * scale
+                        if (cy in 0f..originY && cx in 0f..canvasWidth) {
+                            val r = 8f
+                            drawCircle(
+                                color = BEV_COLOR_CLUSTER_FILL,
+                                center = Offset(cx, cy),
+                                radius = r
+                            )
+                            drawCircle(
+                                color = BEV_COLOR_CLUSTER_STROKE,
+                                center = Offset(cx, cy),
+                                radius = r,
+                                style = BEV_STROKE_CLUSTER
+                            )
+                        }
                     }
                 }
             }
 
-            // 7. Draw Point Cloud Reflections (TLV Type 1)
+            // 7. Draw Point Cloud Reflections (TLV Type 1) via 3 batched nativeCanvas.drawPoints(Cap.SQUARE) calls
             if (showRawPoints) {
-                activeFrame?.points?.forEach { pt ->
-                    val passDynamic = !dynamicOnly || kotlin.math.abs(pt.doppler) > 0.35f
-                    val passSnr = !minSnrFilter || pt.snrDb >= 15f
-                    if (passDynamic && passSnr) {
-                        val px = originX + pt.x * scale
-                        val py = originY - pt.y * scale
+                val points = activeFrame?.points
+                if (points != null && points.isNotEmpty()) {
+                    var apprCount = 0
+                    var recCount = 0
+                    var statCount = 0
+                    var apprBuf = geometry.apprPts
+                    var recBuf = geometry.recPts
+                    var statBuf = geometry.statPts
 
-                        if (py in 0f..originY && px in 0f..canvasWidth) {
-                            val glowColor: Color
-                            val pointColor: Color
-                            when {
-                                pt.doppler < -0.35f -> {
-                                    glowColor = BEV_COLOR_APPR_GLOW
-                                    pointColor = BEV_COLOR_APPR
-                                }
-                                pt.doppler > 0.35f -> {
-                                    glowColor = BEV_COLOR_REC_GLOW
-                                    pointColor = BEV_COLOR_REC
-                                }
-                                else -> {
-                                    glowColor = BEV_COLOR_STAT_GLOW
-                                    pointColor = BEV_COLOR_STAT
+                    for (i in points.indices) {
+                        val pt = points[i]
+                        if ((!dynamicOnly || kotlin.math.abs(pt.doppler) > 0.35f) &&
+                            (!minSnrFilter || pt.snrDb >= 15f)
+                        ) {
+                            val px = originX + pt.x * scale
+                            val py = originY - pt.y * scale
+                            if (py in 0f..originY && px in 0f..canvasWidth) {
+                                when {
+                                    pt.doppler < -0.35f -> {
+                                        if (apprCount + 2 > apprBuf.size) {
+                                            apprBuf = ensurePointBuffer(apprBuf, apprCount + 2)
+                                            geometry.apprPts = apprBuf
+                                        }
+                                        apprBuf[apprCount++] = px
+                                        apprBuf[apprCount++] = py
+                                    }
+                                    pt.doppler > 0.35f -> {
+                                        if (recCount + 2 > recBuf.size) {
+                                            recBuf = ensurePointBuffer(recBuf, recCount + 2)
+                                            geometry.recPts = recBuf
+                                        }
+                                        recBuf[recCount++] = px
+                                        recBuf[recCount++] = py
+                                    }
+                                    else -> {
+                                        if (statCount + 2 > statBuf.size) {
+                                            statBuf = ensurePointBuffer(statBuf, statCount + 2)
+                                            geometry.statPts = statBuf
+                                        }
+                                        statBuf[statCount++] = px
+                                        statBuf[statCount++] = py
+                                    }
                                 }
                             }
-
-                            drawCircle(
-                                color = pointColor,
-                                radius = 4.5f,
-                                center = Offset(px, py)
-                            )
                         }
                     }
+
+                    val nc = drawContext.canvas.nativeCanvas
+                    if (apprCount > 0) nc.drawPoints(apprBuf, 0, apprCount, geometry.apprPointPaint)
+                    if (recCount > 0) nc.drawPoints(recBuf, 0, recCount, geometry.recPointPaint)
+                    if (statCount > 0) nc.drawPoints(statBuf, 0, statCount, geometry.statPointPaint)
                 }
             }
 
@@ -740,7 +776,8 @@ private fun RadarBevCanvas(
                     }
                 }
 
-                tracksList.forEachIndexed { index, track ->
+                for (index in tracksList.indices) {
+                    val track = tracksList[index]
                     val tx = originX + track.x * scale
                     val ty = originY - track.y * scale
 

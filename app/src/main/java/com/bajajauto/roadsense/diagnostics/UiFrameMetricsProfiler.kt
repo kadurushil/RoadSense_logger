@@ -19,6 +19,7 @@ import java.util.Locale
 internal class FrameWindowStats(private val capacity: Int = 1024) {
 
     private val totalDurationsMs = FloatArray(capacity)
+    private val animDurationsMs = FloatArray(capacity)
     private val layoutDurationsMs = FloatArray(capacity)
     private val drawDurationsMs = FloatArray(capacity)
     private val syncDurationsMs = FloatArray(capacity)
@@ -40,10 +41,12 @@ internal class FrameWindowStats(private val capacity: Int = 1024) {
         gpuMs: Float,
         unkMs: Float = 0f,
         swapMs: Float = 0f,
-        jankThresholdMs: Double = 16.67
+        jankThresholdMs: Double = 16.67,
+        animMs: Float = 0f
     ) {
         if (frameCount < capacity) {
             totalDurationsMs[frameCount] = totalMs
+            animDurationsMs[frameCount] = animMs
             layoutDurationsMs[frameCount] = layoutMs
             drawDurationsMs[frameCount] = drawMs
             syncDurationsMs[frameCount] = syncMs
@@ -70,6 +73,8 @@ internal class FrameWindowStats(private val capacity: Int = 1024) {
         val totalP95 = sortScratch[p95Idx]
         val totalMax = sortScratch[sampleLen - 1]
 
+        val animP50 = percentile(animDurationsMs, sampleLen, p50Idx)
+        val animP95 = percentile(animDurationsMs, sampleLen, p95Idx)
         val drawP50 = percentile(drawDurationsMs, sampleLen, p50Idx)
         val drawP95 = percentile(drawDurationsMs, sampleLen, p95Idx)
         val layoutP95 = percentile(layoutDurationsMs, sampleLen, p95Idx)
@@ -81,9 +86,9 @@ internal class FrameWindowStats(private val capacity: Int = 1024) {
         val jankPct = (jankCount * 100.0) / frameCount
         val summary = String.format(
             Locale.US,
-            "[WINDOW_5S] frames=%d | jank=%d (%.1f%%) | p50=%.2fms | p95=%.2fms | max=%.2fms | drawP50=%.2fms | drawP95=%.2fms | layoutP95=%.2fms | syncP95=%.2fms | gpuP95=%.2fms | unkP95=%.2fms | swapP95=%.2fms",
+            "[WINDOW_5S] frames=%d | jank=%d (%.1f%%) | p50=%.2fms | p95=%.2fms | max=%.2fms | animP50=%.2fms | animP95=%.2fms | drawP50=%.2fms | drawP95=%.2fms | layoutP95=%.2fms | syncP95=%.2fms | gpuP95=%.2fms | unkP95=%.2fms | swapP95=%.2fms",
             frameCount, jankCount, jankPct, totalP50, totalP95, totalMax,
-            drawP50, drawP95, layoutP95, syncP95, gpuP95, unkP95, swapP95
+            animP50, animP95, drawP50, drawP95, layoutP95, syncP95, gpuP95, unkP95, swapP95
         )
 
         frameCount = 0
@@ -150,10 +155,11 @@ class UiFrameMetricsProfiler {
                 gpuMs = gpuIssueMs.toFloat(),
                 unkMs = unkDelayMs.toFloat(),
                 swapMs = swapMs.toFloat(),
-                jankThresholdMs = JANK_THRESHOLD_MS
+                jankThresholdMs = JANK_THRESHOLD_MS,
+                animMs = animMs.toFloat()
             )
 
-            if (totalMs > 24.0) {
+            if (totalMs > 24.0 && DebugToggles.isUiPerfProfilingActive) {
                 val msg = String.format(
                     Locale.US,
                     "[JANK_FRAME] total=%.2fms | anim=%.2fms | layout=%.2fms | draw=%.2fms | sync=%.2fms | gpu=%.2fms | unk=%.2fms | swap=%.2fms | input=%.2fms | drops=%d",
@@ -172,6 +178,7 @@ class UiFrameMetricsProfiler {
                     Log.i(TAG, summary)
                     AppLogger.d(TAG, summary)
                 }
+                RecompAudit.emitSummaryIfActive()
                 windowStartMs = nowMs
             }
         }

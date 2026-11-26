@@ -22,7 +22,8 @@ class FrameWindowStatsTest {
                 syncMs = i * 0.15f,       // 0.15..3.0 ms
                 gpuMs = i * 0.40f,        // 0.40..8.0 ms
                 unkMs = i * 0.30f,        // 0.30..6.0 ms
-                swapMs = i * 0.20f        // 0.20..4.0 ms
+                swapMs = i * 0.20f,       // 0.20..4.0 ms
+                animMs = i * 0.35f        // 0.35..7.0 ms
             )
         }
 
@@ -37,6 +38,8 @@ class FrameWindowStatsTest {
         assertTrue(summary.contains("jank=12 (60.0%)"))
         assertTrue(summary.contains("p50=22.00ms"))
         assertTrue(summary.contains("max=40.00ms"))
+        assertTrue(summary.contains("animP50=3.85ms"))
+        assertTrue(summary.contains("animP95=7.00ms"))
         assertTrue(summary.contains("drawP50=5.50ms"))
         assertTrue(summary.contains("drawP95=10.00ms"))
         assertTrue(summary.contains("layoutP95=5.00ms"))

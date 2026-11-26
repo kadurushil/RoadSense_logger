@@ -37,3 +37,25 @@ sealed class SessionRecordingState {
 
     data class Error(val message: String) : SessionRecordingState()
 }
+
+/**
+ * Coarse recording lifecycle phase that only changes on start/stop/finalize transitions,
+ * letting parent UI bars avoid subscribing to 2 Hz telemetry ticks inside [SessionRecordingState.Recording].
+ */
+enum class SessionLifecyclePhase {
+    IDLE,
+    WARMING,
+    RECORDING,
+    FINALIZING,
+    FINISHED,
+    ERROR
+}
+
+fun SessionRecordingState.toLifecyclePhase(): SessionLifecyclePhase = when (this) {
+    is SessionRecordingState.WarmingUp -> SessionLifecyclePhase.WARMING
+    is SessionRecordingState.Recording -> SessionLifecyclePhase.RECORDING
+    is SessionRecordingState.Finalizing -> SessionLifecyclePhase.FINALIZING
+    is SessionRecordingState.Finished -> SessionLifecyclePhase.FINISHED
+    is SessionRecordingState.Error -> SessionLifecyclePhase.ERROR
+    else -> SessionLifecyclePhase.IDLE
+}

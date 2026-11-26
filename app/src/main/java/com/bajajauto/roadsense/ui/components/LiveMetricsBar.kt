@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import com.bajajauto.roadsense.acquisition.RadarConnectionState
 import com.bajajauto.roadsense.camera.CameraEngineState
 import com.bajajauto.roadsense.diagnostics.ThermalSeverity
+import com.bajajauto.roadsense.diagnostics.TrackRecomposition
 import com.bajajauto.roadsense.gnss.GnssFix
 import com.bajajauto.roadsense.gnss.GnssLocationManager
 import com.bajajauto.roadsense.gnss.GnssState
@@ -137,6 +138,7 @@ private fun LiveMetricsCanvasHud(
     onCanClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
+    TrackRecomposition("LiveMetrics")
     val isLandscape = LocalConfiguration.current.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
     val density = LocalDensity.current.density
     val scaledDensity = LocalDensity.current.fontScale * density

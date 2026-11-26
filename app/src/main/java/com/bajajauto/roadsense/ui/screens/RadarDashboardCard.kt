@@ -1,7 +1,11 @@
 package com.bajajauto.roadsense.ui.screens
 
 import android.content.res.Configuration
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -12,16 +16,21 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.acquisition.RadarConnectionState
+import com.bajajauto.roadsense.diagnostics.TrackRecomposition
 import com.bajajauto.roadsense.models.RadarFrame
 import com.bajajauto.roadsense.models.RawRadarPacket
-import com.bajajauto.roadsense.recording.SessionRecordingState
+import com.bajajauto.roadsense.recording.SessionLifecyclePhase
 import com.bajajauto.roadsense.ui.RadarViewModel
 import com.bajajauto.roadsense.ui.components.RadarBevPlot
 
@@ -49,16 +58,13 @@ fun RadarDashboardCard(
     isHexPreviewEnabled: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    TrackRecomposition("RadarCard")
     val configuration = LocalConfiguration.current
     val effectiveConnectionState = connectionState ?: viewModel.connectionState.collectAsState().value
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-    val recordingStateHolder = viewModel.sessionRecordingState.collectAsState()
-    val isRecording by remember {
-        derivedStateOf { recordingStateHolder.value is SessionRecordingState.Recording }
-    }
-
-    val radarFrameState = viewModel.latestFrame.collectAsState()
+    val lifecyclePhase by viewModel.sessionLifecyclePhase.collectAsState()
+    val isRecording = lifecyclePhase == SessionLifecyclePhase.RECORDING
 
     if (isLandscape) {
         // --- LANDSCAPE MODE: Side-by-Side Dual Pane ---
@@ -71,7 +77,7 @@ fun RadarDashboardCard(
             // Left Pane (55% width): Dedicated BEV Radar Scope fitted to screen height (Decoupled Canvas Draw Phase)
             RadarBevPlot(
                 viewModel = viewModel,
-                frameProducer = { radarFrameState.value },
+                frame = latestFrame,
                 modifier = Modifier
                     .weight(0.55f)
                     .fillMaxHeight(),
@@ -112,7 +118,7 @@ fun RadarDashboardCard(
             )
             RadarBevPlot(
                 viewModel = viewModel,
-                frameProducer = { radarFrameState.value },
+                frame = latestFrame,
                 modifier = Modifier.fillMaxWidth(),
                 isLandscape = false
             )
@@ -123,7 +129,7 @@ fun RadarDashboardCard(
 
 /**
  * Radar hardware connection status, port info, and streamlined telemetry summary.
- * Isolates 5 Hz telemetry subscription inside leaf composable so root RadarDashboardCard never recomposes.
+ * Telemetry strip uses Direct-Canvas draw-phase rendering (`0` recompositions per 20 Hz frame).
  */
 @Composable
 private fun RadarHardwareStatusCard(
@@ -132,14 +138,8 @@ private fun RadarHardwareStatusCard(
     latestFrameOverride: RadarFrame?,
     isRecording: Boolean
 ) {
-    val telemetry by viewModel.radarUiTelemetry.collectAsState()
-    var sampledFrame by remember { mutableStateOf(viewModel.latestFrame.value) }
-    LaunchedEffect(telemetry, isRecording) {
-        if (!isRecording) {
-            sampledFrame = viewModel.latestFrame.value
-        }
-    }
-    val latestFrame = latestFrameOverride ?: sampledFrame
+    TrackRecomposition("RadarHwCard")
+    val telemetryState = viewModel.radarUiTelemetry.collectAsState()
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -204,49 +204,90 @@ private fun RadarHardwareStatusCard(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Streamlined single-line telemetry chip (TLV version + Points / Tracks / Clusters / Frame Sequence)
-            val tlvVersion = latestFrame?.tlvVersion ?: "v2.2"
-            val frameSeq = latestFrame?.header?.frameNumber ?: 0L
-            val ptsCount = latestFrame?.points?.size ?: 0
-            val trkCount = latestFrame?.tracks?.size ?: 0
-            val clsCount = latestFrame?.clusters?.size ?: 0
-
-            Surface(
-                color = Color(0xFF11141C),
-                shape = RoundedCornerShape(2.dp),
-                border = BorderStroke(1.dp, Color(0xFF263238)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clearAndSetSemantics {}
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 5.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "TLV $tlvVersion",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Text(
-                        text = if (isRecording) {
-                            "● REC [Seq #$frameSeq | Pts: $ptsCount | Trk: $trkCount]"
-                        } else {
-                            "Seq #$frameSeq | ● $ptsCount | ■ $trkCount | ⚡ $clsCount"
-                        },
-                        color = if (isRecording) Color(0xFFFF5252) else Color(0xFF80D8FF),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                }
-            }
+            // Direct-Canvas telemetry chip (5 Hz radarUiTelemetry): 0 recompositions, 0 Measure/Layout, isolated RenderNode
+            RadarTelemetryStripCanvas(
+                telemetryProvider = { telemetryState.value },
+                frameOverride = latestFrameOverride,
+                isRecording = isRecording
+            )
         }
+    }
+}
+
+@Composable
+private fun RadarTelemetryStripCanvas(
+    telemetryProvider: () -> com.bajajauto.roadsense.ui.RadarUiTelemetry,
+    frameOverride: RadarFrame?,
+    isRecording: Boolean
+) {
+    TrackRecomposition("RadarTelemetry")
+    val density = LocalDensity.current.density
+    val scaledDensity = LocalDensity.current.fontScale * density
+    val primaryArgb = MaterialTheme.colorScheme.primary.toArgb()
+
+    val bgPaint = remember {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = 0xFF11141C.toInt()
+        }
+    }
+    val borderPaint = remember(density) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1f * density
+            color = 0xFF263238.toInt()
+        }
+    }
+    val tlvPaint = remember(scaledDensity, primaryArgb) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 11f * scaledDensity
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            color = primaryArgb
+            textAlign = Paint.Align.LEFT
+        }
+    }
+    val metricPaint = remember(scaledDensity) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 11f * scaledDensity
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textAlign = Paint.Align.RIGHT
+        }
+    }
+    val rect = remember { RectF() }
+
+    Canvas(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(26.dp)
+            .clearAndSetSemantics {}
+            .graphicsLayer()
+    ) {
+        val tel = telemetryProvider()
+        val tlvVersion = frameOverride?.tlvVersion ?: tel.tlvVersion
+        val frameSeq = frameOverride?.header?.frameNumber ?: tel.lastFrameSeq
+        val ptsCount = frameOverride?.points?.size ?: tel.pointsCount
+        val trkCount = frameOverride?.tracks?.size ?: tel.tracksCount
+        val clsCount = frameOverride?.clusters?.size ?: tel.clustersCount
+
+        val nc = drawContext.canvas.nativeCanvas
+        val cornerPx = 2f * density
+        rect.set(0f, 0f, size.width, size.height)
+        nc.drawRoundRect(rect, cornerPx, cornerPx, bgPaint)
+        val inset = borderPaint.strokeWidth / 2f
+        rect.set(inset, inset, size.width - inset, size.height - inset)
+        nc.drawRoundRect(rect, cornerPx, cornerPx, borderPaint)
+
+        val padX = 8f * density
+        val baseline = (size.height / 2f) - ((metricPaint.descent() + metricPaint.ascent()) / 2f)
+        nc.drawText("TLV $tlvVersion", padX, baseline, tlvPaint)
+
+        val statusText = if (isRecording) {
+            "● REC [Seq #$frameSeq | Pts: $ptsCount | Trk: $trkCount]"
+        } else {
+            "Seq #$frameSeq | ● $ptsCount | ■ $trkCount | ⚡ $clsCount"
+        }
+        metricPaint.color = if (isRecording) 0xFFFF5252.toInt() else 0xFF80D8FF.toInt()
+        nc.drawText(statusText, size.width - padX, baseline, metricPaint)
     }
 }
 

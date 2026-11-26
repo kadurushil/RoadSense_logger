@@ -36,7 +36,7 @@ class RadarSessionRecorder(
     companion object {
         private const val TAG = "RadarSessionRecorder"
         private const val BUFFER_SIZE = 64 * 1024 // 64 KB buffer for high-throughput streaming
-        private const val UI_UPDATE_INTERVAL_MS = 250L // 4 Hz UI telemetry throttling
+        private const val UI_UPDATE_INTERVAL_MS = 500L // 2 Hz UI telemetry cadence
 
         // Sync marker for framed radar binary: "ROAD" (0x52, 0x4F, 0x41, 0x44)
         val FRAME_MAGIC = byteArrayOf(0x52, 0x4F, 0x41, 0x44)
@@ -59,6 +59,17 @@ class RadarSessionRecorder(
 
     private val _recordingState = MutableStateFlow<SessionRecordingState>(SessionRecordingState.Idle)
     val recordingState: StateFlow<SessionRecordingState> = _recordingState.asStateFlow()
+
+    private val _lifecyclePhase = MutableStateFlow(SessionLifecyclePhase.IDLE)
+    val lifecyclePhase: StateFlow<SessionLifecyclePhase> = _lifecyclePhase.asStateFlow()
+
+    private fun publishState(newState: SessionRecordingState) {
+        val nextPhase = newState.toLifecyclePhase()
+        if (_lifecyclePhase.value != nextPhase) {
+            _lifecyclePhase.value = nextPhase
+        }
+        _recordingState.value = newState
+    }
 
     @Volatile
     private var isRecordingActive = false
@@ -111,18 +122,20 @@ class RadarSessionRecorder(
             lastUiUpdateMs = startTimeRealtimeMs
             isRecordingActive = true
 
-            _recordingState.value = SessionRecordingState.Recording(
-                sessionInfo = session,
-                framesRecorded = 0L,
-                bytesRecorded = 0L,
-                durationMs = 0L
+            publishState(
+                SessionRecordingState.Recording(
+                    sessionInfo = session,
+                    framesRecorded = 0L,
+                    bytesRecorded = 0L,
+                    durationMs = 0L
+                )
             )
 
             Log.i(TAG, "Started session ${session.sessionId} at ${session.sessionDir.absolutePath}")
             return session
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start recording session", e)
-            _recordingState.value = SessionRecordingState.Error("Failed to start session: ${e.message}")
+            publishState(SessionRecordingState.Error("Failed to start session: ${e.message}"))
             return null
         }
     }
@@ -143,7 +156,7 @@ class RadarSessionRecorder(
                 updateProgressIfNeeded()
             } catch (e: IOException) {
                 Log.e(TAG, "Error writing raw bytes", e)
-                _recordingState.value = SessionRecordingState.Error("Raw write error: ${e.message}")
+                publishState(SessionRecordingState.Error("Raw write error: ${e.message}"))
             }
         }
     }
@@ -187,7 +200,7 @@ class RadarSessionRecorder(
                 }
             } catch (e: IOException) {
                 Log.e(TAG, "Error writing framed packet", e)
-                _recordingState.value = SessionRecordingState.Error("Frame write error: ${e.message}")
+                publishState(SessionRecordingState.Error("Frame write error: ${e.message}"))
             }
         }
     }
@@ -197,14 +210,16 @@ class RadarSessionRecorder(
         if (now - lastUiUpdateMs >= UI_UPDATE_INTERVAL_MS) {
             lastUiUpdateMs = now
             activeSession?.let { session ->
-                _recordingState.value = SessionRecordingState.Recording(
-                    sessionInfo = session,
-                    framesRecorded = framesRecorded,
-                    bytesRecorded = rawBytesRecorded,
-                    durationMs = now - startTimeRealtimeMs,
-                    gnssFixesRecorded = session.totalGnssFixes,
-                    cameraFramesRecorded = session.totalCameraFrames,
-                    imuFramesRecorded = session.totalImuFrames
+                publishState(
+                    SessionRecordingState.Recording(
+                        sessionInfo = session,
+                        framesRecorded = framesRecorded,
+                        bytesRecorded = rawBytesRecorded,
+                        durationMs = now - startTimeRealtimeMs,
+                        gnssFixesRecorded = session.totalGnssFixes,
+                        cameraFramesRecorded = session.totalCameraFrames,
+                        imuFramesRecorded = session.totalImuFrames
+                    )
                 )
             }
         }
@@ -215,7 +230,7 @@ class RadarSessionRecorder(
      */
     fun setWarmingUp(statusText: String = "Warming sensors…") {
         if (!isRecordingActive) {
-            _recordingState.value = SessionRecordingState.WarmingUp(statusText)
+            publishState(SessionRecordingState.WarmingUp(statusText))
         }
     }
 
@@ -224,7 +239,7 @@ class RadarSessionRecorder(
      */
     fun setIdle() {
         if (!isRecordingActive) {
-            _recordingState.value = SessionRecordingState.Idle
+            publishState(SessionRecordingState.Idle)
         }
     }
 
@@ -233,7 +248,7 @@ class RadarSessionRecorder(
      */
     fun markFinalizing(phase: String = "SAVING") {
         activeSession?.let { session ->
-            _recordingState.value = SessionRecordingState.Finalizing(session, phase)
+            publishState(SessionRecordingState.Finalizing(session, phase))
         }
     }
 
@@ -257,7 +272,7 @@ class RadarSessionRecorder(
         val totalBytes = rawBytesRecorded
 
         if (session != null) {
-            _recordingState.value = SessionRecordingState.Finalizing(session, "SAVING")
+            publishState(SessionRecordingState.Finalizing(session, "SAVING"))
         }
 
         executor.execute {
@@ -283,14 +298,16 @@ class RadarSessionRecorder(
                         sessionManager.closeSession(session)
                     }
 
-                    _recordingState.value = SessionRecordingState.Finished(
-                        sessionInfo = session,
-                        totalFrames = totalFrames,
-                        totalBytes = totalBytes,
-                        durationMs = durationMs,
-                        totalGnssFixes = session.totalGnssFixes,
-                        totalCameraFrames = session.totalCameraFrames,
-                        totalImuFrames = session.totalImuFrames
+                    publishState(
+                        SessionRecordingState.Finished(
+                            sessionInfo = session,
+                            totalFrames = totalFrames,
+                            totalBytes = totalBytes,
+                            durationMs = durationMs,
+                            totalGnssFixes = session.totalGnssFixes,
+                            totalCameraFrames = session.totalCameraFrames,
+                            totalImuFrames = session.totalImuFrames
+                        )
                     )
 
                     if (deferAudit) {
@@ -301,12 +318,12 @@ class RadarSessionRecorder(
                         onAuditCompleted?.invoke(session, session.syncAuditResult)
                     }
                 } else {
-                    _recordingState.value = SessionRecordingState.Idle
+                    publishState(SessionRecordingState.Idle)
                 }
                 Log.i(TAG, "Session ${session?.sessionId} finished: $totalFrames frames, $totalBytes bytes, ${durationMs}ms")
             } catch (e: IOException) {
                 Log.e(TAG, "Error finalizing recording session", e)
-                _recordingState.value = SessionRecordingState.Error("Error closing session: ${e.message}")
+                publishState(SessionRecordingState.Error("Error closing session: ${e.message}"))
                 if (session != null) {
                     onAuditCompleted?.invoke(session, null)
                 }

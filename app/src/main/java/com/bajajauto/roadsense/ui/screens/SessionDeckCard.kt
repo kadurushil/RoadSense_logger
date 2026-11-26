@@ -232,7 +232,9 @@ fun SessionDeckCard(
             bookmarkHapticsEnabled = bookmarkHaptics,
             onBookmarkHapticsChanged = { viewModel.setBookmarkHapticsEnabled(it) },
             lifecycleDebugLogsEnabled = debugToggles.sessionLifecycleDebugLogs,
-            onLifecycleDebugLogsChanged = { viewModel.setSessionLifecycleDebugLogs(it) }
+            onLifecycleDebugLogsChanged = { viewModel.setSessionLifecycleDebugLogs(it) },
+            uiPerfProfilingLogsEnabled = debugToggles.uiPerfProfilingLogs,
+            onUiPerfProfilingLogsChanged = { viewModel.setUiPerfProfilingLogs(it) }
         )
 
         // Session Sync & Sensor Health Scorecard
@@ -502,7 +504,9 @@ private fun RunMetadataAndTogglesCard(
     bookmarkHapticsEnabled: Boolean,
     onBookmarkHapticsChanged: (Boolean) -> Unit,
     lifecycleDebugLogsEnabled: Boolean,
-    onLifecycleDebugLogsChanged: (Boolean) -> Unit
+    onLifecycleDebugLogsChanged: (Boolean) -> Unit,
+    uiPerfProfilingLogsEnabled: Boolean = false,
+    onUiPerfProfilingLogsChanged: (Boolean) -> Unit = {}
 ) {
     val mountOptions = remember { listOf("Windshield", "Dashboard", "Tripod", "Handlebar") }
     val lightingOptions = remember { listOf("Day", "Dusk", "Night", "Rain") }
@@ -666,6 +670,32 @@ private fun RunMetadataAndTogglesCard(
                     Switch(
                         checked = lifecycleDebugLogsEnabled,
                         onCheckedChange = onLifecycleDebugLogsChanged
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "UI Recomposition & Frame Jank Audit",
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Logs 5s [RECOMP_5S] counts & [JANK_FRAME] traces for ADB profiling",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Switch(
+                        checked = uiPerfProfilingLogsEnabled,
+                        onCheckedChange = onUiPerfProfilingLogsChanged
                     )
                 }
             }

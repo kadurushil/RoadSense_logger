@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.canedge.model.CanedgeHudPhase
 import com.bajajauto.roadsense.canedge.model.CanedgeSyncStats
+import com.bajajauto.roadsense.diagnostics.TrackRecomposition
 import com.bajajauto.roadsense.recording.SessionRecordingState
 import com.bajajauto.roadsense.ui.RadarViewModel
 import kotlinx.coroutines.delay
@@ -35,10 +36,10 @@ internal data class CockpitStatusPillSpec(
 )
 
 @Composable
-internal fun rememberTransientSavedFlag(state: SessionRecordingState): Boolean {
+internal fun rememberTransientSavedFlag(isFinished: Boolean): Boolean {
     var showSavedRecently by remember { mutableStateOf(false) }
-    LaunchedEffect(state) {
-        if (state is SessionRecordingState.Finished) {
+    LaunchedEffect(isFinished) {
+        if (isFinished) {
             showSavedRecently = true
             delay(4000L)
             showSavedRecently = false
@@ -48,6 +49,10 @@ internal fun rememberTransientSavedFlag(state: SessionRecordingState): Boolean {
     }
     return showSavedRecently
 }
+
+@Composable
+internal fun rememberTransientSavedFlag(state: SessionRecordingState): Boolean =
+    rememberTransientSavedFlag(state is SessionRecordingState.Finished)
 
 internal fun resolveCockpitStatusPill(
     state: SessionRecordingState,
@@ -141,28 +146,14 @@ fun TopSessionHeader(
     val bookmarkCountHolder: State<Int>? = viewModel?.sessionBookmarkCount?.collectAsState()
     val hapticsEnabledHolder: State<Boolean>? = viewModel?.bookmarkHapticsEnabled?.collectAsState()
 
-    val currentSessionState = sessionState ?: sessionStateHolder?.value ?: SessionRecordingState.Idle
-    val headerPhase by remember(currentSessionState) {
-        derivedStateOf { currentSessionState.toPhase() }
+    TrackRecomposition("TopHeader")
+    val headerPhase by remember(sessionStateHolder, sessionState) {
+        derivedStateOf { (sessionState ?: sessionStateHolder?.value ?: SessionRecordingState.Idle).toPhase() }
     }
-    val isAuditing = isAuditingHolder?.value == true
-    val showSavedRecently = rememberTransientSavedFlag(currentSessionState)
+    val showSavedRecently = rememberTransientSavedFlag(headerPhase == SessionHeaderPhase.FINISHED)
     val canOpenPreflight = headerPhase == SessionHeaderPhase.IDLE ||
         headerPhase == SessionHeaderPhase.FINISHED ||
         headerPhase == SessionHeaderPhase.ERROR
-    val statusPill = resolveCockpitStatusPill(
-        state = currentSessionState,
-        isAuditing = isAuditing,
-        canStats = canStatsHolder?.value,
-        showSavedRecently = showSavedRecently,
-        compactRecordingText = false,
-        recordingContainerColor = Color.Transparent,
-        recordingContentColor = MaterialTheme.colorScheme.error,
-        savedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-        savedContentColor = MaterialTheme.colorScheme.primary,
-        idleContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
-        idleContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-    )
 
     Card(
         colors = CardDefaults.cardColors(
@@ -188,22 +179,14 @@ fun TopSessionHeader(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Surface(
-                            color = statusPill.bgColor,
-                            shape = RoundedCornerShape(4.dp),
-                            border = if (canOpenPreflight) BorderStroke(1.dp, Color(0xFF475569).copy(alpha = 0.6f)) else null,
-                            modifier = Modifier.then(if (canOpenPreflight) Modifier.clickable(onClick = onOpenPreflight) else Modifier)
-                        ) {
-                            Text(
-                                text = statusPill.text,
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 1,
-                                softWrap = false,
-                                color = statusPill.fgColor,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                            )
-                        }
+                        TopSessionStatusPill(
+                            stateProvider = { sessionState ?: sessionStateHolder?.value ?: SessionRecordingState.Idle },
+                            isAuditingProvider = { isAuditingHolder?.value == true },
+                            canStatsProvider = { canStatsHolder?.value },
+                            showSavedRecently = showSavedRecently,
+                            canOpenPreflight = canOpenPreflight,
+                            onOpenPreflight = onOpenPreflight
+                        )
                         if (headerPhase == SessionHeaderPhase.RECORDING) {
                             SessionTimerText(
                                 sessionStateProvider = { sessionState ?: sessionStateHolder?.value ?: SessionRecordingState.Idle }
@@ -327,4 +310,44 @@ private fun SessionTelemetrySummaryText(
         maxLines = 1,
         overflow = TextOverflow.Ellipsis
     )
+}
+
+@Composable
+private fun TopSessionStatusPill(
+    stateProvider: () -> SessionRecordingState,
+    isAuditingProvider: () -> Boolean,
+    canStatsProvider: () -> CanedgeSyncStats?,
+    showSavedRecently: Boolean,
+    canOpenPreflight: Boolean,
+    onOpenPreflight: () -> Unit
+) {
+    val statusPill = resolveCockpitStatusPill(
+        state = stateProvider(),
+        isAuditing = isAuditingProvider(),
+        canStats = canStatsProvider(),
+        showSavedRecently = showSavedRecently,
+        compactRecordingText = false,
+        recordingContainerColor = Color.Transparent,
+        recordingContentColor = MaterialTheme.colorScheme.error,
+        savedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+        savedContentColor = MaterialTheme.colorScheme.primary,
+        idleContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f),
+        idleContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    Surface(
+        color = statusPill.bgColor,
+        shape = RoundedCornerShape(4.dp),
+        border = if (canOpenPreflight) BorderStroke(1.dp, Color(0xFF475569).copy(alpha = 0.6f)) else null,
+        modifier = Modifier.then(if (canOpenPreflight) Modifier.clickable(onClick = onOpenPreflight) else Modifier)
+    ) {
+        Text(
+            text = statusPill.text,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false,
+            color = statusPill.fgColor,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+        )
+    }
 }

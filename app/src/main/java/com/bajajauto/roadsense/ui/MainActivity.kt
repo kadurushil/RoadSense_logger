@@ -1,7 +1,15 @@
 package com.bajajauto.roadsense.ui
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -14,6 +22,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -38,6 +47,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
@@ -57,8 +68,11 @@ import androidx.compose.ui.unit.sp
 import com.bajajauto.roadsense.diagnostics.CrashRecoveryHandler
 import com.bajajauto.roadsense.diagnostics.UiFrameMetricsProfiler
 import com.bajajauto.roadsense.BuildConfig
+import com.bajajauto.roadsense.DebugToggles
+import com.bajajauto.roadsense.diagnostics.RecompAudit
+import com.bajajauto.roadsense.diagnostics.TrackRecomposition
 import com.bajajauto.roadsense.logging.AppLogger
-import com.bajajauto.roadsense.recording.SessionRecordingState
+import com.bajajauto.roadsense.recording.SessionLifecyclePhase
 import com.bajajauto.roadsense.ui.components.EventBookmarkButton
 import com.bajajauto.roadsense.ui.components.EventBookmarkButtonStyle
 import com.bajajauto.roadsense.ui.components.EventBookmarkToastBanner
@@ -84,10 +98,15 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: RadarViewModel by viewModels()
     private val frameMetricsProfiler = UiFrameMetricsProfiler()
+    private var debugUiProfReceiver: BroadcastReceiver? = null
     private val requestNotificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             AppLogger.i("MainActivity", "POST_NOTIFICATIONS permission result: granted=$granted")
         }
+
+    companion object {
+        private const val ACTION_SET_UI_PROFILING = "com.bajajauto.roadsense.action.SET_UI_PROFILING"
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
@@ -95,6 +114,7 @@ class MainActivity : ComponentActivity() {
             setTurnScreenOn(true)
         }
         super.onCreate(savedInstanceState)
+        registerDebugUiProfilingReceiver()
         @Suppress("DEPRECATION")
         window.addFlags(
             android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
@@ -155,7 +175,40 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun registerDebugUiProfilingReceiver() {
+        val isDebuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        if (!isDebuggable || debugUiProfReceiver != null) return
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == ACTION_SET_UI_PROFILING) {
+                    val enabled = intent.getBooleanExtra("enabled", false)
+                    DebugToggles.setUiPerfProfilingLogs(enabled)
+                    RecompAudit.reset()
+                    AppLogger.i("UiPerf", "[UI_PERF_TOGGLE] ADB SET_UI_PROFILING enabled=$enabled")
+                }
+            }
+        }
+        try {
+            ContextCompat.registerReceiver(
+                this,
+                receiver,
+                IntentFilter(ACTION_SET_UI_PROFILING),
+                ContextCompat.RECEIVER_EXPORTED
+            )
+            debugUiProfReceiver = receiver
+        } catch (e: Exception) {
+            AppLogger.w("MainActivity", "Failed to register debug UI profiling receiver: ${e.message}")
+        }
+    }
+
     override fun onDestroy() {
+        debugUiProfReceiver?.let { receiver ->
+            try {
+                unregisterReceiver(receiver)
+            } catch (_: Exception) {}
+            debugUiProfReceiver = null
+        }
         frameMetricsProfiler.detach(window)
         if (!isChangingConfigurations) {
             AppLogger.i("MainActivity", "RoadSense onDestroy. Closing app run log.")
@@ -180,6 +233,7 @@ fun RoadSenseCockpitScreen(
     viewModel: RadarViewModel,
     modifier: Modifier = Modifier
 ) {
+    TrackRecomposition("CockpitScreen")
     val isCalibrationFullScreen by viewModel.isCalibrationFullScreen.collectAsState()
     val isCameraFullScreen by viewModel.isCameraFullScreen.collectAsState()
     val isSbsFullScreen by viewModel.isSbsFullScreen.collectAsState()
@@ -481,6 +535,7 @@ private fun CockpitTabNavigationBar(
     onOpenPreflight: () -> Unit,
     onStartRecordRequested: () -> Unit
 ) {
+    TrackRecomposition("CockpitTabs")
     val currentTabIndex = currentTabIndexProvider()
     if (isLandscape) {
         Surface(
@@ -584,31 +639,16 @@ private fun LandscapeSessionControlBar(
     onStartRecordRequested: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val state by viewModel.sessionRecordingState.collectAsState()
-    val isAuditing by viewModel.isSessionAuditing.collectAsState()
-    val canStats by viewModel.canedgeSyncStats.collectAsState()
+    TrackRecomposition("LandscapeBar")
+    val barPhase by viewModel.sessionLifecyclePhase.collectAsState()
     val bookmarkCount by viewModel.sessionBookmarkCount.collectAsState()
     val hapticsEnabled by viewModel.bookmarkHapticsEnabled.collectAsState()
 
-    val isRecording = state is SessionRecordingState.Recording
-    val showSavedRecently = rememberTransientSavedFlag(state)
-    val canOpenPreflight = state is SessionRecordingState.Idle ||
-        state is SessionRecordingState.Finished ||
-        state is SessionRecordingState.Error
-
-    val statusPill = resolveCockpitStatusPill(
-        state = state,
-        isAuditing = isAuditing,
-        canStats = canStats,
-        showSavedRecently = showSavedRecently,
-        compactRecordingText = true,
-        recordingContainerColor = MaterialTheme.colorScheme.errorContainer,
-        recordingContentColor = MaterialTheme.colorScheme.error,
-        savedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
-        savedContentColor = MaterialTheme.colorScheme.primary,
-        idleContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-        idleContentColor = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+    val isRecording = barPhase == SessionLifecyclePhase.RECORDING
+    val showSavedRecently = rememberTransientSavedFlag(barPhase == SessionLifecyclePhase.FINISHED)
+    val canOpenPreflight = barPhase == SessionLifecyclePhase.IDLE ||
+        barPhase == SessionLifecyclePhase.FINISHED ||
+        barPhase == SessionLifecyclePhase.ERROR
 
     Row(
         modifier = modifier,
@@ -624,33 +664,16 @@ private fun LandscapeSessionControlBar(
             onMarkEvent = { type -> viewModel.markEvent(type) }
         )
 
-        // Clickable dynamic status pill: IDLE ⓘ / WARMING… / ● REC / SAVING… / AUDITING… / CAN SYNC / ✓ SAVED (4s)
-        Surface(
-            color = statusPill.bgColor,
-            shape = RoundedCornerShape(5.dp),
-            border = if (canOpenPreflight) BorderStroke(1.dp, Color(0xFF475569).copy(alpha = 0.7f)) else null,
-            modifier = Modifier
-                .height(26.dp)
-                .then(if (canOpenPreflight) Modifier.clickable(onClick = onOpenPreflight) else Modifier)
-        ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier.padding(horizontal = 7.dp)
-            ) {
-                Text(
-                    text = statusPill.text,
-                    color = statusPill.fgColor,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 1,
-                    softWrap = false
-                )
-            }
-        }
+        // Direct-Canvas Status Pill: collects 2 Hz SessionRecordingState inside this leaf & reads strictly in DrawScope
+        LandscapeStatusPillCanvas(
+            viewModel = viewModel,
+            showSavedRecently = showSavedRecently,
+            canOpenPreflight = canOpenPreflight,
+            onOpenPreflight = onOpenPreflight
+        )
 
-        when (state) {
-            is SessionRecordingState.Recording -> {
+        when (barPhase) {
+            SessionLifecyclePhase.RECORDING -> {
                 Button(
                     onClick = { viewModel.stopSessionRecording() },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
@@ -660,7 +683,7 @@ private fun LandscapeSessionControlBar(
                     Text("Stop", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
             }
-            is SessionRecordingState.WarmingUp -> {
+            SessionLifecyclePhase.WARMING -> {
                 OutlinedButton(
                     onClick = { viewModel.cancelWarmup() },
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
@@ -671,7 +694,7 @@ private fun LandscapeSessionControlBar(
                     Text("Cancel", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
             }
-            is SessionRecordingState.Finalizing -> {
+            SessionLifecyclePhase.FINALIZING -> {
                 Button(
                     onClick = {},
                     enabled = false,
@@ -689,7 +712,7 @@ private fun LandscapeSessionControlBar(
                     modifier = Modifier.height(26.dp)
                 ) {
                     Text(
-                        text = if (state is SessionRecordingState.Finished) "New" else "Record",
+                        text = if (barPhase == SessionLifecyclePhase.FINISHED) "New" else "Record",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
@@ -698,5 +721,82 @@ private fun LandscapeSessionControlBar(
                 }
             }
         }
+    }
+}
+
+/**
+ * Isolated Direct-Canvas pill for Reverse Landscape status/timer readouts (`IDLE ⓘ`, `● REC 00:12 (240f)`,
+ * `CAN SYNC 42%`, `✓ SAVED`). Reads state strictly inside `DrawScope` on its own `.graphicsLayer()` RenderNode.
+ */
+@Composable
+private fun LandscapeStatusPillCanvas(
+    viewModel: RadarViewModel,
+    showSavedRecently: Boolean,
+    canOpenPreflight: Boolean,
+    onOpenPreflight: () -> Unit
+) {
+    TrackRecomposition("LandscapePill")
+    val stateHolder = viewModel.sessionRecordingState.collectAsState()
+    val isAuditingHolder = viewModel.isSessionAuditing.collectAsState()
+    val canStatsHolder = viewModel.canedgeSyncStats.collectAsState()
+    val density = LocalDensity.current.density
+    val scaledDensity = LocalDensity.current.fontScale * density
+    val recordingBg = MaterialTheme.colorScheme.errorContainer
+    val recordingFg = MaterialTheme.colorScheme.error
+    val savedBg = MaterialTheme.colorScheme.secondaryContainer
+    val savedFg = MaterialTheme.colorScheme.primary
+    val idleBg = MaterialTheme.colorScheme.surfaceVariant
+    val idleFg = MaterialTheme.colorScheme.onSurfaceVariant
+
+    val bgPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL } }
+    val borderPaint = remember(density) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1f * density
+            color = 0xB3475569.toInt()
+        }
+    }
+    val textPaint = remember(scaledDensity) {
+        Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 10f * scaledDensity
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+    }
+    val rect = remember { RectF() }
+
+    Canvas(
+        modifier = Modifier
+            .size(width = 128.dp, height = 26.dp)
+            .clearAndSetSemantics {}
+            .then(if (canOpenPreflight) Modifier.clickable(onClick = onOpenPreflight) else Modifier)
+            .graphicsLayer()
+    ) {
+        val statusPill = resolveCockpitStatusPill(
+            state = stateHolder.value,
+            isAuditing = isAuditingHolder.value,
+            canStats = canStatsHolder.value,
+            showSavedRecently = showSavedRecently,
+            compactRecordingText = true,
+            recordingContainerColor = recordingBg,
+            recordingContentColor = recordingFg,
+            savedContainerColor = savedBg,
+            savedContentColor = savedFg,
+            idleContainerColor = idleBg,
+            idleContentColor = idleFg
+        )
+        val nc = drawContext.canvas.nativeCanvas
+        val cornerPx = 5f * density
+        rect.set(0f, 0f, size.width, size.height)
+        bgPaint.color = statusPill.bgColor.toArgb()
+        nc.drawRoundRect(rect, cornerPx, cornerPx, bgPaint)
+        if (canOpenPreflight) {
+            val inset = borderPaint.strokeWidth / 2f
+            rect.set(inset, inset, size.width - inset, size.height - inset)
+            nc.drawRoundRect(rect, cornerPx, cornerPx, borderPaint)
+        }
+        textPaint.color = statusPill.fgColor.toArgb()
+        val baseline = (size.height / 2f) - ((textPaint.descent() + textPaint.ascent()) / 2f)
+        nc.drawText(statusPill.text, size.width / 2f, baseline, textPaint)
     }
 }

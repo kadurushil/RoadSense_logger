@@ -48,6 +48,7 @@ import com.bajajauto.roadsense.canedge.model.CanedgeSyncStats
 import com.bajajauto.roadsense.canedge.model.CanedgeUnifiedFileItem
 import com.bajajauto.roadsense.canedge.network.CanedgeHttpClient
 import com.bajajauto.roadsense.canedge.repository.CanedgeRepository
+import com.bajajauto.roadsense.recording.SessionLifecyclePhase
 import com.bajajauto.roadsense.recording.SessionManager
 import com.bajajauto.roadsense.recording.SessionRecordingState
 import com.bajajauto.roadsense.recording.SessionTimelineWriter
@@ -85,7 +86,8 @@ data class RadarUiTelemetry(
     val clustersCount: Int = 0,
     val tracksCount: Int = 0,
     val dataRateKbps: Float = 0f,
-    val lastFrameSeq: Long = 0L
+    val lastFrameSeq: Long = 0L,
+    val tlvVersion: String = "v2.2"
 )
 
 @Immutable
@@ -229,6 +231,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     val connectionState: StateFlow<RadarConnectionState> = connectionManager.connectionState
     val recordingState: StateFlow<RecordingState> = rawRecorder.recordingState
     val sessionRecordingState: StateFlow<SessionRecordingState> = sessionRecorder.recordingState
+    val sessionLifecyclePhase: StateFlow<SessionLifecyclePhase> = sessionRecorder.lifecyclePhase
 
     val gnssState: StateFlow<GnssState> = gnssLocationManager.gnssState
     val latestGnssFix: StateFlow<GnssFix?> = gnssLocationManager.latestFix
@@ -292,6 +295,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     @Volatile private var latestPointsNum = 0
     @Volatile private var latestClustersNum = 0
     @Volatile private var latestTracksNum = 0
+    @Volatile private var latestTlvVersion = "v2.2"
 
     // Persistent UI settings
     private val _radarMaxRange = MutableStateFlow(appPreferences.radarMaxRange)
@@ -411,6 +415,14 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
         com.bajajauto.roadsense.logging.AppLogger.i(
             "LifecycleDiag",
             "[LIFECYCLE_DIAG] SESSION_LIFECYCLE_DEBUG_LOGS enabled=$enabled"
+        )
+    }
+
+    fun setUiPerfProfilingLogs(enabled: Boolean) {
+        DebugToggles.setUiPerfProfilingLogs(enabled)
+        com.bajajauto.roadsense.logging.AppLogger.i(
+            "UiPerf",
+            "[UI_PERF_TOGGLE] UI_PERF_PROFILING_LOGS enabled=$enabled"
         )
     }
 
@@ -836,7 +848,8 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                     clustersCount = latestClustersNum,
                     tracksCount = latestTracksNum,
                     dataRateKbps = rateKbps,
-                    lastFrameSeq = latestFrameSeqNum
+                    lastFrameSeq = latestFrameSeqNum,
+                    tlvVersion = latestTlvVersion
                 )
                 if (_radarUiTelemetry.value != nextTelemetry) {
                     _radarUiTelemetry.value = nextTelemetry
@@ -943,6 +956,7 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
                         latestPointsNum = decoded.points.size
                         latestClustersNum = decoded.clusters.size
                         latestTracksNum = decoded.tracks.size
+                        latestTlvVersion = decoded.tlvVersion
                         displayPacer.enqueueFrame(decoded)
                     }
                 } catch (_: InterruptedException) {

@@ -24,6 +24,7 @@ data class DebugToggleSnapshot(
     val displayPacerVerboseLogs: Boolean = true,
     val displayPacerDropWarnings: Boolean = true,
     val canvasTimingLogs: Boolean = true,
+    val uiPerfProfilingLogs: Boolean = false,
     val uiPerfFrameJankToFileLogs: Boolean = false,
     val diskWriterPriorityLogs: Boolean = true,
     val bevShowRawPoints: Boolean = true,
@@ -65,6 +66,10 @@ object DebugToggles {
 
     @Volatile
     var canvasTimingLogs: Boolean = true
+        private set
+
+    @Volatile
+    var uiPerfProfilingLogs: Boolean = false
         private set
 
     @Volatile
@@ -116,6 +121,10 @@ object DebugToggles {
     val isCanvasTimingActive: Boolean
         get() = masterDebugEnabled && canvasTimingLogs
 
+    /** True when RecompAudit 5s tables and verbose `[JANK_FRAME]` logcat traces should emit. */
+    val isUiPerfProfilingActive: Boolean
+        get() = uiPerfProfilingLogs || masterDebugEnabled
+
     /** True when `[JANK_FRAME]` >24ms entries should be mirrored into `session_debug.log`. */
     val isUiPerfJankToFileActive: Boolean
         get() = masterDebugEnabled && uiPerfFrameJankToFileLogs
@@ -149,6 +158,11 @@ object DebugToggles {
 
     fun setCanvasTimingLogs(enabled: Boolean) {
         canvasTimingLogs = enabled
+        publishState()
+    }
+
+    fun setUiPerfProfilingLogs(enabled: Boolean) {
+        uiPerfProfilingLogs = enabled
         publishState()
     }
 
@@ -203,6 +217,7 @@ object DebugToggles {
         displayPacerVerboseLogs = true
         displayPacerDropWarnings = true
         canvasTimingLogs = true
+        uiPerfProfilingLogs = false
         uiPerfFrameJankToFileLogs = false
         diskWriterPriorityLogs = true
         bevShowRawPoints = true
@@ -221,6 +236,7 @@ object DebugToggles {
             displayPacerVerboseLogs = displayPacerVerboseLogs,
             displayPacerDropWarnings = displayPacerDropWarnings,
             canvasTimingLogs = canvasTimingLogs,
+            uiPerfProfilingLogs = uiPerfProfilingLogs,
             uiPerfFrameJankToFileLogs = uiPerfFrameJankToFileLogs,
             diskWriterPriorityLogs = diskWriterPriorityLogs,
             bevShowRawPoints = bevShowRawPoints,
