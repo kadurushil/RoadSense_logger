@@ -48,6 +48,10 @@ $env:JAVA_HOME = "C:\Users\rakadu1.AHEAD\Android_Studio\android-studio-quail4-wi
 * **HAL Surface Allocation Limits:** Many midrange Android chipsets (e.g. Exynos 9611 on Samsung M21) limit concurrent Camera2 HAL output streams. RoadSense uses a single persistent `AutoFitSurfaceView` (`PersistentCameraViewportHost.kt`) on a `SurfaceFlinger` HWC plane (0 ms HWUI copy). (`CameraEngine.startLuminanceAnalyzer()` is currently disabled as a no-op with `RoadAeMode.FULL_MATRIX` to avoid `14–22 ms` GPU readback stalls.)
 * **Hardware Optical Image Stabilization (OIS):** Query `LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION` before presenting OIS controls. Devices without physical OIS voice-coil actuators will fail silently or log warnings if `LENS_OPTICAL_STABILIZATION_MODE_ON` is requested. UI should hide or grey out OIS toggles on unsupported hardware.
 
+### 3.4 Tier C OpenGL ES 3.0 BEV Viewport & `SurfaceView` Constraints
+* **Mutual Exclusion (`GL` vs `Skia`):** `RadarBevPlot` swaps between `RadarGlBevView` (`GLES30`) and `RadarBevCanvas` (Skia) cleanly via the footer toggle so only the active renderer runs. Inside scrollable portrait cards (`!isLandscape && showChrome`), RoadSense forces Skia Canvas to prevent `SurfaceView` Z-order punch-hole lag while scrolling.
+* **Lock-Free Touch & Persistence:** `BevCameraController` holds camera orbit/pan/zoom in an `AtomicReference` (`0` recompositions per gesture); Foxglove Panel settings (`Col`, `Map`, `Sz`, `●/■`, `Stixels`, `Lanes`, `Decay`, `HideOut`) persist across restarts via `AppPreferences`.
+
 ---
 
 ## 4. Operational Runbook & Command Cheat Sheet

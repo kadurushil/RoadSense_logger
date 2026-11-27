@@ -72,6 +72,11 @@ To overcome 3D-to-2D depth ambiguity, distance compression ($1/Y$), and occlusio
 * **Hardware NVENC Transcoding & Seeking Stability:** Hardware-accelerated video decoding (`h264_cuvid`) and encoding (`h264_nvenc`) with enforced 1-second closed GOPs (`-g 30`, `-forced-idr 1`, `repeat-headers=1`), eliminating seeking freezes and "waiting for keyframe" delays.
 * **Embedded Cockpit Layouts:** Automatically packages `RoadSense_Cockpit_Layout.json` directly into the `.mcap` container as attachments for 1-click layout loading.
 
+### 2.7 OpenGL ES 3.0 2D/3D BEV Engine & Foxglove 3D Panel
+* **Hardware-Accelerated Dual-Mode BEV (`GLES30`):** Renders 2D orthographic and 3D perspective radar scopes via zero-allocation native `FloatBuffer` VBOs (`20.1 FPS` at `P50 = 1.09 ms`, `P95 = 1.82 ms`, `0` `DisplayPacer` drops) with an instant 1-tap `GL` / `Skia` mutual-exclusion toggle.
+* **Interactive 3D Orbit & Dedicated Fullscreen Radar:** Supports lock-free 1-finger orbit (`yaw`/`pitch`), 2-finger ground pan, pinch zoom, 1-tap camera presets (`Chase`, `Iso`, `Top`, `Low`), fullscreen radar mode (`FullscreenRadarBevPreview.kt`), and automatic `Reset` visibility across both 2D and 3D views.
+* **Foxglove Point Coloring & GL Overlays:** Footer `Col` cycler (`Auto`, `Vel`, `Rng`, `SNR`, `Elev`, `In/Out`, `Clst`), GLSL `foxgloveTurbo` / `Rainbow` / `Classic` colormaps, asymmetric-EMA adaptive SNR bounds (with `>= 10 dB` span floor), `±20 m` elevation band + temporary `FlipZ`, 3D Vertical Stixels, configurable up-to-1.0 s decay trails, `±1.5 m` FCW corridor + dynamic `TLV 4` green road boundaries, and `18 px` green `TLV 2` cluster halos.
+
 ---
 
 ## 3. Hardware Architecture & Specifications
@@ -104,6 +109,7 @@ The interface is built using Jetpack Compose with unidirectional data flow (UDF)
 │  • Fullscreen Spatial Calibration Studio with horizon line & ground ladder       │
 │  • Interactive Quick Nudge Bar for roadside fine-tuning                          │
 │  • Synchronized Side-by-Side (SBS) dual Camera & Radar view                      │
+│  • Edge-to-edge Fullscreen Radar BEV scope with 2D/3D GLSL Foxglove controls     │
 │  • Multi-column hierarchical CANedge file explorer with cloud/local sync status  │
 │                                                                                  │
 ├──────────────────────────────────────────────────────────────────────────────────┤

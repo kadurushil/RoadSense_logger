@@ -1957,7 +1957,39 @@ Verified via 30-second ADB profiling (`scripts/profile_ui_perf.py`), lock-free `
 
 ---
 
-### Additional Engineering Rules (37–43)
+## Bug #38: Tier C OpenGL ES 3.0 2D/3D BEV Renderer, 3D Audit Fixes & Foxglove 3D Panel Settings
+
+### Symptoms
+* Even after Tier A (`drawPoints` + primitive grid cache), Skia Canvas BEV re-rasterized via CPU (`Draw P95 = 3.23 ms`, `GPU/Swap P95 = 8.55 ms` on Debug APK) and lacked an interactive 3D orbit perspective view.
+* During the initial Phase 2 3D bring-up, an in-depth codebase audit uncovered 6 subtle correctness/UI defects:
+  1. **GL `setZOrderMediaOverlay(true)` Occlusion:** Moving the legend/controls off the GL surface caused native `SurfaceView` punching to obscure sibling Compose UI unless `zOrderMediaOverlay` & surface placement were strictly scoped inside non-scrolling slots (`isLandscape || !showChrome`).
+  2. **Footer Overflow on 3D `Reset` Button Insertion:** Adding `"Reset"` inline squeezed sibling footer buttons without equal weights, shifting buttons sideways out of alignment.
+  3. **Symmetric Pitch Clamping Bug:** Symmetric pitch bounds vs ground floor clipped/hid overhead 3D detections if clamped artificially, and needed raw unclipped `pt.z` preservation (matching Foxglove).
+  4. **Premature `GL` vs `Skia` Resource Coexistence:** Keeping the Skia Canvas composed behind GL wasting snapshot & draw overhead unless mutually exclusive.
+  5. **Radar Target Heading Sign Inversion (`orientationDeg`):** Firmware TLV 3 heading is clockwise positive in `(+X right, +Y forward)` ISO space; right-handed Z-up CCW GL boxes rotated backwards until negated (`-track.orientationDeg`), and TLV 3 semi-axes (`majorSize`/`minorSize`) needed direct mapping (`minor -> halfW`, `major -> halfL`).
+  6. **Compose Scroll Container Surface Clipping:** Embedding `GLSurfaceView` inside portrait `verticalScroll()` (`RadarDashboardCard`) caused SurfaceView punch-hole lag while scrolling.
+
+### Root Cause
+* Offloading 2D/3D radar perception onto a dedicated `GLSurfaceView` (`RENDERMODE_WHEN_DIRTY`) eliminates CPU/Skia tessellation on `main`, but requires lock-free `AtomicReference` double-buffering, persistent GPU VBOs (`GrowableFloatPool`), and matching RoadSense's `(+X right, +Y forward, +Z up)` coordinate convention to OpenGL right-handed world space without Z-axis clamping or Euler sign drift.
+
+### Resolution (Tier C Phase 1 + Phase 2 + Foxglove 3D Panel)
+* **Mutually Exclusive OpenGL ES 3.0 Engine (`ui/components/gl/`):**
+  * `BevProjectionMath.kt`, `BevGlyphAtlas.kt`, `BevGlShaders.kt`, `BevGlVertexPacker.kt`, `RadarGlBevRenderer.kt`, `RadarGlBevView.kt`, `BevCameraController.kt`, `BevPanelSettings.kt`.
+  * **Zero-Allocation Frame Packing:** `GrowableFloatPool` pre-packs points, SDF rings, solid triangles, wireframe lines (`GL_LINES`), 3D ground grid, and bitmap glyph quads in `0` per-frame heap allocations; GPU shader `uMvp` transforms points directly (`20.1 FPS`, `GL P50 = 1.09 ms`, `P95 = 1.82 ms`, `DisplayPacer Drops = 0`).
+  * **Mutual Exclusion & A/B Switch (`GL` / `Skia`):** `RadarBevPlot.kt` mounts **only** `RadarGlBevView` or `RadarBevCanvas` (never both simultaneously); portrait `verticalScroll` cards automatically retain Skia Canvas (`isLandscape || !showChrome`).
+* **3D Perspective Orbit & Audit Hardening:**
+  * Interactive 1-finger 3D orbit (`yaw/pitch`), 2-finger ground-plane pan, pinch zoom, and 2D zoom/pan inside lock-free `BevCameraController` (`0` Compose recompositions during touch).
+  * Equal `Modifier.weight(1f)` footer bar (`Col:...`, `SNR≥15`, `GL`/`Skia`, `2D`/`3D`, `Reset`, `Bench`) with top-left floating legend so `Reset` never pushes buttons off-screen.
+  * Preserves exact raw `pt.z` elevation (only nudging `|pt.z| < 0.03f` to `0.05f` to prevent ground Z-fighting) and negates TLV 3 heading (`-orientationDeg`).
+* **Foxglove-Style 3D Panel Settings (`BevPanelSettings.kt`, `RadarBevPlot.kt`, `FullscreenSbsPreview.kt`):**
+  * **1-Tap Footer Color Cycler (`Col:<mode>`) + `Auto` Shared Override:** `Auto` (`2D = Doppler`, `3D = Longitudinal Range`) with shared cross-view overrides across `Vel`, `Rng`, `SNR`, `Elev`, `In/Out` (`pt.isOutlier`), and `Clst`.
+  * **Smart Adaptive SNR Normalization:** Computes a flicker-free asymmetric-EMA `[snrMinDb, snrMaxDb]` bounds window with a `>= 10 dB` span floor across visible frames, keeping SNR `< 5 dB` or `> 35 dB` cleanly resolved across GLSL **`foxgloveTurbo`** (`5th-degree polynomial`), `Rainbow`, or `Classic` colormaps.
+  * **GL Headroom Overlays in `Bench` Drawer, Fullscreen Radar & Fullscreen SBS:** `●/■` point shape toggle, `S/M/L` point size presets, **`FlipZ ON/OFF`** temporary coordinate inversion, **`±20 m` wide Elevation Z range**, **Vertical Stixels** (3D ground drop-lines `(x, y, z) -> (x, y, 0.04)` in `GL_LINES` at zero extra draw calls), configurable **Decay Trails** (`Off` / `0.2s` / `0.5s` / `1.0s` = `1 / 4 / 10 / 20` frames), **exact `±1.5 m` FCW corridor + dynamic `TLV 4` Road Boundaries (`roadBoundaryLeftX/RightX`) (`Lanes`)**, **`HideOut`** RANSAC outlier filter, sleek single-row top colormap legend bar, 1-tap 3D camera presets (`Chase`, `Iso`, `Top`, `Low`), `18 px` green (`#00E676`) 2D `TLV 2` cluster halos wrapping `14 px` tracks, and `onCameraModifiedChanged` forwarding so fullscreen 2D `Reset` appears on pan/zoom.
+  * **Cluster TLV Empirical Audit (`session_20261127_150449`):** Inspected all `612` recorded frames (`32,156` points) in `radar_frames.bin` (`ver=0x03060200, plat=0xa1642`); verified `RadarTlvDecoder` decodes `TLV 1` (`12 B/pt`), `TLV 2` (`165` frames), and `TLV 3` (`244` frames) accurately, while the DSP firmware writes `clusterID = 0` on `100%` of `TLV 1` points (`Col:Clst` noise grey expected until firmware tags per-point IDs).
+
+---
+
+### Additional Engineering Rules (37–47)
 37. **Constrain 2D BEV metric scale by both height and `±60°` FOV half-width, while extending range arcs through `(usableHeight / scale)`:** Preventing horizontal clipping on tall SBS panes keeps range contours readable while utilizing vertical headroom.
 38. **Keep PC converters (`convert_session_to_mcap.py`) decoupled from deprecated `camera_frames.csv` when `MasterTimelineSynchronizer` is active:** Always treat legacy CSVs as fallbacks rather than hard gates for `/camera/video`.
 39. **Apply identical 4:3-to-16:9 ISP crop offsets (`cropX`, `cropY`) to both UI viewport intrinsics and saved Foxglove stream intrinsics:** Any device exposing `LENS_INTRINSIC_CALIBRATION` in active-array coordinates will otherwise report `cy = 480` (4:3) on 720p (`360`) 16:9 streams.
@@ -1965,6 +1997,11 @@ Verified via 30-second ADB profiling (`scripts/profile_ui_perf.py`), lock-free `
 41. **Benchmark Vision-vs-Radar using `contact_patch` + mutual-NN Huber/bias pitch regression (never raw match-count maximization):** Matching `position_3d` box centers injects `+length/2` bias against radar bumper reflections, 1-to-1 `lapjv` drops valid close neighbors, and naive match-count pitch optimization collapses far targets onto dense `0–10 m` radar clutter (`fd5a687`).
 42. **Decouple parent Compose chrome from periodic telemetry `StateFlow`s via coarse `SessionLifecyclePhase` flows, batch BEV points via `nativeCanvas.drawPoints(Paint.Cap.SQUARE)`, and run field logging on `staging`/release builds:** Avoids `derivedStateOf` `CALLBACK_ANIMATION` stalls, multi-arc `SW Path Mask` allocations, and Debug runtime UI overhead (`0cdb9a3`).
 43. **Size `RadarDisplayPacer` rate-adaptation hysteresis for `20–22+ Hz` DSP variance and draw static BEV arcs individually rather than in combined `Path`s or full-pane RGBA bitmaps:** Keeping `HYSTERESIS_HIGH_RATE_NS = 46.5 ms` (`~21.5 Hz`) and advancing `lastChoreographerEmitNs` only on non-null emits avoids `[BLOAT_TRIM]` UI-thread log storms on faster DSPs while preserving `20 Hz` lock; individual `drawArc` calls hit `GrOvalOpFactory` with `0` `SW Path Mask` and `-97%` GPU texture footprint (`66.59 KB`).
+44. **Enforce strict mutual exclusion between OpenGL ES 3.0 (`GLSurfaceView`) and Skia `Canvas` BEV backends, and never embed `GLSurfaceView` inside vertically scrolling Compose containers:** Mount only the active view (`RadarGlBevView` or `RadarBevCanvas`) so neither wastes GPU/snapshot cycles, and retain Skia Canvas inside scrollable portrait containers where `SurfaceView` punch-holes lag behind scroll offsets.
+45. **Keep Radar ISO `(+X right, +Y forward, +Z up)` 3D coordinates unclipped and negate clockwise TLV 3 headings (`-orientationDeg`) for right-handed GL Z-up transforms:** Never clamp `pt.z` ceilings in 3D point packing, and reuse GL `GL_LINES` pools for zero-overhead Vertical Stixels and TLV 4 lane rails instead of allocating per-point geometries.
+46. **Adapt dynamic radar scalar normalizations (such as SNR dB) with a span floor rather than hardcoding fixed bounds (`5..35 dB`):** Radar SNRs frequently fall below `5 dB` or exceed `35 dB`; an asymmetric-EMA adaptive window with a minimum span floor (`>= 10 dB`) preserves contrast without frame-to-frame shimmer.
+47. **Use `Modifier.weight(1f)` on dynamic-count footer bars and `horizontalScroll` strips in collapsible drawers with `maxLines = 1, softWrap = false`:** Adding conditional controls (such as 3D `Reset` or Foxglove presets) can otherwise squeeze or wrap sibling button labels on ~360 dp phone viewports.
+
 
 
 

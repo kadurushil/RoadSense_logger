@@ -64,6 +64,7 @@ As of September 29, 2026, the following major architectural milestones have been
 | **Modular CAN `.MF4` → MCAP Ingestion (`CAN_Processing`)** | **Production Ready** (30–60 s rolling Tier 1 `FrameNumber_Act` ↔ UART alignment, **Tier 2 IMU Gyro FFT alignment**, `10 s` MCAP window clamp, Dynamic Protobuf `/can/*` topics) | `tools/CAN_Processing/*.py`, `tools/sync_and_process_sessions.py`, `tools/convert_session_to_mcap.py` |
 | **Unified Traffic-Light HUD & Camera Warm-Pause** | **Production Ready** (`SensorReadinessEvaluator`, width-adaptive Canvas pills, `CALIBRATING` RTC gate, A-GPS XTRA, `200 Hz` IMU primary Hz, Yellow `STBY` preview) | `SensorReadinessEvaluator.kt`, `LiveMetricsBar.kt`, `GnssLocationManager.kt`, `ImuManager.kt`, `CameraEngine.kt` |
 | **Vision-vs-Radar Benchmark & Pitch Regression Suite** | **Production Ready** (`contact_patch` + `nearest` defaults, `<= 50 m` tunable forward scope, zero lateral filtering, clutter-immune `DynamicPitchSolver`, ANSI + SSE UI) | `tools/vision/eval/*.py`, `tools/vision/geometry/dynamic_pitch_solver.py`, `tools/web_dashboard/index.html` |
+| **Tier C OpenGL ES 3.0 2D/3D BEV & Foxglove Panel** | **Production Ready** (`GL`/`Skia` A/B switch, `20.1 FPS` @ `1.09 ms` P50, 3D orbit + presets, `Col` cycler w/ adaptive SNR & `In/Out`, `foxgloveTurbo`, Stixels, Decay up to 1.0s, TLV 4 Road Lanes) | `ui/components/gl/*.kt`, `RadarBevPlot.kt`, `FullscreenSbsPreview.kt`, `DebugToggles.kt` |
 
 ---
 
