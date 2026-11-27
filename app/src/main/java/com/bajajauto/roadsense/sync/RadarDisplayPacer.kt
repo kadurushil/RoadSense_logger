@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -89,6 +90,34 @@ class RadarDisplayPacer(
     private val queue = ConcurrentLinkedQueue<RadarFrame>()
     private val _latestFrame = MutableStateFlow<RadarFrame?>(null)
     val latestFrame: StateFlow<RadarFrame?> = _latestFrame.asStateFlow()
+    private val frameListeners = CopyOnWriteArrayList<(RadarFrame?) -> Unit>()
+
+    /**
+     * Registers a zero-allocation push callback for native renderers (e.g. OpenGL ES 3.0 `GLSurfaceView`)
+     * so they receive paced frames directly without triggering Compose `StateFlow` wakeups.
+     * Immediately replays the current `latestFrame` if non-null.
+     */
+    fun addFrameListener(listener: (RadarFrame?) -> Unit) {
+        if (!frameListeners.contains(listener)) {
+            frameListeners.add(listener)
+        }
+        _latestFrame.value?.let { listener(it) }
+    }
+
+    fun removeFrameListener(listener: (RadarFrame?) -> Unit) {
+        frameListeners.remove(listener)
+    }
+
+    private fun notifyFrameListeners(frame: RadarFrame?) {
+        val count = frameListeners.size
+        for (i in 0 until count) {
+            try {
+                frameListeners[i](frame)
+            } catch (_: IndexOutOfBoundsException) {
+                break
+            }
+        }
+    }
 
     private val isRunning = AtomicBoolean(false)
     @Volatile
@@ -195,6 +224,7 @@ class RadarDisplayPacer(
         }
         queue.clear()
         _latestFrame.value = null
+        notifyFrameListeners(null)
         lastEnqueueNs = 0L
         lastEmitNs = 0L
         lastChoreographerEmitNs = 0L
@@ -336,6 +366,7 @@ class RadarDisplayPacer(
             val deltaEmitMs = if (lastEmitNs > 0L) (nowNs - lastEmitNs) / 1_000_000.0 else 0.0
             lastEmitNs = nowNs
             _latestFrame.value = frameToEmit
+            notifyFrameListeners(frameToEmit)
 
             val remaining = queue.size
             if (remaining >= 2) {

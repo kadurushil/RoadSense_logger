@@ -137,6 +137,25 @@ def _parse_recomp_line(line: str) -> Optional[Dict[str, int]]:
     return out or None
 
 
+def parse_gl_bev_window(line: str) -> Optional[Dict[str, float]]:
+    if "[GL_BEV_5S]" not in (line or ""):
+        return None
+    m = re.search(
+        r"(?:mode=(2D|3D)\s*\|\s*)?frames=(\d+)\s*\|\s*fps=([0-9.]+)\s*\|\s*p50=([0-9.]+)ms\s*\|\s*p95=([0-9.]+)ms\s*\|\s*max=([0-9.]+)ms",
+        line,
+    )
+    if not m:
+        return None
+    return {
+        "mode": m.group(1) or "2D",
+        "frames": float(m.group(2)),
+        "fps": float(m.group(3)),
+        "p50_ms": float(m.group(4)),
+        "p95_ms": float(m.group(5)),
+        "max_ms": float(m.group(6)),
+    }
+
+
 def analyze_profile_dir(target_dir: str) -> Dict[str, Any]:
     """
     Parses `ui_logcat.log` (or `soak_logcat.log`) + optional `gfxinfo.txt` in `target_dir`
@@ -154,6 +173,7 @@ def analyze_profile_dir(target_dir: str) -> Dict[str, Any]:
     windows: List[Dict[str, float]] = []
     janks: List[Dict[str, float]] = []
     recomp_windows: List[Dict[str, int]] = []
+    gl_bev_windows: List[Dict[str, float]] = []
     display_pacer_drops = 0
 
     with open(log_path, "r", encoding="utf-8", errors="replace") as f:
@@ -169,6 +189,10 @@ def analyze_profile_dir(target_dir: str) -> Dict[str, Any]:
             r = _parse_recomp_line(line)
             if r is not None:
                 recomp_windows.append(r)
+                continue
+            g = parse_gl_bev_window(line)
+            if g is not None:
+                gl_bev_windows.append(g)
                 continue
             if "DisplayPacer" in line and ("[DROP]" in line or "[BLOAT_TRIM]" in line):
                 display_pacer_drops += 1
@@ -231,6 +255,19 @@ def analyze_profile_dir(target_dir: str) -> Dict[str, Any]:
         with open(gfx_path, "r", encoding="utf-8", errors="replace") as gf:
             gfx_summary = parse_gfxinfo(gf.read())
 
+    steady_gl_bev = gl_bev_windows[1:] if len(gl_bev_windows) >= 4 else gl_bev_windows
+    gl_bev_summary = (
+        {
+            "window_count": len(gl_bev_windows),
+            "fps_median": _med([g["fps"] for g in steady_gl_bev]),
+            "p50_median_ms": _med([g["p50_ms"] for g in steady_gl_bev]),
+            "p95_median_ms": _med([g["p95_ms"] for g in steady_gl_bev]),
+            "max_ms": round(max((g["max_ms"] for g in gl_bev_windows), default=0.0), 2),
+        }
+        if gl_bev_windows
+        else None
+    )
+
     p95_med = _med([w["p95_ms"] for w in steady_windows])
     verdict = "PASS" if (p95_med is not None and p95_med <= 16.67) else ("WARN" if (p95_med is not None and p95_med <= 22.0) else "FAIL")
 
@@ -257,6 +294,7 @@ def analyze_profile_dir(target_dir: str) -> Dict[str, Any]:
         "period_buckets": period_buckets,
         "recomp_summary": recomp_summary,
         "display_pacer_drops": display_pacer_drops,
+        "gl_bev": gl_bev_summary,
         "gfxinfo": gfx_summary,
     }
     return summary
@@ -274,6 +312,12 @@ def print_profile_report(summary: Dict[str, Any]) -> None:
     print(f"  Draw P50 / P95    : {summary['draw_p50_median_ms']} ms  /  {summary['draw_p95_median_ms']} ms")
     print(f"  GPU / Swap P95    : {summary['gpu_p95_median_ms']} ms  /  {summary['swap_p95_median_ms']} ms")
     print(f"  DisplayPacer Drops: {summary['display_pacer_drops']}")
+    if summary.get("gl_bev"):
+        gb = summary["gl_bev"]
+        print(
+            f"  GL ES 3.0 BEV     : {gb['fps_median']} FPS | "
+            f"P50={gb['p50_median_ms']} ms | P95={gb['p95_median_ms']} ms (Max: {gb['max_ms']} ms)"
+        )
     if summary["jank_frames_logged"] > 0:
         print(f"  [JANK_FRAME] >24ms: {summary['jank_frames_logged']} frames (hi-draw={summary['high_draw_jank_count']}, median period={summary['high_draw_period_median_ms']} ms)")
         print(f"  Inter-Jank Periods: {summary['period_buckets']}")
@@ -366,6 +410,7 @@ def capture_live_profile(args: argparse.Namespace) -> int:
         "RecompAudit:I",
         "DisplayPacer:W",
         "RadarBevPlot:D",
+        "RadarGlBev:I",
         "MainActivity:I",
         "*:S",
     ]

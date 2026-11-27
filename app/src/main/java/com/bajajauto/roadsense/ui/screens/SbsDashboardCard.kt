@@ -59,8 +59,6 @@ fun SbsDashboardCard(
 ) {
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-    val radarFrameState = viewModel.latestFrame.collectAsState()
-    val effectiveFrameProducer: () -> RadarFrame? = frameProducer ?: { radarFrameState.value }
 
     if (isLandscape) {
         // --- LANDSCAPE: Side-by-Side Dual Pane (50% Camera / 50% Radar) ---
@@ -74,16 +72,17 @@ fun SbsDashboardCard(
             SbsCameraFeedPane(
                 viewModel = viewModel,
                 isCurrentTabProvider = isCurrentTabProvider,
-                frameProducer = effectiveFrameProducer,
+                frameProducer = frameProducer,
                 modifier = Modifier
                     .weight(0.5f)
                     .fillMaxHeight()
             )
 
-            // Right Pane: Live Radar BEV Scope
+            // Right Pane: Live Radar BEV Scope (consumes DisplayPacer directly in GL mode; 0 Compose wakeups)
             RadarBevPlot(
                 viewModel = viewModel,
-                frameProducer = effectiveFrameProducer,
+                frame = latestFrame,
+                frameProducer = frameProducer,
                 modifier = Modifier
                     .weight(0.5f)
                     .fillMaxHeight(),
@@ -101,7 +100,7 @@ fun SbsDashboardCard(
             SbsCameraFeedPane(
                 viewModel = viewModel,
                 isCurrentTabProvider = isCurrentTabProvider,
-                frameProducer = effectiveFrameProducer,
+                frameProducer = frameProducer,
                 modifier = Modifier
                     .weight(0.5f)
                     .fillMaxWidth()
@@ -109,7 +108,8 @@ fun SbsDashboardCard(
 
             RadarBevPlot(
                 viewModel = viewModel,
-                frameProducer = effectiveFrameProducer,
+                frame = latestFrame,
+                frameProducer = frameProducer,
                 modifier = Modifier
                     .weight(0.5f)
                     .fillMaxWidth(),
@@ -122,7 +122,8 @@ fun SbsDashboardCard(
 /**
  * Live Camera Viewfinder pane for SBS view with compact telemetry header and matrix-aligned preview.
  * High-frequency telemetry (`cameraSessionFrames` at 30 Hz and `cameraFps` at 1 Hz) is isolated
- * inside `SbsCameraHudBadges` so `SbsCameraFeedPane` and its `AndroidView(TextureView)` never recompose.
+ * inside `SbsCameraHudBadges`, and `viewModel.latestFrame` is collected ONLY when `isRadarOverlayEnabled`
+ * is active so SBS incurs 0 Compose wakeups at 20–22 Hz when HUD overlay is OFF.
  */
 @Composable
 private fun SbsCameraFeedPane(
@@ -132,12 +133,6 @@ private fun SbsCameraFeedPane(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val effectiveFrameProducer: () -> RadarFrame? = if (frameProducer != null) {
-        remember(frameProducer) { frameProducer }
-    } else {
-        val radarFrameState = viewModel.latestFrame.collectAsState()
-        remember(radarFrameState) { { radarFrameState.value } }
-    }
     val engineState by viewModel.cameraEngineState.collectAsState()
     val selectedCamera by viewModel.selectedCamera.collectAsState()
     val selectedRes by viewModel.selectedResolution.collectAsState()
@@ -396,8 +391,14 @@ private fun SbsCameraFeedPane(
                         Spacer(modifier = Modifier.fillMaxSize())
 
                         if (isRadarOverlayEnabled) {
+                            val overlayFrameProducer: () -> RadarFrame? = if (frameProducer != null) {
+                                remember(frameProducer) { frameProducer }
+                            } else {
+                                val radarFrameState = viewModel.latestFrame.collectAsState()
+                                remember(radarFrameState) { { radarFrameState.value } }
+                            }
                             ViewfinderRadarOverlay(
-                                radarFrameProducer = effectiveFrameProducer,
+                                radarFrameProducer = overlayFrameProducer,
                                 calibrationParams = calibrationParams,
                                 intrinsics = activeIntrinsics,
                                 viewWidth = previewWidth,

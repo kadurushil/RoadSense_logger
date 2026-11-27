@@ -243,4 +243,34 @@ class RadarDisplayPacerTest {
 
         pacer.release()
     }
+
+    @Test
+    fun testFrameListenersReceivePacedFramesReplayLatestAndClearOnReset() {
+        val pacer = RadarDisplayPacer(maxQueueDepth = 3)
+        val seen = mutableListOf<Long?>()
+        val listener: (RadarFrame?) -> Unit = { frame ->
+            seen.add(frame?.header?.frameNumber)
+        }
+
+        // Emit frame #1 before listener attaches, then verify immediate replay on subscribe
+        pacer.step(createDummyFrame(1L))
+        pacer.addFrameListener(listener)
+        assertEquals(listOf<Long?>(1L), seen)
+
+        // Subsequent paced steps deliver directly to listener
+        pacer.step(createDummyFrame(2L))
+        pacer.step(createDummyFrame(3L))
+        assertEquals(listOf<Long?>(1L, 2L, 3L), seen)
+
+        // Reset delivers null so GL renderer clears stale targets
+        pacer.reset()
+        assertEquals(listOf<Long?>(1L, 2L, 3L, null), seen)
+
+        // Removing listener guarantees zero further callbacks (clean teardown on Skia toggle)
+        pacer.removeFrameListener(listener)
+        pacer.step(createDummyFrame(4L))
+        assertEquals(listOf<Long?>(1L, 2L, 3L, null), seen)
+
+        pacer.release()
+    }
 }

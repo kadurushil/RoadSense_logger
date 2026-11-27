@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from scripts.profile_ui_perf import analyze_profile_dir
+from scripts.profile_ui_perf import analyze_profile_dir, parse_gl_bev_window
 from scripts.soak_analyzer import parse_uiperf_window
 
 
@@ -42,6 +42,41 @@ class ProfileUiPerfTest(unittest.TestCase):
             self.assertAlmostEqual(summary["draw_p95_median_ms"], 2.20)
             self.assertEqual(summary["recomp_summary"]["LandscapeBar"]["avg_per_5s"], 0.0)
             self.assertEqual(summary["period_buckets"]["240-360ms"], 1)
+
+    def test_parse_gl_bev_window_and_summary(self):
+        line = (
+            "11-27 11:20:05.100 I/RadarGlBev(1): [GL_BEV_5S] frames=111 | fps=22.2 | "
+            "p50=0.42ms | p95=0.78ms | max=1.31ms | pts=64 | trk=4"
+        )
+        parsed = parse_gl_bev_window(line)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["mode"], "2D")
+        self.assertAlmostEqual(parsed["fps"], 22.2)
+        self.assertAlmostEqual(parsed["p50_ms"], 0.42)
+        self.assertAlmostEqual(parsed["p95_ms"], 0.78)
+        self.assertAlmostEqual(parsed["max_ms"], 1.31)
+
+        line_3d = (
+            "11-27 11:50:05.100 I/RadarGlBev(1): [GL_BEV_5S] mode=3D | frames=102 | fps=20.4 | "
+            "p50=1.20ms | p95=1.95ms | max=3.10ms | pts=88 | trk=3"
+        )
+        parsed_3d = parse_gl_bev_window(line_3d)
+        self.assertIsNotNone(parsed_3d)
+        self.assertEqual(parsed_3d["mode"], "3D")
+        self.assertAlmostEqual(parsed_3d["p95_ms"], 1.95)
+
+        sample_log = "\n".join([
+            "11-27 11:20:05.100 I/UiPerf  (1): [WINDOW_5S] frames=15 | jank=0 (0.0%) | p50=8.20ms | p95=12.40ms | max=14.10ms | animP50=0.10ms | animP95=0.35ms | drawP50=0.60ms | drawP95=1.10ms | gpuP95=4.20ms",
+            line,
+        ])
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "ui_logcat.log"), "w", encoding="utf-8") as f:
+                f.write(sample_log)
+            summary = analyze_profile_dir(tmp)
+            self.assertEqual(summary["verdict"], "PASS")
+            self.assertIsNotNone(summary["gl_bev"])
+            self.assertAlmostEqual(summary["gl_bev"]["fps_median"], 22.2)
+            self.assertAlmostEqual(summary["gl_bev"]["p95_median_ms"], 0.78)
 
 
 if __name__ == "__main__":
