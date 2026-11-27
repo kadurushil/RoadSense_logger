@@ -8,6 +8,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,11 +18,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,6 +36,14 @@ import com.bajajauto.roadsense.diagnostics.TrackRecomposition
 import com.bajajauto.roadsense.logging.AppLogger
 import com.bajajauto.roadsense.models.RadarFrame
 import com.bajajauto.roadsense.ui.RadarViewModel
+import com.bajajauto.roadsense.ui.components.gl.BevCameraPreset
+import com.bajajauto.roadsense.ui.components.gl.BevColorMap
+import com.bajajauto.roadsense.ui.components.gl.BevPanelColorizer
+import com.bajajauto.roadsense.ui.components.gl.BevPointColorMode
+import com.bajajauto.roadsense.ui.components.gl.BevProjectionMath
+import com.bajajauto.roadsense.ui.components.gl.BevTrackAssociator
+import com.bajajauto.roadsense.ui.components.gl.RadarGlBevView
+import com.bajajauto.roadsense.ui.components.gl.isOpenGlEs3Supported
 import java.util.Locale
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -51,8 +64,8 @@ private val BEV_COLOR_RING = Color(0xFF37474F)
 private val BEV_COLOR_FOV = Color(0x334DD0E1)
 private val BEV_COLOR_CENTERLINE = Color(0x5500E5FF)
 private val BEV_COLOR_EGO = Color(0xFF00E5FF)
-private val BEV_COLOR_CLUSTER_FILL = Color(0x55FFD54F)
-private val BEV_COLOR_CLUSTER_STROKE = Color(0xFFFFD54F)
+private val BEV_COLOR_CLUSTER_FILL = Color(0x2400E676)
+private val BEV_COLOR_CLUSTER_STROKE = Color(0xFF00E676)
 
 private val BEV_COLOR_FCW = Color(0xFFFF1744)
 private val BEV_COLOR_FCW_GLOW = Color(0x40FF1744)
@@ -69,7 +82,7 @@ private val BEV_COLOR_VEC_DEFAULT = Color(0xFFFFD54F)
 
 private fun createBevPointPaint(argbColor: Int): Paint = Paint().apply {
     color = argbColor
-    strokeWidth = 8f
+    strokeWidth = 9.2f
     strokeCap = Paint.Cap.SQUARE
     isAntiAlias = false
 }
@@ -123,25 +136,87 @@ fun RadarBevPlot(
     frameProducer: (() -> RadarFrame?)? = null,
     modifier: Modifier = Modifier,
     isLandscape: Boolean = false,
-    showChrome: Boolean = true
+    showChrome: Boolean = true,
+    showLegend: Boolean = showChrome,
+    onFullscreenClick: (() -> Unit)? = null,
+    onCameraModifiedChanged: (Boolean) -> Unit = {}
 ) {
     TrackRecomposition("RadarBevPlot")
+    val context = LocalContext.current
+    val isInspection = LocalInspectionMode.current
     val maxRangeMeters by viewModel.radarMaxRange.collectAsState()
     val dynamicOnly by viewModel.radarDynamicOnly.collectAsState()
     val minSnrFilter by viewModel.radarMinSnr.collectAsState()
     val debugState by viewModel.debugToggleState.collectAsState()
 
+    var glInitFailed by remember { mutableStateOf(false) }
+    var isGlCameraModified by remember { mutableStateOf(false) }
+    val gles3Available = remember(context, isInspection) {
+        !isInspection && isOpenGlEs3Supported(context)
+    }
+    // Portrait RadarDashboardCard embeds RadarBevPlot inside verticalScroll(); keep Tier A Skia Canvas there
+    // so SurfaceView never lags/clips while scrolling. Landscape Radar, SBS, and Fullscreen SBS use GLES 3.0.
+    val canMountGlSurface = gles3Available && !glInitFailed && (isLandscape || !showChrome) && frame == null
+    val useGlBackend = debugState.useGlBevRenderer && canMountGlSurface
+    val is3dActive = useGlBackend && debugState.bev3dMode
+
+    LaunchedEffect(useGlBackend) {
+        if (!useGlBackend) {
+            isGlCameraModified = false
+            onCameraModifiedChanged(false)
+        }
+    }
+
     if (!showChrome) {
-        RadarBevCanvas(
-            viewModel = viewModel,
-            staticFrame = frame,
-            frameProducer = frameProducer,
-            maxRangeMeters = maxRangeMeters,
-            dynamicOnly = dynamicOnly,
-            minSnrFilter = minSnrFilter,
-            debugState = debugState,
-            modifier = modifier.background(Color(0xFF090B10))
-        )
+        Box(modifier = modifier.background(Color(0xFF090B10))) {
+            if (useGlBackend) {
+                RadarGlBevView(
+                    viewModel = viewModel,
+                    maxRangeMeters = maxRangeMeters,
+                    dynamicOnly = dynamicOnly,
+                    minSnrFilter = minSnrFilter,
+                    debugState = debugState,
+                    onGlInitError = { glInitFailed = true },
+                    onCameraModifiedChanged = { modified ->
+                        isGlCameraModified = modified
+                        onCameraModifiedChanged(modified)
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Transparent)
+                )
+            } else {
+                RadarBevCanvas(
+                    viewModel = viewModel,
+                    staticFrame = frame,
+                    frameProducer = frameProducer,
+                    maxRangeMeters = maxRangeMeters,
+                    dynamicOnly = dynamicOnly,
+                    minSnrFilter = minSnrFilter,
+                    debugState = debugState,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color(0xFF090B10))
+                )
+            }
+            if (showLegend) {
+                val effectiveColorMode = if (useGlBackend) {
+                    debugState.bevPointColorMode.resolveForView(is3dActive)
+                } else {
+                    BevPointColorMode.VELOCITY
+                }
+                BevRadarLegendBar(
+                    effectiveColorMode = effectiveColorMode,
+                    colorMap = debugState.bevColorMap,
+                    maxRangeMeters = maxRangeMeters,
+                    flipZ = debugState.bevFlipZ,
+                    isLandscape = isLandscape,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(5.dp)
+                )
+            }
+        }
         return
     }
 
@@ -172,9 +247,9 @@ fun RadarBevPlot(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "BEV Scope (${maxRangeMeters.toInt()}m)",
+                        text = if (is3dActive) "3D Radar (${maxRangeMeters.toInt()}m)" else "BEV Scope (${maxRangeMeters.toInt()}m)",
                         style = MaterialTheme.typography.labelMedium,
-                        color = Color(0xFF80D8FF),
+                        color = if (is3dActive) Color(0xFF69F0AE) else Color(0xFF80D8FF),
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         softWrap = false,
@@ -208,6 +283,24 @@ fun RadarBevPlot(
                                 }
                             }
                         }
+                        if (onFullscreenClick != null) {
+                            Surface(
+                                onClick = onFullscreenClick,
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF1E2530),
+                                border = BorderStroke(1.dp, Color(0xFF37474F)),
+                                modifier = Modifier.size(26.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Fullscreen,
+                                        contentDescription = "Fullscreen Radar BEV",
+                                        tint = Color(0xFF80D8FF),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             } else {
@@ -221,14 +314,43 @@ fun RadarBevPlot(
                         text = "Display Range Scale",
                         style = MaterialTheme.typography.labelMedium,
                         color = Color(0xFFCFD8DC),
-                        fontWeight = FontWeight.SemiBold
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
-                    Text(
-                        text = "Max: ${maxRangeMeters.toInt()}m",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF80D8FF),
-                        fontWeight = FontWeight.Bold
-                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Max: ${maxRangeMeters.toInt()}m",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFF80D8FF),
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                        if (onFullscreenClick != null) {
+                            Surface(
+                                onClick = onFullscreenClick,
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color(0xFF1E2530),
+                                border = BorderStroke(1.dp, Color(0xFF37474F)),
+                                modifier = Modifier.size(26.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Fullscreen,
+                                        contentDescription = "Fullscreen Radar BEV",
+                                        tint = Color(0xFF80D8FF),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(6.dp))
@@ -264,129 +386,238 @@ fun RadarBevPlot(
 
             Spacer(modifier = Modifier.height(if (isLandscape) 4.dp else 8.dp))
 
-            // BEV Canvas Box: isolated leaf composable so 20 Hz frames only invalidate Canvas draw phase
-            RadarBevCanvas(
-                viewModel = viewModel,
-                staticFrame = frame,
-                frameProducer = frameProducer,
-                maxRangeMeters = maxRangeMeters,
-                dynamicOnly = dynamicOnly,
-                minSnrFilter = minSnrFilter,
-                debugState = debugState,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .then(if (isLandscape) Modifier.weight(1f) else Modifier.height(280.dp))
-                    .background(Color(0xFF090B10))
-            )
-
-            Spacer(modifier = Modifier.height(if (isLandscape) 4.dp else 8.dp))
-
-            // Filter Toggles, Bench Toggle & Target/Velocity Legend
-            // Lightweight footer without SubcomposeLayout (BoxWithConstraints)
-            run {
-                val useCompactFooter = true
-
-                val filtersContent: @Composable () -> Unit = {
-                    Row(
-                        modifier = if (useCompactFooter) Modifier.horizontalScroll(rememberScrollState()) else Modifier,
-                        horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            selected = dynamicOnly,
-                            onClick = { viewModel.setRadarDynamicOnly(!dynamicOnly) },
-                            shape = RoundedCornerShape(4.dp),
-                            color = if (dynamicOnly) Color(0xFF37474F) else Color(0xFF181D26),
-                            border = BorderStroke(1.dp, if (dynamicOnly) Color(0xFF80D8FF) else Color(0xFF263238)),
-                            modifier = Modifier.height(if (isLandscape) 24.dp else 28.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp)) {
-                                Text(
-                                    text = "Moving Only",
-                                    fontSize = if (isLandscape) 10.sp else 11.sp,
-                                    color = if (dynamicOnly) Color(0xFF80D8FF) else Color(0xFF90A4AE),
-                                    fontWeight = if (dynamicOnly) FontWeight.Bold else FontWeight.Normal,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-                        }
-
-                        Surface(
-                            selected = minSnrFilter,
-                            onClick = { viewModel.setRadarMinSnr(!minSnrFilter) },
-                            shape = RoundedCornerShape(4.dp),
-                            color = if (minSnrFilter) Color(0xFF37474F) else Color(0xFF181D26),
-                            border = BorderStroke(1.dp, if (minSnrFilter) Color(0xFF80D8FF) else Color(0xFF263238)),
-                            modifier = Modifier.height(if (isLandscape) 24.dp else 28.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp)) {
-                                Text(
-                                    text = "SNR ≥ 15dB",
-                                    fontSize = if (isLandscape) 10.sp else 11.sp,
-                                    color = if (minSnrFilter) Color(0xFF80D8FF) else Color(0xFF90A4AE),
-                                    fontWeight = if (minSnrFilter) FontWeight.Bold else FontWeight.Normal,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-                        }
-
-                        Surface(
-                            selected = showBenchStrip,
-                            onClick = { showBenchStrip = !showBenchStrip },
-                            shape = RoundedCornerShape(4.dp),
-                            color = if (showBenchStrip) Color(0xFF2A2438) else Color(0xFF181D26),
-                            border = BorderStroke(1.dp, if (showBenchStrip) Color(0xFFB388FF) else Color(0xFF263238)),
-                            modifier = Modifier.height(if (isLandscape) 24.dp else 28.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp)) {
-                                Text(
-                                    text = "Bench",
-                                    fontSize = if (isLandscape) 10.sp else 11.sp,
-                                    color = if (showBenchStrip) Color(0xFFD1C4E9) else Color(0xFF90A4AE),
-                                    fontWeight = if (showBenchStrip) FontWeight.Bold else FontWeight.Normal,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-                        }
-                    }
-                }
-
-                val legendContent: @Composable () -> Unit = {
-                    val legendFont = if (isLandscape) 9.sp else 10.sp
-                    Row(
+            // BEV Viewport: Strictly mutually exclusive — only the active renderer is mounted & running.
+            // Floating compact legend sits in the unused upper-left corner to maximize vertical plot height.
+            val viewportSlotModifier = Modifier
+                .fillMaxWidth()
+                .then(if (isLandscape) Modifier.weight(1f) else Modifier.height(280.dp))
+            Box(modifier = viewportSlotModifier) {
+                if (useGlBackend) {
+                    RadarGlBevView(
+                        viewModel = viewModel,
+                        maxRangeMeters = maxRangeMeters,
+                        dynamicOnly = dynamicOnly,
+                        minSnrFilter = minSnrFilter,
+                        debugState = debugState,
+                        onGlInitError = { glInitFailed = true },
+                        onCameraModifiedChanged = { isGlCameraModified = it },
                         modifier = Modifier
-                            .then(if (useCompactFooter) Modifier.horizontalScroll(rememberScrollState()) else Modifier)
-                            .clearAndSetSemantics {},
-                        horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 6.dp else 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(text = "■ FCW", color = Color(0xFFFF1744), fontSize = legendFont, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                        Text(text = "■ ACC", color = Color(0xFF00E5FF), fontSize = legendFont, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                        Text(text = "■ Trk", color = Color(0xFFFFB300), fontSize = legendFont, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                        Text(text = "● Appr", color = Color(0xFFFF5252), fontSize = legendFont, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
-                        Text(text = "● Rec", color = Color(0xFF40C4FF), fontSize = legendFont, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
-                    }
+                            .fillMaxSize()
+                            .background(Color.Transparent)
+                    )
+                } else {
+                    RadarBevCanvas(
+                        viewModel = viewModel,
+                        staticFrame = frame,
+                        frameProducer = frameProducer,
+                        maxRangeMeters = maxRangeMeters,
+                        dynamicOnly = dynamicOnly,
+                        minSnrFilter = minSnrFilter,
+                        debugState = debugState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color(0xFF090B10))
+                    )
                 }
 
-                if (useCompactFooter) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                // Sleek single-row translucent legend bar pinned along the top edge (reflects active scheme & colormap)
+                if (showLegend) {
+                    val effectiveColorMode = if (useGlBackend) {
+                        debugState.bevPointColorMode.resolveForView(is3dActive)
+                    } else {
+                        BevPointColorMode.VELOCITY
+                    }
+                    BevRadarLegendBar(
+                        effectiveColorMode = effectiveColorMode,
+                        colorMap = debugState.bevColorMap,
+                        maxRangeMeters = maxRangeMeters,
+                        flipZ = debugState.bevFlipZ,
+                        isLandscape = isLandscape,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(4.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(if (isLandscape) 4.dp else 6.dp))
+
+            // Equally spaced full-width footer button bar (never overflows when Reset appears)
+            val footerBtnHeight = if (isLandscape) 24.dp else 28.dp
+            val footerFont = if (isLandscape) 9.5.sp else 10.5.sp
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (useGlBackend) {
+                    val isExplicitColorOverride = debugState.bevPointColorMode != BevPointColorMode.AUTO
+                    Surface(
+                        selected = isExplicitColorOverride,
+                        onClick = { viewModel.cycleBevPointColorMode() },
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (isExplicitColorOverride) Color(0xFF16323A) else Color(0xFF181D26),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isExplicitColorOverride) Color(0xFF4DD0E1) else Color(0xFF37474F)
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(footerBtnHeight)
                     ) {
-                        filtersContent()
-                        legendContent()
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 2.dp)) {
+                            Text(
+                                text = "Col:${debugState.bevPointColorMode.shortLabel}",
+                                fontSize = footerFont,
+                                color = if (isExplicitColorOverride) Color(0xFF80DEEA) else Color(0xFFB0BEC5),
+                                fontWeight = if (isExplicitColorOverride) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                    Surface(
+                        selected = dynamicOnly,
+                        onClick = { viewModel.setRadarDynamicOnly(!dynamicOnly) },
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (dynamicOnly) Color(0xFF37474F) else Color(0xFF181D26),
+                        border = BorderStroke(1.dp, if (dynamicOnly) Color(0xFF80D8FF) else Color(0xFF263238)),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(footerBtnHeight)
                     ) {
-                        filtersContent()
-                        legendContent()
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 2.dp)) {
+                            Text(
+                                text = "Moving",
+                                fontSize = footerFont,
+                                color = if (dynamicOnly) Color(0xFF80D8FF) else Color(0xFF90A4AE),
+                                fontWeight = if (dynamicOnly) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                }
+
+                Surface(
+                    selected = minSnrFilter,
+                    onClick = { viewModel.setRadarMinSnr(!minSnrFilter) },
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (minSnrFilter) Color(0xFF37474F) else Color(0xFF181D26),
+                    border = BorderStroke(1.dp, if (minSnrFilter) Color(0xFF80D8FF) else Color(0xFF263238)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(footerBtnHeight)
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 2.dp)) {
+                        Text(
+                            text = "SNR≥15",
+                            fontSize = footerFont,
+                            color = if (minSnrFilter) Color(0xFF80D8FF) else Color(0xFF90A4AE),
+                            fontWeight = if (minSnrFilter) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+
+                Surface(
+                    selected = useGlBackend,
+                    enabled = canMountGlSurface,
+                    onClick = { viewModel.setUseGlBevRenderer(!debugState.useGlBevRenderer) },
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (useGlBackend) Color(0xFF102A22) else Color(0xFF2B2112),
+                    border = BorderStroke(
+                        1.dp,
+                        if (useGlBackend) Color(0xFF69F0AE) else Color(0xFFFFB300)
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(footerBtnHeight)
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 2.dp)) {
+                        Text(
+                            text = if (useGlBackend) "GL" else "Skia",
+                            fontSize = footerFont,
+                            color = if (useGlBackend) Color(0xFF69F0AE) else Color(0xFFFFD54F),
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+
+                if (useGlBackend) {
+                    Surface(
+                        selected = is3dActive,
+                        onClick = { viewModel.setBev3dMode(!debugState.bev3dMode) },
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (is3dActive) Color(0xFF0E2F3A) else Color(0xFF181D26),
+                        border = BorderStroke(
+                            1.dp,
+                            if (is3dActive) Color(0xFF00E5FF) else Color(0xFF37474F)
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(footerBtnHeight)
+                    ) {
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 2.dp)) {
+                            Text(
+                                text = if (is3dActive) "3D" else "2D",
+                                fontSize = footerFont,
+                                color = if (is3dActive) Color(0xFF00E5FF) else Color(0xFFB0BEC5),
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+
+                    if (is3dActive || isGlCameraModified) {
+                        Surface(
+                            onClick = { viewModel.requestBevCameraReset() },
+                            shape = RoundedCornerShape(4.dp),
+                            color = Color(0xFF261D18),
+                            border = BorderStroke(1.dp, Color(0xFFFFAB40)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(footerBtnHeight)
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 2.dp)) {
+                                Text(
+                                    text = "Reset",
+                                    fontSize = footerFont,
+                                    color = Color(0xFFFFCC80),
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Surface(
+                    selected = showBenchStrip,
+                    onClick = { showBenchStrip = !showBenchStrip },
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (showBenchStrip) Color(0xFF2A2438) else Color(0xFF181D26),
+                    border = BorderStroke(1.dp, if (showBenchStrip) Color(0xFFB388FF) else Color(0xFF263238)),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(footerBtnHeight)
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(horizontal = 2.dp)) {
+                        Text(
+                            text = "Bench",
+                            fontSize = footerFont,
+                            color = if (showBenchStrip) Color(0xFFD1C4E9) else Color(0xFF90A4AE),
+                            fontWeight = if (showBenchStrip) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
             }
@@ -394,46 +625,140 @@ fun RadarBevPlot(
             if (showBenchStrip) {
                 Spacer(modifier = Modifier.height(if (isLandscape) 4.dp else 6.dp))
                 val isTimingActive = debugState.masterDebugEnabled && debugState.canvasTimingLogs
+
+                // Row 1: Point Filter + Foxglove Appearance Controls (horizontalScroll so never crunched)
+                if (useGlBackend) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BevPanelActionChip(
+                            label = if (dynamicOnly) "Moving ON" else "Moving OFF",
+                            active = dynamicOnly,
+                            accentColor = Color(0xFF80D8FF),
+                            isLandscape = isLandscape,
+                            onClick = { viewModel.setRadarDynamicOnly(!dynamicOnly) }
+                        )
+                        BevPanelActionChip(
+                            label = "Map:${debugState.bevColorMap.shortLabel}",
+                            active = debugState.bevPointColorMode.usesColormap(is3dActive),
+                            accentColor = Color(0xFFB388FF),
+                            isLandscape = isLandscape,
+                            onClick = { viewModel.setBevColorMap(debugState.bevColorMap.next()) }
+                        )
+                        BevPanelActionChip(
+                            label = "Sz:${debugState.bevPointSizePreset.shortLabel}",
+                            active = true,
+                            accentColor = Color(0xFF80CBC4),
+                            isLandscape = isLandscape,
+                            onClick = { viewModel.setBevPointSizePreset(debugState.bevPointSizePreset.next()) }
+                        )
+                        BevPanelActionChip(
+                            label = "Pt:${debugState.bevPointShape.symbolLabel}",
+                            active = true,
+                            accentColor = Color(0xFF80CBC4),
+                            isLandscape = isLandscape,
+                            onClick = { viewModel.setBevPointShape(debugState.bevPointShape.toggle()) }
+                        )
+                        BevPanelActionChip(
+                            label = if (debugState.bevFlipZ) "FlipZ ON" else "FlipZ OFF",
+                            active = debugState.bevFlipZ,
+                            accentColor = Color(0xFFFFAB40),
+                            isLandscape = isLandscape,
+                            onClick = { viewModel.setBevFlipZ(!debugState.bevFlipZ) }
+                        )
+                        if (is3dActive) {
+                            BevPanelActionChip(
+                                label = if (debugState.bevStixelsEnabled) "Stix ON" else "Stix OFF",
+                                active = debugState.bevStixelsEnabled,
+                                accentColor = Color(0xFF00E5FF),
+                                isLandscape = isLandscape,
+                                onClick = { viewModel.setBevStixelsEnabled(!debugState.bevStixelsEnabled) }
+                            )
+                        }
+                        BevPanelActionChip(
+                            label = if (debugState.bevHideOutliers) "HideOut ON" else "HideOut OFF",
+                            active = debugState.bevHideOutliers,
+                            accentColor = Color(0xFFFF7043),
+                            isLandscape = isLandscape,
+                            onClick = { viewModel.setBevHideOutliers(!debugState.bevHideOutliers) }
+                        )
+                        BevPanelActionChip(
+                            label = "Decay:${debugState.bevDecayPreset.shortLabel}",
+                            active = debugState.bevDecayPreset.frameCount > 1,
+                            accentColor = Color(0xFF00E5FF),
+                            isLandscape = isLandscape,
+                            onClick = { viewModel.setBevDecayPreset(debugState.bevDecayPreset.next()) }
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(if (isLandscape) 3.dp else 4.dp))
+                }
+
+                // Row 2: Geometry Layers, TLV 4 Road Lanes, 3D Camera Angle Presets & Log
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(if (isLandscape) 4.dp else 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    BevBenchToggleChip(
-                        label = "Pts",
-                        enabled = debugState.bevShowRawPoints,
+                    BevPanelActionChip(
+                        label = if (debugState.bevShowRawPoints) "Pts ON" else "Pts OFF",
+                        active = debugState.bevShowRawPoints,
+                        accentColor = Color(0xFF69F0AE),
                         isLandscape = isLandscape,
-                        modifier = Modifier.weight(1f),
-                        onToggle = { viewModel.setBevShowRawPoints(!debugState.bevShowRawPoints) }
+                        onClick = { viewModel.setBevShowRawPoints(!debugState.bevShowRawPoints) }
                     )
-                    BevBenchToggleChip(
-                        label = "Trk",
-                        enabled = debugState.bevShowTracks,
+                    BevPanelActionChip(
+                        label = if (debugState.bevShowTracks) "Trk ON" else "Trk OFF",
+                        active = debugState.bevShowTracks,
+                        accentColor = Color(0xFF69F0AE),
                         isLandscape = isLandscape,
-                        modifier = Modifier.weight(1f),
-                        onToggle = { viewModel.setBevShowTracks(!debugState.bevShowTracks) }
+                        onClick = { viewModel.setBevShowTracks(!debugState.bevShowTracks) }
                     )
-                    BevBenchToggleChip(
-                        label = "Clst",
-                        enabled = debugState.bevShowClusters,
+                    BevPanelActionChip(
+                        label = if (debugState.bevShowClusters) "Clst ON" else "Clst OFF",
+                        active = debugState.bevShowClusters,
+                        accentColor = Color(0xFF69F0AE),
                         isLandscape = isLandscape,
-                        modifier = Modifier.weight(1f),
-                        onToggle = { viewModel.setBevShowClusters(!debugState.bevShowClusters) }
+                        onClick = { viewModel.setBevShowClusters(!debugState.bevShowClusters) }
                     )
-                    BevBenchToggleChip(
-                        label = "Grid",
-                        enabled = debugState.bevShowGrid,
+                    if (useGlBackend) {
+                        BevPanelActionChip(
+                            label = if (debugState.bevShowRoadLanes) "Lanes ON" else "Lanes OFF",
+                            active = debugState.bevShowRoadLanes,
+                            accentColor = Color(0xFF76FF03),
+                            isLandscape = isLandscape,
+                            onClick = { viewModel.setBevShowRoadLanes(!debugState.bevShowRoadLanes) }
+                        )
+                    }
+                    BevPanelActionChip(
+                        label = if (debugState.bevShowGrid) "Grid ON" else "Grid OFF",
+                        active = debugState.bevShowGrid,
+                        accentColor = Color(0xFF69F0AE),
                         isLandscape = isLandscape,
-                        modifier = Modifier.weight(1f),
-                        onToggle = { viewModel.setBevShowGrid(!debugState.bevShowGrid) }
+                        onClick = { viewModel.setBevShowGrid(!debugState.bevShowGrid) }
                     )
-                    BevBenchToggleChip(
-                        label = "Log",
-                        enabled = isTimingActive,
+                    if (is3dActive) {
+                        BevCameraPreset.entries.forEach { preset ->
+                            BevPanelActionChip(
+                                label = "Cam:${preset.shortLabel}",
+                                active = false,
+                                accentColor = Color(0xFFFFAB40),
+                                isLandscape = isLandscape,
+                                onClick = { viewModel.requestBevCameraPreset(preset) }
+                            )
+                        }
+                    }
+                    BevPanelActionChip(
+                        label = if (isTimingActive) "Log ON" else "Log OFF",
+                        active = isTimingActive,
                         accentColor = Color(0xFFFF8A65),
                         isLandscape = isLandscape,
-                        modifier = Modifier.weight(1f),
-                        onToggle = { viewModel.setBenchTimingLogging(!isTimingActive) }
+                        onClick = { viewModel.setBenchTimingLogging(!isTimingActive) }
                     )
                 }
             }
@@ -442,28 +767,121 @@ fun RadarBevPlot(
 }
 
 @Composable
-private fun BevBenchToggleChip(
-    label: String,
-    enabled: Boolean,
+private fun BevRadarLegendBar(
+    effectiveColorMode: BevPointColorMode,
+    colorMap: BevColorMap,
+    maxRangeMeters: Float,
+    flipZ: Boolean,
     isLandscape: Boolean,
-    modifier: Modifier = Modifier,
-    accentColor: Color = Color(0xFF69F0AE),
-    onToggle: () -> Unit
+    modifier: Modifier = Modifier
+) {
+    val legendFont = if (isLandscape) 8.sp else 9.sp
+    val gradientStops = remember(colorMap) {
+        BevPanelColorizer.evalColorMapStopsArgb(colorMap, steps = 9).map { Color(it) }
+    }
+
+    Row(
+        modifier = modifier
+            .background(Color(0xA6090B10), RoundedCornerShape(4.dp))
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .clearAndSetSemantics {},
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = "■FCW", color = Color(0xFFFF1744), fontSize = legendFont, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+        Text(text = "■ACC", color = Color(0xFF00E5FF), fontSize = legendFont, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+        Text(text = "■Trk", color = Color(0xFFFFB300), fontSize = legendFont, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+        Text(text = "|", color = Color(0xFF455A64), fontSize = legendFont, maxLines = 1, softWrap = false)
+
+        when (effectiveColorMode) {
+            BevPointColorMode.RANGE,
+            BevPointColorMode.SNR,
+            BevPointColorMode.ELEVATION_Z -> {
+                val (minLabel, maxLabel) = when (effectiveColorMode) {
+                    BevPointColorMode.RANGE -> "0m" to "${maxRangeMeters.toInt()}m"
+                    BevPointColorMode.SNR -> "Low dB" to "High dB"
+                    BevPointColorMode.ELEVATION_Z -> {
+                        val suffix = if (flipZ) " (Z-)" else ""
+                        "${BevPanelColorizer.ELEV_MIN_M.toInt()}m" to "+${BevPanelColorizer.ELEV_MAX_M.toInt()}m$suffix"
+                    }
+                    else -> "0" to "1"
+                }
+                Text(
+                    text = "${colorMap.shortLabel}:",
+                    color = Color(0xFFD1C4E9),
+                    fontSize = legendFont,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false
+                )
+                Text(
+                    text = minLabel,
+                    color = gradientStops.first(),
+                    fontSize = legendFont,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false
+                )
+                Box(
+                    modifier = Modifier
+                        .width(34.dp)
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Brush.horizontalGradient(gradientStops))
+                )
+                Text(
+                    text = maxLabel,
+                    color = gradientStops.last(),
+                    fontSize = legendFont,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+            BevPointColorMode.OUTLIER -> {
+                Text(text = "●Inlier", color = Color(0xFF24E8A6), fontSize = legendFont, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+                Text(text = "●Outlier", color = Color(0xFFFD543D), fontSize = legendFont, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+            }
+            BevPointColorMode.CLUSTER_ID -> {
+                Text(text = "●Clst 1..N", color = Color(0xFF00E676), fontSize = legendFont, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+                Text(text = "●Noise", color = Color(0xFF90A4AE), fontSize = legendFont, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+            }
+            BevPointColorMode.AUTO,
+            BevPointColorMode.VELOCITY -> {
+                Text(text = "●Appr", color = Color(0xFFFF5252), fontSize = legendFont, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+                Text(text = "●Rec", color = Color(0xFF40C4FF), fontSize = legendFont, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+                Text(text = "●Stat", color = Color(0xFF69F0AE), fontSize = legendFont, fontWeight = FontWeight.Medium, maxLines = 1, softWrap = false)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BevPanelActionChip(
+    label: String,
+    active: Boolean,
+    accentColor: Color,
+    isLandscape: Boolean,
+    onClick: () -> Unit
 ) {
     Surface(
-        selected = enabled,
-        onClick = onToggle,
+        selected = active,
+        onClick = onClick,
         shape = RoundedCornerShape(4.dp),
-        color = if (enabled) accentColor.copy(alpha = 0.16f) else Color(0xFF161A22),
-        border = BorderStroke(1.dp, if (enabled) accentColor else Color(0xFF263238)),
-        modifier = modifier.height(if (isLandscape) 22.dp else 26.dp)
+        color = if (active) accentColor.copy(alpha = 0.16f) else Color(0xFF161A22),
+        border = BorderStroke(1.dp, if (active) accentColor else Color(0xFF263238)),
+        modifier = Modifier.height(if (isLandscape) 22.dp else 26.dp)
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.padding(horizontal = if (isLandscape) 6.dp else 8.dp)
+        ) {
             Text(
-                text = if (enabled) "$label ON" else "$label OFF",
+                text = label,
                 fontSize = if (isLandscape) 9.sp else 10.sp,
-                color = if (enabled) accentColor else Color(0xFF78909C),
-                fontWeight = if (enabled) FontWeight.Bold else FontWeight.Normal,
+                color = if (active) accentColor else Color(0xFF90A4AE),
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
                 maxLines = 1,
                 softWrap = false
             )
@@ -471,10 +889,6 @@ private fun BevBenchToggleChip(
     }
 }
 
-/**
- * Isolated Canvas leaf for BEV scope drawing.
- * Reads frame state strictly inside DrawScope so 20 Hz updates skip parent composition.
- */
 @Composable
 private fun RadarBevCanvas(
     viewModel: RadarViewModel,
@@ -536,15 +950,12 @@ private fun RadarBevCanvas(
             val canvasWidth = size.width
             val canvasHeight = size.height
 
-            // Radar Origin at bottom-center (with 28px bottom padding for ego marker)
-            val originX = canvasWidth / 2f
-            val originY = canvasHeight - 28f
-            val usableHeight = originY - 16f
-
-            // 1:1 Metric Scale (pixels per meter)
-            val halfWidth = ((canvasWidth / 2f) - 12f).coerceAtLeast(1f)
-            val maxLateralMeters = maxRangeMeters * 0.8660254f // sin(60°) so full ±60° FOV fits horizontally
-            val scale = minOf(usableHeight / maxRangeMeters, halfWidth / maxLateralMeters)
+            // Shared metric projection (exact parity with OpenGL ES 3.0 backend)
+            val metrics = BevProjectionMath.computeMetrics(canvasWidth, canvasHeight, maxRangeMeters)
+            val originX = metrics.originX
+            val originY = metrics.originY
+            val usableHeight = metrics.usableHeight
+            val scale = metrics.scalePxPerMeter
 
             // 1-5. Static Grid, Range Rings & Ego Marker (Tier A: individual GL primitives, zero 2 MB RGBA texture overdraw & zero combined-Path SW Path Mask)
             if (canvasWidth > 0f && canvasHeight > 0f) {
@@ -662,7 +1073,7 @@ private fun RadarBevCanvas(
                         val cx = originX + cluster.x * scale
                         val cy = originY - cluster.y * scale
                         if (cy in 0f..originY && cx in 0f..canvasWidth) {
-                            val r = 8f
+                            val r = 18f
                             drawCircle(
                                 color = BEV_COLOR_CLUSTER_FILL,
                                 center = Offset(cx, cy),
@@ -738,68 +1149,10 @@ private fun RadarBevCanvas(
             // 8. Draw Active Tracked Targets (TLV Type 3) with ADAS highlighting (FCW & ACC)
             if (showTracks) {
                 val fcwAlert = activeFrame?.canOutputs?.fcw
-                val accTarget = activeFrame?.canOutputs?.acc
-                val fcwTrackId = if ((fcwAlert?.trackId ?: 0) > 0) fcwAlert?.trackId else null
-                val accPoiId = if ((accTarget?.poiId ?: 0) > 0) accTarget?.poiId else null
-
                 val tracksList = activeFrame?.tracks ?: emptyList()
-                var matchedFcwIndex: Int? = null
-                if (fcwAlert != null && fcwAlert.stage > 0) {
-                    matchedFcwIndex = tracksList.indexOfFirst { track ->
-                        fcwTrackId != null && (track.tid == fcwTrackId || track.clusterId == fcwTrackId || (track.tid % 256) == fcwTrackId)
-                    }.takeIf { it >= 0 }
-
-                    if (matchedFcwIndex == null && fcwAlert.targetY > 0.5f) {
-                        matchedFcwIndex = tracksList.indexOfFirst { track ->
-                            kotlin.math.abs(track.y - fcwAlert.targetY) < 4.0f || kotlin.math.hypot(track.x - fcwAlert.targetX, track.y - fcwAlert.targetY) < 5.0f
-                        }.takeIf { it >= 0 }
-                    }
-
-                    if (matchedFcwIndex == null) {
-                        var bestRiskScore = -Float.MAX_VALUE
-                        var bestIdx = -1
-                        for (idx in tracksList.indices) {
-                            val track = tracksList[idx]
-                            val inCorridor = kotlin.math.abs(track.x) <= 4.5f
-                            if (track.risk >= 2 && inCorridor && track.y <= 50.0f) {
-                                val score = track.risk * 100f - track.y
-                                if (score > bestRiskScore) {
-                                    bestRiskScore = score
-                                    bestIdx = idx
-                                }
-                            }
-                        }
-                        if (bestIdx == -1) {
-                            for (idx in tracksList.indices) {
-                                val track = tracksList[idx]
-                                val inCorridor = kotlin.math.abs(track.x) <= 4.5f
-                                if (track.risk >= 1 && track.vy < -1.0f && inCorridor) {
-                                    val score = track.risk * 100f - track.y
-                                    if (score > bestRiskScore) {
-                                        bestRiskScore = score
-                                        bestIdx = idx
-                                    }
-                                }
-                            }
-                        }
-                        if (bestIdx >= 0) {
-                            matchedFcwIndex = bestIdx
-                        }
-                    }
-                }
-
-                var matchedAccIndex: Int? = null
-                if (accTarget != null && (accPoiId != null || accTarget.targetY > 0.5f)) {
-                    matchedAccIndex = tracksList.indexOfFirst { track ->
-                        accPoiId != null && (track.tid == accPoiId || track.clusterId == accPoiId || (track.tid % 256) == accPoiId)
-                    }.takeIf { it >= 0 }
-
-                    if (matchedAccIndex == null && accTarget.targetY > 0.5f) {
-                        matchedAccIndex = tracksList.indexOfFirst { track ->
-                            kotlin.math.abs(track.y - accTarget.targetY) < 4.0f || kotlin.math.hypot(track.x - accTarget.targetX, track.y - accTarget.targetY) < 5.0f
-                        }.takeIf { it >= 0 }
-                    }
-                }
+                val packedMatch = BevTrackAssociator.matchPacked(activeFrame)
+                val matchedFcwIndex: Int? = BevTrackAssociator.unpackFcwIndex(packedMatch).takeIf { it >= 0 }
+                val matchedAccIndex: Int? = BevTrackAssociator.unpackAccIndex(packedMatch).takeIf { it >= 0 }
 
                 for (index in tracksList.indices) {
                     val track = tracksList[index]

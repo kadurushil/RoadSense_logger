@@ -215,6 +215,9 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     private val _isSbsFullScreen = MutableStateFlow(false)
     val isSbsFullScreen: StateFlow<Boolean> = _isSbsFullScreen.asStateFlow()
 
+    private val _isRadarFullScreen = MutableStateFlow(false)
+    val isRadarFullScreen: StateFlow<Boolean> = _isRadarFullScreen.asStateFlow()
+
     private val _isRadarOverlayEnabled = MutableStateFlow(true)
     val isRadarOverlayEnabled: StateFlow<Boolean> = _isRadarOverlayEnabled.asStateFlow()
 
@@ -308,6 +311,14 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     val radarMinSnr: StateFlow<Boolean> = _radarMinSnr.asStateFlow()
 
     val debugToggleState: StateFlow<DebugToggleSnapshot> = DebugToggles.state
+
+    private val _bevCameraResetNonce = MutableStateFlow(0L)
+    val bevCameraResetNonce: StateFlow<Long> = _bevCameraResetNonce.asStateFlow()
+
+    private val _bevCameraPresetRequest = MutableStateFlow<Pair<com.bajajauto.roadsense.ui.components.gl.BevCameraPreset, Long>?>(null)
+    val bevCameraPresetRequest: StateFlow<Pair<com.bajajauto.roadsense.ui.components.gl.BevCameraPreset, Long>?> = _bevCameraPresetRequest.asStateFlow()
+
+    private var cameraPresetCounter = 0L
 
     // Camera preview is always off/muted by default on every app launch (lag elimination).
     // While the app is running in the current session, the state stays as left by the user across cards.
@@ -587,6 +598,15 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
             showClusters = appPreferences.bevShowClusters,
             showGrid = appPreferences.bevShowGrid
         )
+        DebugToggles.setBevPointColorMode(appPreferences.bevPointColorMode)
+        DebugToggles.setBevColorMap(appPreferences.bevColorMap)
+        DebugToggles.setBevPointShape(appPreferences.bevPointShape)
+        DebugToggles.setBevPointSizePreset(appPreferences.bevPointSizePreset)
+        DebugToggles.setBevDecayPreset(appPreferences.bevDecayPreset)
+        DebugToggles.setBevStixelsEnabled(appPreferences.bevStixelsEnabled)
+        DebugToggles.setBevShowRoadLanes(appPreferences.bevShowRoadLanes)
+        DebugToggles.setBevHideOutliers(appPreferences.bevHideOutliers)
+        DebugToggles.setBevFlipZ(appPreferences.bevFlipZ)
         DebugToggles.setHudOverlayMode(appPreferences.hudOverlayMode)
 
         // Periodic 1-second ticker for multi-sensor rates & battery/CPU telemetry
@@ -1060,6 +1080,89 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     fun setBevShowGrid(enabled: Boolean) {
         DebugToggles.setBevLayerToggles(showGrid = enabled)
         appPreferences.bevShowGrid = enabled
+    }
+
+    fun setUseGlBevRenderer(enabled: Boolean) {
+        DebugToggles.setUseGlBevRenderer(enabled)
+        com.bajajauto.roadsense.logging.AppLogger.i(
+            "RadarBevPlot",
+            "BEV renderer switched to ${if (enabled) "OpenGL ES 3.0" else "Skia Canvas"}"
+        )
+    }
+
+    fun setBev3dMode(enabled: Boolean) {
+        DebugToggles.setBev3dMode(enabled)
+        com.bajajauto.roadsense.logging.AppLogger.i(
+            "RadarBevPlot",
+            "BEV projection switched to ${if (enabled) "3D Perspective (Longitudinal Range Color)" else "2D Orthographic (Doppler Color)"}"
+        )
+    }
+
+    fun setBevTrailEnabled(enabled: Boolean) {
+        val nextPreset = if (enabled) com.bajajauto.roadsense.ui.components.gl.BevDecayPreset.MS_200 else com.bajajauto.roadsense.ui.components.gl.BevDecayPreset.OFF
+        setBevDecayPreset(nextPreset)
+    }
+
+    fun setBevPointColorMode(mode: com.bajajauto.roadsense.ui.components.gl.BevPointColorMode) {
+        appPreferences.bevPointColorMode = mode
+        DebugToggles.setBevPointColorMode(mode)
+        com.bajajauto.roadsense.logging.AppLogger.i("RadarBevPlot", "Point coloring switched to ${mode.fullLabel}")
+    }
+
+    fun cycleBevPointColorMode() {
+        setBevPointColorMode(DebugToggles.bevPointColorMode.next())
+    }
+
+    fun setBevColorMap(colorMap: com.bajajauto.roadsense.ui.components.gl.BevColorMap) {
+        appPreferences.bevColorMap = colorMap
+        DebugToggles.setBevColorMap(colorMap)
+    }
+
+    fun setBevPointShape(shape: com.bajajauto.roadsense.ui.components.gl.BevPointShape) {
+        appPreferences.bevPointShape = shape
+        DebugToggles.setBevPointShape(shape)
+    }
+
+    fun setBevPointSizePreset(preset: com.bajajauto.roadsense.ui.components.gl.BevPointSizePreset) {
+        appPreferences.bevPointSizePreset = preset
+        DebugToggles.setBevPointSizePreset(preset)
+    }
+
+    fun setBevDecayPreset(preset: com.bajajauto.roadsense.ui.components.gl.BevDecayPreset) {
+        appPreferences.bevDecayPreset = preset
+        DebugToggles.setBevDecayPreset(preset)
+    }
+
+    fun setBevStixelsEnabled(enabled: Boolean) {
+        appPreferences.bevStixelsEnabled = enabled
+        DebugToggles.setBevStixelsEnabled(enabled)
+    }
+
+    fun setBevShowRoadLanes(enabled: Boolean) {
+        appPreferences.bevShowRoadLanes = enabled
+        DebugToggles.setBevShowRoadLanes(enabled)
+    }
+
+    fun setBevHideOutliers(enabled: Boolean) {
+        appPreferences.bevHideOutliers = enabled
+        DebugToggles.setBevHideOutliers(enabled)
+    }
+
+    fun setBevFlipZ(enabled: Boolean) {
+        appPreferences.bevFlipZ = enabled
+        DebugToggles.setBevFlipZ(enabled)
+    }
+
+    fun requestBevCameraReset() {
+        _bevCameraResetNonce.value = _bevCameraResetNonce.value + 1L
+    }
+
+    fun requestBevCameraPreset(preset: com.bajajauto.roadsense.ui.components.gl.BevCameraPreset) {
+        cameraPresetCounter++
+        if (!DebugToggles.bev3dMode) {
+            setBev3dMode(true)
+        }
+        _bevCameraPresetRequest.value = preset to cameraPresetCounter
     }
 
     fun setBenchTimingLogging(enabled: Boolean) {
@@ -1626,6 +1729,11 @@ class RadarViewModel(application: Application) : AndroidViewModel(application) {
     fun setSbsFullScreen(enabled: Boolean) {
         _isSbsFullScreen.value = enabled
         com.bajajauto.roadsense.logging.AppLogger.i("UI", "SBS fullscreen set to $enabled")
+    }
+
+    fun setRadarFullScreen(enabled: Boolean) {
+        _isRadarFullScreen.value = enabled
+        com.bajajauto.roadsense.logging.AppLogger.i("UI", "Radar BEV fullscreen set to $enabled")
     }
 
     fun toggleRadarOverlay() {

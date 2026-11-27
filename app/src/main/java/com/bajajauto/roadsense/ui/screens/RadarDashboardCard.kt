@@ -81,7 +81,8 @@ fun RadarDashboardCard(
                 modifier = Modifier
                     .weight(0.55f)
                     .fillMaxHeight(),
-                isLandscape = true
+                isLandscape = true,
+                onFullscreenClick = { viewModel.setRadarFullScreen(true) }
             )
 
             // Right Pane (45% width): Flat Column (eliminates SubcomposeLayout overhead on tab switch)
@@ -120,7 +121,8 @@ fun RadarDashboardCard(
                 viewModel = viewModel,
                 frame = latestFrame,
                 modifier = Modifier.fillMaxWidth(),
-                isLandscape = false
+                isLandscape = false,
+                onFullscreenClick = { viewModel.setRadarFullScreen(true) }
             )
             RadarConnectionButtons(viewModel, effectiveConnectionState)
         }

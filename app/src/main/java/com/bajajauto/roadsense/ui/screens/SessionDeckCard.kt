@@ -234,7 +234,9 @@ fun SessionDeckCard(
             lifecycleDebugLogsEnabled = debugToggles.sessionLifecycleDebugLogs,
             onLifecycleDebugLogsChanged = { viewModel.setSessionLifecycleDebugLogs(it) },
             uiPerfProfilingLogsEnabled = debugToggles.uiPerfProfilingLogs,
-            onUiPerfProfilingLogsChanged = { viewModel.setUiPerfProfilingLogs(it) }
+            onUiPerfProfilingLogsChanged = { viewModel.setUiPerfProfilingLogs(it) },
+            useGlBevRenderer = debugToggles.useGlBevRenderer,
+            onUseGlBevRendererChanged = { viewModel.setUseGlBevRenderer(it) }
         )
 
         // Session Sync & Sensor Health Scorecard
@@ -506,7 +508,9 @@ private fun RunMetadataAndTogglesCard(
     lifecycleDebugLogsEnabled: Boolean,
     onLifecycleDebugLogsChanged: (Boolean) -> Unit,
     uiPerfProfilingLogsEnabled: Boolean = false,
-    onUiPerfProfilingLogsChanged: (Boolean) -> Unit = {}
+    onUiPerfProfilingLogsChanged: (Boolean) -> Unit = {},
+    useGlBevRenderer: Boolean = true,
+    onUseGlBevRendererChanged: (Boolean) -> Unit = {}
 ) {
     val mountOptions = remember { listOf("Windshield", "Dashboard", "Tripod", "Handlebar") }
     val lightingOptions = remember { listOf("Day", "Dusk", "Night", "Rain") }
@@ -696,6 +700,32 @@ private fun RunMetadataAndTogglesCard(
                     Switch(
                         checked = uiPerfProfilingLogsEnabled,
                         onCheckedChange = onUiPerfProfilingLogsChanged
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "OpenGL ES 3.0 BEV Renderer",
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "Hardware GLES30 BEV surface (off = legacy Skia Canvas fallback)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Switch(
+                        checked = useGlBevRenderer,
+                        onCheckedChange = onUseGlBevRendererChanged
                     )
                 }
             }

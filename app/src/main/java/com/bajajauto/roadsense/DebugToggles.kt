@@ -1,5 +1,10 @@
 package com.bajajauto.roadsense
 
+import com.bajajauto.roadsense.ui.components.gl.BevColorMap
+import com.bajajauto.roadsense.ui.components.gl.BevDecayPreset
+import com.bajajauto.roadsense.ui.components.gl.BevPointColorMode
+import com.bajajauto.roadsense.ui.components.gl.BevPointShape
+import com.bajajauto.roadsense.ui.components.gl.BevPointSizePreset
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -29,8 +34,20 @@ data class DebugToggleSnapshot(
     val diskWriterPriorityLogs: Boolean = true,
     val bevShowRawPoints: Boolean = true,
     val bevShowTracks: Boolean = true,
-    val bevShowClusters: Boolean = true,
+    val bevShowClusters: Boolean = false,
     val bevShowGrid: Boolean = true,
+    val useGlBevRenderer: Boolean = true,
+    val bev3dMode: Boolean = false,
+    val bevTrailEnabled: Boolean = false,
+    val bevPointColorMode: BevPointColorMode = BevPointColorMode.AUTO,
+    val bevColorMap: BevColorMap = BevColorMap.TURBO,
+    val bevPointShape: BevPointShape = BevPointShape.CIRCLE,
+    val bevPointSizePreset: BevPointSizePreset = BevPointSizePreset.MEDIUM,
+    val bevDecayPreset: BevDecayPreset = BevDecayPreset.OFF,
+    val bevStixelsEnabled: Boolean = true,
+    val bevShowRoadLanes: Boolean = true,
+    val bevHideOutliers: Boolean = false,
+    val bevFlipZ: Boolean = false,
     val hudOverlayMode: HudOverlayMode = HudOverlayMode.TRACKS_LOLLIPOP_80M,
     val canedgeVerboseLogs: Boolean = false,
     val sessionLifecycleDebugLogs: Boolean = false
@@ -91,11 +108,59 @@ object DebugToggles {
         private set
 
     @Volatile
-    var bevShowClusters: Boolean = true
+    var bevShowClusters: Boolean = false
         private set
 
     @Volatile
     var bevShowGrid: Boolean = true
+        private set
+
+    @Volatile
+    var useGlBevRenderer: Boolean = true
+        private set
+
+    @Volatile
+    var bev3dMode: Boolean = false
+        private set
+
+    @Volatile
+    var bevTrailEnabled: Boolean = false
+        private set
+
+    @Volatile
+    var bevPointColorMode: BevPointColorMode = BevPointColorMode.AUTO
+        private set
+
+    @Volatile
+    var bevColorMap: BevColorMap = BevColorMap.TURBO
+        private set
+
+    @Volatile
+    var bevPointShape: BevPointShape = BevPointShape.CIRCLE
+        private set
+
+    @Volatile
+    var bevPointSizePreset: BevPointSizePreset = BevPointSizePreset.MEDIUM
+        private set
+
+    @Volatile
+    var bevDecayPreset: BevDecayPreset = BevDecayPreset.OFF
+        private set
+
+    @Volatile
+    var bevStixelsEnabled: Boolean = true
+        private set
+
+    @Volatile
+    var bevShowRoadLanes: Boolean = true
+        private set
+
+    @Volatile
+    var bevHideOutliers: Boolean = false
+        private set
+
+    @Volatile
+    var bevFlipZ: Boolean = false
         private set
 
     @Volatile
@@ -197,6 +262,72 @@ object DebugToggles {
         publishState()
     }
 
+    fun setUseGlBevRenderer(enabled: Boolean) {
+        useGlBevRenderer = enabled
+        publishState()
+    }
+
+    fun setBev3dMode(enabled: Boolean) {
+        bev3dMode = enabled
+        publishState()
+    }
+
+    fun setBevTrailEnabled(enabled: Boolean) {
+        bevTrailEnabled = enabled
+        bevDecayPreset = if (enabled) {
+            if (bevDecayPreset == BevDecayPreset.OFF) BevDecayPreset.MS_200 else bevDecayPreset
+        } else {
+            BevDecayPreset.OFF
+        }
+        publishState()
+    }
+
+    fun setBevPointColorMode(mode: BevPointColorMode) {
+        bevPointColorMode = mode
+        publishState()
+    }
+
+    fun setBevColorMap(colorMap: BevColorMap) {
+        bevColorMap = colorMap
+        publishState()
+    }
+
+    fun setBevPointShape(shape: BevPointShape) {
+        bevPointShape = shape
+        publishState()
+    }
+
+    fun setBevPointSizePreset(size: BevPointSizePreset) {
+        bevPointSizePreset = size
+        publishState()
+    }
+
+    fun setBevDecayPreset(preset: BevDecayPreset) {
+        bevDecayPreset = preset
+        bevTrailEnabled = preset != BevDecayPreset.OFF
+        publishState()
+    }
+
+    fun setBevStixelsEnabled(enabled: Boolean) {
+        bevStixelsEnabled = enabled
+        publishState()
+    }
+
+    fun setBevShowRoadLanes(enabled: Boolean) {
+        bevShowRoadLanes = enabled
+        publishState()
+    }
+
+    fun setBevHideOutliers(enabled: Boolean) {
+        bevHideOutliers = enabled
+        publishState()
+    }
+
+    fun setBevFlipZ(enabled: Boolean) {
+        bevFlipZ = enabled
+        publishState()
+    }
+
     fun setHudOverlayMode(mode: HudOverlayMode) {
         hudOverlayMode = mode
         publishState()
@@ -222,8 +353,20 @@ object DebugToggles {
         diskWriterPriorityLogs = true
         bevShowRawPoints = true
         bevShowTracks = true
-        bevShowClusters = true
+        bevShowClusters = false
         bevShowGrid = true
+        useGlBevRenderer = true
+        bev3dMode = false
+        bevTrailEnabled = false
+        bevPointColorMode = BevPointColorMode.AUTO
+        bevColorMap = BevColorMap.TURBO
+        bevPointShape = BevPointShape.CIRCLE
+        bevPointSizePreset = BevPointSizePreset.MEDIUM
+        bevDecayPreset = BevDecayPreset.OFF
+        bevStixelsEnabled = true
+        bevShowRoadLanes = true
+        bevHideOutliers = false
+        bevFlipZ = false
         hudOverlayMode = HudOverlayMode.TRACKS_LOLLIPOP_80M
         canedgeVerboseLogs = false
         sessionLifecycleDebugLogs = false
@@ -243,6 +386,18 @@ object DebugToggles {
             bevShowTracks = bevShowTracks,
             bevShowClusters = bevShowClusters,
             bevShowGrid = bevShowGrid,
+            useGlBevRenderer = useGlBevRenderer,
+            bev3dMode = bev3dMode,
+            bevTrailEnabled = bevTrailEnabled,
+            bevPointColorMode = bevPointColorMode,
+            bevColorMap = bevColorMap,
+            bevPointShape = bevPointShape,
+            bevPointSizePreset = bevPointSizePreset,
+            bevDecayPreset = bevDecayPreset,
+            bevStixelsEnabled = bevStixelsEnabled,
+            bevShowRoadLanes = bevShowRoadLanes,
+            bevHideOutliers = bevHideOutliers,
+            bevFlipZ = bevFlipZ,
             hudOverlayMode = hudOverlayMode,
             canedgeVerboseLogs = canedgeVerboseLogs,
             sessionLifecycleDebugLogs = sessionLifecycleDebugLogs

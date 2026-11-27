@@ -5,6 +5,11 @@ import android.content.SharedPreferences
 import com.bajajauto.roadsense.HudOverlayMode
 import com.bajajauto.roadsense.camera.CameraFrameRate
 import com.bajajauto.roadsense.camera.CameraResolution
+import com.bajajauto.roadsense.ui.components.gl.BevColorMap
+import com.bajajauto.roadsense.ui.components.gl.BevDecayPreset
+import com.bajajauto.roadsense.ui.components.gl.BevPointColorMode
+import com.bajajauto.roadsense.ui.components.gl.BevPointShape
+import com.bajajauto.roadsense.ui.components.gl.BevPointSizePreset
 
 /**
  * Thread-safe persistent preference store for RoadSense UI/card settings.
@@ -23,8 +28,17 @@ class AppPreferences(context: Context) {
 
         private const val KEY_BEV_SHOW_RAW_POINTS = "bev_show_raw_points"
         private const val KEY_BEV_SHOW_TRACKS = "bev_show_tracks"
-        private const val KEY_BEV_SHOW_CLUSTERS = "bev_show_clusters"
+        private const val KEY_BEV_SHOW_CLUSTERS = "bev_show_clusters_v2"
         private const val KEY_BEV_SHOW_GRID = "bev_show_grid"
+        private const val KEY_BEV_POINT_COLOR_MODE = "bev_point_color_mode"
+        private const val KEY_BEV_COLOR_MAP = "bev_color_map"
+        private const val KEY_BEV_POINT_SHAPE = "bev_point_shape"
+        private const val KEY_BEV_POINT_SIZE = "bev_point_size_preset"
+        private const val KEY_BEV_DECAY_PRESET = "bev_decay_preset"
+        private const val KEY_BEV_STIXELS_ENABLED = "bev_stixels_enabled"
+        private const val KEY_BEV_SHOW_ROAD_LANES = "bev_show_road_lanes"
+        private const val KEY_BEV_HIDE_OUTLIERS = "bev_hide_outliers"
+        private const val KEY_BEV_FLIP_Z = "bev_flip_z"
         private const val KEY_HUD_OVERLAY_MODE = "hud_overlay_mode"
 
         private const val KEY_CAMERA_RES = "camera_resolution"
@@ -86,7 +100,7 @@ class AppPreferences(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_BEV_SHOW_TRACKS, value).apply()
 
     var bevShowClusters: Boolean
-        get() = prefs.getBoolean(KEY_BEV_SHOW_CLUSTERS, true)
+        get() = prefs.getBoolean(KEY_BEV_SHOW_CLUSTERS, false)
         set(value) = prefs.edit().putBoolean(KEY_BEV_SHOW_CLUSTERS, value).apply()
 
     var bevShowGrid: Boolean
@@ -103,6 +117,77 @@ class AppPreferences(context: Context) {
             }
         }
         set(value) = prefs.edit().putString(KEY_HUD_OVERLAY_MODE, value.name).apply()
+
+    var bevPointColorMode: BevPointColorMode
+        get() {
+            val name = prefs.getString(KEY_BEV_POINT_COLOR_MODE, BevPointColorMode.AUTO.name)
+            return try {
+                BevPointColorMode.valueOf(name ?: BevPointColorMode.AUTO.name)
+            } catch (_: Exception) {
+                BevPointColorMode.AUTO
+            }
+        }
+        set(value) = prefs.edit().putString(KEY_BEV_POINT_COLOR_MODE, value.name).apply()
+
+    var bevColorMap: BevColorMap
+        get() {
+            val name = prefs.getString(KEY_BEV_COLOR_MAP, BevColorMap.TURBO.name)
+            return try {
+                BevColorMap.valueOf(name ?: BevColorMap.TURBO.name)
+            } catch (_: Exception) {
+                BevColorMap.TURBO
+            }
+        }
+        set(value) = prefs.edit().putString(KEY_BEV_COLOR_MAP, value.name).apply()
+
+    var bevPointShape: BevPointShape
+        get() {
+            val name = prefs.getString(KEY_BEV_POINT_SHAPE, BevPointShape.CIRCLE.name)
+            return try {
+                BevPointShape.valueOf(name ?: BevPointShape.CIRCLE.name)
+            } catch (_: Exception) {
+                BevPointShape.CIRCLE
+            }
+        }
+        set(value) = prefs.edit().putString(KEY_BEV_POINT_SHAPE, value.name).apply()
+
+    var bevPointSizePreset: BevPointSizePreset
+        get() {
+            val name = prefs.getString(KEY_BEV_POINT_SIZE, BevPointSizePreset.MEDIUM.name)
+            return try {
+                BevPointSizePreset.valueOf(name ?: BevPointSizePreset.MEDIUM.name)
+            } catch (_: Exception) {
+                BevPointSizePreset.MEDIUM
+            }
+        }
+        set(value) = prefs.edit().putString(KEY_BEV_POINT_SIZE, value.name).apply()
+
+    var bevDecayPreset: BevDecayPreset
+        get() {
+            val name = prefs.getString(KEY_BEV_DECAY_PRESET, BevDecayPreset.OFF.name)
+            return try {
+                BevDecayPreset.valueOf(name ?: BevDecayPreset.OFF.name)
+            } catch (_: Exception) {
+                BevDecayPreset.OFF
+            }
+        }
+        set(value) = prefs.edit().putString(KEY_BEV_DECAY_PRESET, value.name).apply()
+
+    var bevStixelsEnabled: Boolean
+        get() = prefs.getBoolean(KEY_BEV_STIXELS_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_BEV_STIXELS_ENABLED, value).apply()
+
+    var bevShowRoadLanes: Boolean
+        get() = prefs.getBoolean(KEY_BEV_SHOW_ROAD_LANES, true)
+        set(value) = prefs.edit().putBoolean(KEY_BEV_SHOW_ROAD_LANES, value).apply()
+
+    var bevHideOutliers: Boolean
+        get() = prefs.getBoolean(KEY_BEV_HIDE_OUTLIERS, false)
+        set(value) = prefs.edit().putBoolean(KEY_BEV_HIDE_OUTLIERS, value).apply()
+
+    var bevFlipZ: Boolean
+        get() = prefs.getBoolean(KEY_BEV_FLIP_Z, false)
+        set(value) = prefs.edit().putBoolean(KEY_BEV_FLIP_Z, value).apply()
 
     var cameraResolution: CameraResolution
         get() {

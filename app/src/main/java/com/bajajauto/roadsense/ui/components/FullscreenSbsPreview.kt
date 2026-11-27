@@ -68,12 +68,10 @@ fun FullscreenSbsPreview(
     val dynamicOnly by viewModel.radarDynamicOnly.collectAsState()
     val minSnrFilter by viewModel.radarMinSnr.collectAsState()
 
-    val radarFrameState = viewModel.latestFrame.collectAsState()
-    val effectiveFrameProducer: () -> RadarFrame? = remember(radarFrameState) { { radarFrameState.value } }
-
     var previewWidth by remember { mutableIntStateOf(1920) }
     var previewHeight by remember { mutableIntStateOf(1080) }
     var showSettingsStrip by remember { mutableStateOf(false) }
+    var isGlCameraModified by remember { mutableStateOf(false) }
 
     val canRenderCamera = !isPreviewMutedByUser && hasCameraPermission
     val rangeOptions = remember { listOf(15f, 30f, 60f, 100f, 150f) }
@@ -90,6 +88,7 @@ fun FullscreenSbsPreview(
                 horizontalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 FullscreenSbsCameraPane(
+                    viewModel = viewModel,
                     canRenderCamera = canRenderCamera,
                     displayRotation = displayRotation,
                     selectedResWidth = selectedRes.width,
@@ -99,7 +98,6 @@ fun FullscreenSbsPreview(
                     isRadarArcsEnabled = isRadarArcsEnabled,
                     calibrationParams = calibrationParams,
                     activeIntrinsics = activeIntrinsics,
-                    effectiveFrameProducer = effectiveFrameProducer,
                     previewWidth = previewWidth,
                     previewHeight = previewHeight,
                     onViewportSized = { w, h ->
@@ -115,12 +113,12 @@ fun FullscreenSbsPreview(
 
                 RadarBevPlot(
                     viewModel = viewModel,
-                    frameProducer = effectiveFrameProducer,
                     modifier = Modifier
                         .weight(0.5f)
                         .fillMaxHeight(),
                     isLandscape = true,
-                    showChrome = false
+                    showChrome = false,
+                    onCameraModifiedChanged = { isGlCameraModified = it }
                 )
             }
         } else {
@@ -129,6 +127,7 @@ fun FullscreenSbsPreview(
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 FullscreenSbsCameraPane(
+                    viewModel = viewModel,
                     canRenderCamera = canRenderCamera,
                     displayRotation = displayRotation,
                     selectedResWidth = selectedRes.width,
@@ -138,7 +137,6 @@ fun FullscreenSbsPreview(
                     isRadarArcsEnabled = isRadarArcsEnabled,
                     calibrationParams = calibrationParams,
                     activeIntrinsics = activeIntrinsics,
-                    effectiveFrameProducer = effectiveFrameProducer,
                     previewWidth = previewWidth,
                     previewHeight = previewHeight,
                     onViewportSized = { w, h ->
@@ -154,12 +152,12 @@ fun FullscreenSbsPreview(
 
                 RadarBevPlot(
                     viewModel = viewModel,
-                    frameProducer = effectiveFrameProducer,
                     modifier = Modifier
                         .weight(0.5f)
                         .fillMaxWidth(),
                     isLandscape = false,
-                    showChrome = false
+                    showChrome = false,
+                    onCameraModifiedChanged = { isGlCameraModified = it }
                 )
             }
         }
@@ -252,6 +250,26 @@ fun FullscreenSbsPreview(
                         }
                     )
 
+                    // 2D / 3D & Reset View controls (OpenGL ES 3.0 mode)
+                    if (debugState.useGlBevRenderer) {
+                        SbsFloatingChip(
+                            label = if (debugState.bev3dMode) "3D" else "2D",
+                            selected = debugState.bev3dMode,
+                            selectedBg = Color(0xFF006064).copy(alpha = 0.85f),
+                            selectedFg = Color(0xFF00E5FF),
+                            onClick = { viewModel.setBev3dMode(!debugState.bev3dMode) }
+                        )
+                        if (debugState.bev3dMode || isGlCameraModified) {
+                            SbsFloatingChip(
+                                label = "Reset",
+                                selected = true,
+                                selectedBg = Color(0xFF4E342E).copy(alpha = 0.85f),
+                                selectedFg = Color(0xFFFFCC80),
+                                onClick = { viewModel.requestBevCameraReset() }
+                            )
+                        }
+                    }
+
                     // Settings Drawer Toggle
                     Surface(
                         selected = showSettingsStrip,
@@ -313,6 +331,59 @@ fun FullscreenSbsPreview(
                             onClick = { viewModel.setRadarMinSnr(!minSnrFilter) }
                         )
                         SbsFloatingChip(
+                            label = if (debugState.useGlBevRenderer) "GL" else "Skia",
+                            selected = debugState.useGlBevRenderer,
+                            selectedBg = Color(0xFF102A22),
+                            selectedFg = Color(0xFF69F0AE),
+                            onClick = { viewModel.setUseGlBevRenderer(!debugState.useGlBevRenderer) }
+                        )
+                        if (debugState.useGlBevRenderer) {
+                            SbsFloatingChip(
+                                label = "Col:${debugState.bevPointColorMode.shortLabel}",
+                                selected = debugState.bevPointColorMode != com.bajajauto.roadsense.ui.components.gl.BevPointColorMode.AUTO,
+                                selectedBg = Color(0xFF16323A),
+                                selectedFg = Color(0xFF80DEEA),
+                                onClick = { viewModel.cycleBevPointColorMode() }
+                            )
+                            SbsFloatingChip(
+                                label = "Map:${debugState.bevColorMap.shortLabel}",
+                                selected = debugState.bevPointColorMode.usesColormap(debugState.bev3dMode),
+                                selectedBg = Color(0xFF2A2438),
+                                selectedFg = Color(0xFFD1C4E9),
+                                onClick = { viewModel.setBevColorMap(debugState.bevColorMap.next()) }
+                            )
+                            if (debugState.bev3dMode) {
+                                SbsFloatingChip(
+                                    label = if (debugState.bevStixelsEnabled) "Stix ON" else "Stix OFF",
+                                    selected = debugState.bevStixelsEnabled,
+                                    selectedBg = Color(0xFF006064).copy(alpha = 0.75f),
+                                    selectedFg = Color(0xFF00E5FF),
+                                    onClick = { viewModel.setBevStixelsEnabled(!debugState.bevStixelsEnabled) }
+                                )
+                            }
+                            SbsFloatingChip(
+                                label = if (debugState.bevShowRoadLanes) "Lanes ON" else "Lanes OFF",
+                                selected = debugState.bevShowRoadLanes,
+                                selectedBg = Color(0xFF1B5E20).copy(alpha = 0.75f),
+                                selectedFg = Color(0xFF76FF03),
+                                onClick = { viewModel.setBevShowRoadLanes(!debugState.bevShowRoadLanes) }
+                            )
+                            SbsFloatingChip(
+                                label = "Decay:${debugState.bevDecayPreset.shortLabel}",
+                                selected = debugState.bevDecayPreset.frameCount > 1,
+                                selectedBg = Color(0xFF006064).copy(alpha = 0.75f),
+                                selectedFg = Color(0xFF80DEEA),
+                                onClick = { viewModel.setBevDecayPreset(debugState.bevDecayPreset.next()) }
+                            )
+                            SbsFloatingChip(
+                                label = if (debugState.bevFlipZ) "FlipZ ON" else "FlipZ OFF",
+                                selected = debugState.bevFlipZ,
+                                selectedBg = Color(0xFF4E342E).copy(alpha = 0.85f),
+                                selectedFg = Color(0xFFFFAB40),
+                                onClick = { viewModel.setBevFlipZ(!debugState.bevFlipZ) }
+                            )
+                        }
+                        SbsFloatingChip(
                             label = if (isRadarArcsEnabled) "Arcs ON" else "Arcs OFF",
                             selected = isRadarArcsEnabled,
                             selectedBg = Color(0xFF006064).copy(alpha = 0.75f),
@@ -335,6 +406,7 @@ fun FullscreenSbsPreview(
 
 @Composable
 private fun FullscreenSbsCameraPane(
+    viewModel: RadarViewModel,
     canRenderCamera: Boolean,
     displayRotation: Int,
     selectedResWidth: Int,
@@ -344,7 +416,6 @@ private fun FullscreenSbsCameraPane(
     isRadarArcsEnabled: Boolean,
     calibrationParams: com.bajajauto.roadsense.fusion.model.CalibrationParameters,
     activeIntrinsics: com.bajajauto.roadsense.fusion.engine.CameraIntrinsics?,
-    effectiveFrameProducer: () -> RadarFrame?,
     previewWidth: Int,
     previewHeight: Int,
     onViewportSized: (Int, Int) -> Unit,
@@ -376,8 +447,10 @@ private fun FullscreenSbsCameraPane(
                 Spacer(modifier = Modifier.fillMaxSize())
 
                 if (isRadarOverlayEnabled) {
+                    val radarFrameState = viewModel.latestFrame.collectAsState()
+                    val overlayFrameProducer: () -> RadarFrame? = remember(radarFrameState) { { radarFrameState.value } }
                     ViewfinderRadarOverlay(
-                        radarFrameProducer = effectiveFrameProducer,
+                        radarFrameProducer = overlayFrameProducer,
                         calibrationParams = calibrationParams,
                         intrinsics = activeIntrinsics,
                         viewWidth = previewWidth,
@@ -452,7 +525,7 @@ private fun FullscreenSbsBookmarkAction(
 }
 
 @Composable
-private fun SbsFloatingChip(
+internal fun SbsFloatingChip(
     label: String,
     selected: Boolean,
     selectedBg: Color,

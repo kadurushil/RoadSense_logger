@@ -1,5 +1,10 @@
 package com.bajajauto.roadsense
 
+import com.bajajauto.roadsense.ui.components.gl.BevColorMap
+import com.bajajauto.roadsense.ui.components.gl.BevDecayPreset
+import com.bajajauto.roadsense.ui.components.gl.BevPointColorMode
+import com.bajajauto.roadsense.ui.components.gl.BevPointShape
+import com.bajajauto.roadsense.ui.components.gl.BevPointSizePreset
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -26,6 +31,7 @@ class DebugTogglesTest {
         assertFalse("Canvas timing logs must be inactive by default", DebugToggles.isCanvasTimingActive)
         assertFalse("UI jank file mirroring must be inactive by default", DebugToggles.isUiPerfJankToFileActive)
         assertTrue("Rare drop warnings remain active", DebugToggles.displayPacerDropWarnings)
+        assertFalse("Clusters default OFF to keep live BEV uncluttered", DebugToggles.bevShowClusters)
         assertEquals(HudOverlayMode.TRACKS_LOLLIPOP_80M, DebugToggles.hudOverlayMode)
     }
 
@@ -85,6 +91,73 @@ class DebugTogglesTest {
 
         DebugToggles.setUiPerfProfilingLogs(false)
         assertFalse(DebugToggles.isUiPerfProfilingActive)
+    }
+
+    @Test
+    fun useGlBevRendererDefaultsTrueAndSwitchesReactively() {
+        assertTrue("OpenGL ES 3.0 BEV renderer must default ON", DebugToggles.useGlBevRenderer)
+        assertTrue(DebugToggles.state.value.useGlBevRenderer)
+
+        DebugToggles.setUseGlBevRenderer(false)
+        assertFalse(DebugToggles.useGlBevRenderer)
+        assertFalse(DebugToggles.state.value.useGlBevRenderer)
+
+        DebugToggles.resetDefaults()
+        assertTrue(DebugToggles.useGlBevRenderer)
+        assertTrue(DebugToggles.state.value.useGlBevRenderer)
+    }
+
+    @Test
+    fun bev3dModeAndTrailDefaultOffAndToggleReactively() {
+        assertFalse(DebugToggles.bev3dMode)
+        assertFalse(DebugToggles.bevTrailEnabled)
+
+        DebugToggles.setBev3dMode(true)
+        DebugToggles.setBevTrailEnabled(true)
+        assertTrue(DebugToggles.state.value.bev3dMode)
+        assertTrue(DebugToggles.state.value.bevTrailEnabled)
+
+        DebugToggles.resetDefaults()
+        assertFalse(DebugToggles.state.value.bev3dMode)
+        assertFalse(DebugToggles.state.value.bevTrailEnabled)
+    }
+
+    @Test
+    fun foxglovePanelTogglesUpdateAndResetCleanly() {
+        assertEquals(BevPointColorMode.AUTO, DebugToggles.state.value.bevPointColorMode)
+        assertEquals(BevColorMap.TURBO, DebugToggles.state.value.bevColorMap)
+        assertTrue(DebugToggles.state.value.bevStixelsEnabled)
+        assertTrue(DebugToggles.state.value.bevShowRoadLanes)
+        assertFalse(DebugToggles.state.value.bevHideOutliers)
+
+        DebugToggles.setBevPointColorMode(BevPointColorMode.SNR)
+        DebugToggles.setBevColorMap(BevColorMap.RAINBOW)
+        DebugToggles.setBevPointShape(BevPointShape.SQUARE)
+        DebugToggles.setBevPointSizePreset(BevPointSizePreset.LARGE)
+        DebugToggles.setBevDecayPreset(BevDecayPreset.SEC_1)
+        DebugToggles.setBevStixelsEnabled(false)
+        DebugToggles.setBevShowRoadLanes(false)
+        DebugToggles.setBevHideOutliers(true)
+        DebugToggles.setBevFlipZ(true)
+
+        val snap = DebugToggles.state.value
+        assertEquals(BevPointColorMode.SNR, snap.bevPointColorMode)
+        assertEquals(BevColorMap.RAINBOW, snap.bevColorMap)
+        assertEquals(BevPointShape.SQUARE, snap.bevPointShape)
+        assertEquals(BevPointSizePreset.LARGE, snap.bevPointSizePreset)
+        assertEquals(BevDecayPreset.SEC_1, snap.bevDecayPreset)
+        assertTrue(snap.bevTrailEnabled)
+        assertFalse(snap.bevStixelsEnabled)
+        assertFalse(snap.bevShowRoadLanes)
+        assertTrue(snap.bevHideOutliers)
+        assertTrue(snap.bevFlipZ)
+
+        DebugToggles.resetDefaults()
+        assertEquals(BevPointColorMode.AUTO, DebugToggles.state.value.bevPointColorMode)
+        assertEquals(BevDecayPreset.OFF, DebugToggles.state.value.bevDecayPreset)
+        assertTrue(DebugToggles.state.value.bevStixelsEnabled)
+        assertTrue(DebugToggles.state.value.bevShowRoadLanes)
+        assertFalse(DebugToggles.state.value.bevFlipZ)
     }
 }
 

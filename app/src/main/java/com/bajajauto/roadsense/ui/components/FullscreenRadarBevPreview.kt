@@ -1,0 +1,370 @@
+package com.bajajauto.roadsense.ui.components
+
+import android.content.res.Configuration
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.bajajauto.roadsense.recording.SessionRecordingState
+import com.bajajauto.roadsense.ui.RadarViewModel
+import com.bajajauto.roadsense.ui.components.gl.BevCameraPreset
+import com.bajajauto.roadsense.ui.components.gl.BevPointColorMode
+
+/**
+ * Dedicated edge-to-edge Fullscreen Radar BEV Scope mode launched from [RadarDashboardCard].
+ *
+ * Mounts the active GLES 3.0 (or Skia fallback) viewport at full screen with:
+ * - Sleek single-row legend pinned at `TopStart`,
+ * - Translucent floating control pill (`EXIT`, Range cycler, `Col`, `2D/3D`, `Reset`, `Tune`, Bookmark & `REC`) at `TopEnd`,
+ * - Expandable 2-row Foxglove/Layer/Camera settings strip underneath the control pill.
+ */
+@Composable
+fun FullscreenRadarBevPreview(
+    viewModel: RadarViewModel,
+    onExit: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    BackHandler(onBack = onExit)
+
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+
+    val maxRangeMeters by viewModel.radarMaxRange.collectAsState()
+    val dynamicOnly by viewModel.radarDynamicOnly.collectAsState()
+    val minSnrFilter by viewModel.radarMinSnr.collectAsState()
+    val debugState by viewModel.debugToggleState.collectAsState()
+
+    var showSettingsStrip by remember { mutableStateOf(false) }
+    var isGlCameraModified by remember { mutableStateOf(false) }
+    val rangeOptions = remember { listOf(15f, 30f, 60f, 100f, 150f) }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color(0xFF090B10))
+    ) {
+        RadarBevPlot(
+            viewModel = viewModel,
+            modifier = Modifier.fillMaxSize(),
+            isLandscape = isLandscape,
+            showChrome = false,
+            showLegend = true,
+            onCameraModifiedChanged = { isGlCameraModified = it }
+        )
+
+        // Floating control pill + expandable settings drawer anchored at TopEnd (clear of TopStart legend)
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 6.dp, start = 8.dp, end = 8.dp),
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FullscreenRadarBookmarkAction(viewModel = viewModel)
+
+                Surface(
+                    color = Color.Black.copy(alpha = 0.68f),
+                    shape = RoundedCornerShape(20.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f))
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .horizontalScroll(rememberScrollState())
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            onClick = onExit,
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color(0xFF1E2530),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(3.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Exit Fullscreen Radar",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "EXIT",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+
+                        SbsFloatingChip(
+                            label = "${maxRangeMeters.toInt()}m",
+                            selected = true,
+                            selectedBg = Color(0xFF1E3A5F).copy(alpha = 0.85f),
+                            selectedFg = Color(0xFF80D8FF),
+                            onClick = {
+                                val idx = rangeOptions.indexOfFirst { it == maxRangeMeters }
+                                viewModel.setRadarMaxRange(rangeOptions[(idx + 1) % rangeOptions.size])
+                            }
+                        )
+
+                        if (debugState.useGlBevRenderer) {
+                            SbsFloatingChip(
+                                label = "Col:${debugState.bevPointColorMode.shortLabel}",
+                                selected = debugState.bevPointColorMode != BevPointColorMode.AUTO,
+                                selectedBg = Color(0xFF16323A),
+                                selectedFg = Color(0xFF80DEEA),
+                                onClick = { viewModel.cycleBevPointColorMode() }
+                            )
+                            SbsFloatingChip(
+                                label = if (debugState.bev3dMode) "3D" else "2D",
+                                selected = debugState.bev3dMode,
+                                selectedBg = Color(0xFF006064).copy(alpha = 0.85f),
+                                selectedFg = Color(0xFF00E5FF),
+                                onClick = { viewModel.setBev3dMode(!debugState.bev3dMode) }
+                            )
+                            if (debugState.bev3dMode || isGlCameraModified) {
+                                SbsFloatingChip(
+                                    label = "Reset",
+                                    selected = true,
+                                    selectedBg = Color(0xFF4E342E).copy(alpha = 0.85f),
+                                    selectedFg = Color(0xFFFFCC80),
+                                    onClick = { viewModel.requestBevCameraReset() }
+                                )
+                            }
+                        }
+
+                        Surface(
+                            selected = showSettingsStrip,
+                            onClick = { showSettingsStrip = !showSettingsStrip },
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (showSettingsStrip) Color(0xFF2A2438) else Color(0xFF1E2530),
+                            border = BorderStroke(
+                                1.dp,
+                                if (showSettingsStrip) Color(0xFFB388FF) else Color(0xFF37474F)
+                            ),
+                            modifier = Modifier.height(28.dp)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(horizontal = 8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Tune,
+                                    contentDescription = "Radar Panel Settings",
+                                    tint = if (showSettingsStrip) Color(0xFFD1C4E9) else Color(0xFFB0BEC5),
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                        }
+
+                        FullscreenRecordButton(viewModel = viewModel)
+                    }
+                }
+            }
+
+            AnimatedVisibility(visible = showSettingsStrip) {
+                Surface(
+                    color = Color.Black.copy(alpha = 0.78f),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.14f))
+                ) {
+                    val isTimingActive = debugState.masterDebugEnabled && debugState.canvasTimingLogs
+                    val is3dActive = debugState.useGlBevRenderer && debugState.bev3dMode
+                    Column(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp),
+                        horizontalAlignment = Alignment.End
+                    ) {
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            SbsFloatingChip(
+                                label = "Moving Only",
+                                selected = dynamicOnly,
+                                selectedBg = Color(0xFF37474F),
+                                selectedFg = Color(0xFF80D8FF),
+                                onClick = { viewModel.setRadarDynamicOnly(!dynamicOnly) }
+                            )
+                            SbsFloatingChip(
+                                label = "SNR ≥ 15dB",
+                                selected = minSnrFilter,
+                                selectedBg = Color(0xFF37474F),
+                                selectedFg = Color(0xFF80D8FF),
+                                onClick = { viewModel.setRadarMinSnr(!minSnrFilter) }
+                            )
+                            SbsFloatingChip(
+                                label = if (debugState.useGlBevRenderer) "GL" else "Skia",
+                                selected = debugState.useGlBevRenderer,
+                                selectedBg = Color(0xFF102A22),
+                                selectedFg = Color(0xFF69F0AE),
+                                onClick = { viewModel.setUseGlBevRenderer(!debugState.useGlBevRenderer) }
+                            )
+                            if (debugState.useGlBevRenderer) {
+                                SbsFloatingChip(
+                                    label = "Map:${debugState.bevColorMap.shortLabel}",
+                                    selected = debugState.bevPointColorMode.usesColormap(is3dActive),
+                                    selectedBg = Color(0xFF2A2438),
+                                    selectedFg = Color(0xFFD1C4E9),
+                                    onClick = { viewModel.setBevColorMap(debugState.bevColorMap.next()) }
+                                )
+                                SbsFloatingChip(
+                                    label = "Sz:${debugState.bevPointSizePreset.shortLabel}",
+                                    selected = true,
+                                    selectedBg = Color(0xFF16323A),
+                                    selectedFg = Color(0xFF80CBC4),
+                                    onClick = { viewModel.setBevPointSizePreset(debugState.bevPointSizePreset.next()) }
+                                )
+                                SbsFloatingChip(
+                                    label = "Pt:${debugState.bevPointShape.symbolLabel}",
+                                    selected = true,
+                                    selectedBg = Color(0xFF16323A),
+                                    selectedFg = Color(0xFF80CBC4),
+                                    onClick = { viewModel.setBevPointShape(debugState.bevPointShape.toggle()) }
+                                )
+                                SbsFloatingChip(
+                                    label = if (debugState.bevFlipZ) "FlipZ ON" else "FlipZ OFF",
+                                    selected = debugState.bevFlipZ,
+                                    selectedBg = Color(0xFF4E342E).copy(alpha = 0.85f),
+                                    selectedFg = Color(0xFFFFAB40),
+                                    onClick = { viewModel.setBevFlipZ(!debugState.bevFlipZ) }
+                                )
+                                if (is3dActive) {
+                                    SbsFloatingChip(
+                                        label = if (debugState.bevStixelsEnabled) "Stix ON" else "Stix OFF",
+                                        selected = debugState.bevStixelsEnabled,
+                                        selectedBg = Color(0xFF006064).copy(alpha = 0.75f),
+                                        selectedFg = Color(0xFF00E5FF),
+                                        onClick = { viewModel.setBevStixelsEnabled(!debugState.bevStixelsEnabled) }
+                                    )
+                                }
+                                SbsFloatingChip(
+                                    label = if (debugState.bevHideOutliers) "HideOut ON" else "HideOut OFF",
+                                    selected = debugState.bevHideOutliers,
+                                    selectedBg = Color(0xFF4E342E).copy(alpha = 0.85f),
+                                    selectedFg = Color(0xFFFF7043),
+                                    onClick = { viewModel.setBevHideOutliers(!debugState.bevHideOutliers) }
+                                )
+                                SbsFloatingChip(
+                                    label = "Decay:${debugState.bevDecayPreset.shortLabel}",
+                                    selected = debugState.bevDecayPreset.frameCount > 1,
+                                    selectedBg = Color(0xFF006064).copy(alpha = 0.75f),
+                                    selectedFg = Color(0xFF80DEEA),
+                                    onClick = { viewModel.setBevDecayPreset(debugState.bevDecayPreset.next()) }
+                                )
+                            }
+                        }
+
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            SbsFloatingChip(
+                                label = if (debugState.bevShowRawPoints) "Pts ON" else "Pts OFF",
+                                selected = debugState.bevShowRawPoints,
+                                selectedBg = Color(0xFF102A22),
+                                selectedFg = Color(0xFF69F0AE),
+                                onClick = { viewModel.setBevShowRawPoints(!debugState.bevShowRawPoints) }
+                            )
+                            SbsFloatingChip(
+                                label = if (debugState.bevShowTracks) "Trk ON" else "Trk OFF",
+                                selected = debugState.bevShowTracks,
+                                selectedBg = Color(0xFF102A22),
+                                selectedFg = Color(0xFF69F0AE),
+                                onClick = { viewModel.setBevShowTracks(!debugState.bevShowTracks) }
+                            )
+                            SbsFloatingChip(
+                                label = if (debugState.bevShowClusters) "Clst ON" else "Clst OFF",
+                                selected = debugState.bevShowClusters,
+                                selectedBg = Color(0xFF102A22),
+                                selectedFg = Color(0xFF69F0AE),
+                                onClick = { viewModel.setBevShowClusters(!debugState.bevShowClusters) }
+                            )
+                            if (debugState.useGlBevRenderer) {
+                                SbsFloatingChip(
+                                    label = if (debugState.bevShowRoadLanes) "Lanes ON" else "Lanes OFF",
+                                    selected = debugState.bevShowRoadLanes,
+                                    selectedBg = Color(0xFF1B5E20).copy(alpha = 0.75f),
+                                    selectedFg = Color(0xFF76FF03),
+                                    onClick = { viewModel.setBevShowRoadLanes(!debugState.bevShowRoadLanes) }
+                                )
+                            }
+                            SbsFloatingChip(
+                                label = if (debugState.bevShowGrid) "Grid ON" else "Grid OFF",
+                                selected = debugState.bevShowGrid,
+                                selectedBg = Color(0xFF102A22),
+                                selectedFg = Color(0xFF69F0AE),
+                                onClick = { viewModel.setBevShowGrid(!debugState.bevShowGrid) }
+                            )
+                            if (is3dActive) {
+                                BevCameraPreset.entries.forEach { preset ->
+                                    SbsFloatingChip(
+                                        label = "Cam:${preset.shortLabel}",
+                                        selected = false,
+                                        selectedBg = Color(0xFF4E342E),
+                                        selectedFg = Color(0xFFFFAB40),
+                                        onClick = { viewModel.requestBevCameraPreset(preset) }
+                                    )
+                                }
+                            }
+                            SbsFloatingChip(
+                                label = if (isTimingActive) "Log ON" else "Log OFF",
+                                selected = isTimingActive,
+                                selectedBg = Color(0xFFE65100).copy(alpha = 0.75f),
+                                selectedFg = Color(0xFFFFCC80),
+                                onClick = { viewModel.setBenchTimingLogging(!isTimingActive) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullscreenRadarBookmarkAction(
+    viewModel: RadarViewModel
+) {
+    val sessionRecordingState by viewModel.sessionRecordingState.collectAsState()
+    val bookmarkCount by viewModel.sessionBookmarkCount.collectAsState()
+    val hapticsEnabled by viewModel.bookmarkHapticsEnabled.collectAsState()
+    val isRecording = sessionRecordingState is SessionRecordingState.Recording
+
+    EventBookmarkButton(
+        isRecording = isRecording,
+        bookmarkCount = bookmarkCount,
+        hapticsEnabled = hapticsEnabled,
+        style = EventBookmarkButtonStyle.LARGE_DOCK,
+        showDockCaption = false,
+        onMarkEvent = { type -> viewModel.markEvent(type) }
+    )
+}
